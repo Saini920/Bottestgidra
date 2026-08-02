@@ -344,8 +344,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • String & symbol extraction\n"
         "  • ELF / PE / Mach-O / Android APK support\n"
         "  • Live progress animation (0-100%)\n\n"
+        "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE:</b>\n"
+        "  • 🚀 <b>Higher Daily Quota</b> (Custom daily file limit)\n"
+        "  • ⚡ <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
+        "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
+        "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
         "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
         parse_mode=constants.ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⭐ Buy / Upgrade Premium Plan", url="https://t.me/Ghostofhackers")]
+        ])
     )
 
 
@@ -379,7 +387,14 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/profile</code> — View your profile, daily remaining quota, and server stats.\n"
         "• <code>/myid</code> — Display your Telegram User ID.\n"
         "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
-        f"{admin_section}\n"
+        f"{admin_section}\n\n"
+        "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS:</b>\n"
+        "• <b>Custom Quotas:</b> Increased daily file limits tailored to your needs\n"
+        "• <b>Priority Queue:</b> Fast-lane execution during peak server load\n"
+        "• <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
+        "• <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts before expiry\n\n"
+        "💳 <b>BUY / RENEW SUBSCRIPTION:</b>\n"
+        "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
         "• Send any binary file directly in chat (Max <b>100 MB</b>).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
@@ -388,7 +403,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <b>Server Concurrency:</b> Max 10 active jobs at a time\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
-    await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML)
+    await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML, reply_markup=InlineKeyboardMarkup([
+        [InlineKeyboardButton("⭐ Buy / Upgrade Subscription", url="https://t.me/Ghostofhackers")]
+    ]))
 
 
 async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
