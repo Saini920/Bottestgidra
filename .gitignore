@@ -1,3 +1,30 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Environment & Secret files
 .env
+.env.*
+*.env
+
+# Persistent runtime data & logs
+approved_users.json
+*.log
+*.sqlite3
+
+# Temporary & Working directories
+tmp/
+temp/
+*.zip
+*.bin
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE & OS files
+.DS_Store
+.vscode/
+.idea/
