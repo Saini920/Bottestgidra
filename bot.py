@@ -277,6 +277,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "chat_id": str(chat_id),
         "message_id": str(message_id),
         "filename": filename,
+        "bot_token": BOT_TOKEN,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
