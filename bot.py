@@ -347,20 +347,36 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
     if not is_allowed(update.effective_user.id):
         await reply_denied(update.message, update.effective_user.id)
         return
+
+    admin_section = ""
+    if user_id in ADMIN_IDS:
+        admin_section = (
+            "\n\n👑 <b>ADMIN COMMANDS:</b>\n"
+            "• <code>/approve</code> — Approve user access (interactive or <code>/approve &lt;id&gt;</code>)\n"
+            "• <code>/unapprove</code> — Revoke user access (interactive or <code>/unapprove &lt;id&gt;</code>)\n"
+            "• <code>/ban</code> — Ban user from bot (interactive or <code>/ban &lt;id&gt;</code>)\n"
+            "• <code>/unban</code> — Unban user (interactive or <code>/unban &lt;id&gt;</code>)\n"
+            "• <code>/setlimit</code> — Set custom limit & days (interactive or <code>/setlimit &lt;id&gt; &lt;limit&gt; &lt;days&gt;</code>)\n"
+            "• <code>/broadcast</code> — Broadcast message to all users (interactive or <code>/broadcast &lt;msg&gt;</code>)\n"
+            "• <code>/stats</code> — View complete admin system statistics\n"
+        )
+
     help_text = (
         "🤖 <b>GHIDRA DECOMPILER BOT — HELP & COMMANDS</b>\n"
         "═══════════════════════════════════\n"
         "<b>Description:</b>\n"
         "This bot decompiles binary executables (.exe, .dll, .so, .elf, .apk, .zip) into readable C source code and extracts symbol/string metadata using NSA's <b>Ghidra Engine</b> running on <b>7GB RAM Cloud Server</b>.\n\n"
-        "📌 <b>ALL AVAILABLE COMMANDS:</b>\n"
+        "📌 <b>USER COMMANDS:</b>\n"
         "• <code>/start</code> — Welcome guide and basic usage.\n"
         "• <code>/help</code> — View all commands and bot description.\n"
         "• <code>/profile</code> — View your profile, daily remaining quota, and server stats.\n"
         "• <code>/myid</code> — Display your Telegram User ID.\n"
-        "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.).\n\n"
+        "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
+        f"{admin_section}\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
         "• Send any binary file directly in chat (Max <b>100 MB</b>).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
