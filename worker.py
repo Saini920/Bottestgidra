@@ -189,7 +189,7 @@ def send_document(file_path: Path, caption: str, filename: str):
     with open(file_path, "rb") as fh:
         resp = httpx.post(
             f"{API}/sendDocument",
-            data={"chat_id": CHAT_ID, "caption": caption[:1024]},
+            data={"chat_id": CHAT_ID, "caption": caption[:1024], "parse_mode": "HTML"},
             files={"document": (filename, fh, "application/zip")},
             timeout=180,
         )
@@ -214,7 +214,7 @@ async def main():
             if pct < last[0] or pct - last[0] < 2:
                 return
             last[0] = pct
-            edit(f"📥 Downloading file...\n{progress_bar(pct)} {pct}%")
+            edit(f"📥 Downloading file...\n{progress_bar(pct)}")
 
         try:
             if TG_FILE_PATH:
@@ -254,7 +254,7 @@ async def main():
             if pct - last[0] < 5 and label == last[1]:
                 return
             last[0], last[1] = pct, label
-            edit(f"{label}\n{progress_bar(pct)} {pct}%")
+            edit(f"{label}\n{progress_bar(pct)}")
 
         try:
             result = await asyncio.wait_for(
@@ -299,7 +299,7 @@ async def main():
         edit("✅ Decompilation complete! Sending ZIP...")
         resp = send_document(
             zip_path,
-            f"✅ Decompiled <b>{safe_name}</b> with Ghidra on 7GB Cloud Server — Powered By @Ghostofhackers",
+            f"✅ Decompiled <b>{safe_name}</b> with Ghidra on 7GB Cloud Server — Powered By @Ghostofhackers & @R3V_X",
             f"{orig_stem}_decompiled.zip",
         )
         if resp and resp.get("ok"):

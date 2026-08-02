@@ -16,6 +16,7 @@ log = logging.getLogger("ghidra-bot")
 SCRIPT_VERSION = "v4-gh"
 log.info("ghidra-bot %s starting (GitHub Actions worker)", SCRIPT_VERSION)
 
+import json
 from pathlib import Path
 
 env_file = Path(__file__).parent / ".env"
@@ -34,7 +35,30 @@ MAX_CONCURRENT_JOBS = 10
 MAX_DAILY_FILES = 30
 ADMIN_IDS = ["6684870256", "7251749429"]
 ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split(",") if u.strip()]
-APPROVED_USERS = set(ALLOWED_USERS + ADMIN_IDS)
+
+DATA_FILE = Path(__file__).parent / "approved_users.json"
+PENDING_REQUESTS = set()
+
+
+def load_approved_users() -> set:
+    users = set(ALLOWED_USERS + ADMIN_IDS)
+    if DATA_FILE.exists():
+        try:
+            data = json.loads(DATA_FILE.read_text())
+            users.update(data.get("approved", []))
+        except Exception as e:
+            log.warning("Failed to load approved_users.json: %s", e)
+    return users
+
+
+def save_approved_users():
+    try:
+        DATA_FILE.write_text(json.dumps({"approved": list(APPROVED_USERS)}, indent=2))
+    except Exception as e:
+        log.warning("Failed to save approved_users.json: %s", e)
+
+
+APPROVED_USERS = load_approved_users()
 BANNED_USERS = set()
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -123,14 +147,26 @@ def is_allowed(user_id: int) -> bool:
     return not APPROVED_USERS or str(user_id) in APPROVED_USERS
 
 
-async def reply_denied(msg) -> None:
-    keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("📩 Request Access", callback_data="req_access"),
-            InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers"),
-        ]
-    ])
-    await msg.reply_text(ACCESS_DENIED_MSG, parse_mode=constants.ParseMode.HTML, reply_markup=keyboard)
+async def reply_denied(msg, user_id: int = None) -> None:
+    uid = str(user_id) if user_id else ""
+    if uid and uid in PENDING_REQUESTS:
+        text = (
+            "⏳ <b>Access Request Pending</b>\n\n"
+            "Your access request has been submitted to the Admins (@Ghostofhackers & @R3V_X).\n"
+            "Please wait for an Admin to review and approve your request."
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers")]
+        ])
+    else:
+        text = ACCESS_DENIED_MSG
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📩 Request Access", callback_data="req_access"),
+                InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers"),
+            ]
+        ])
+    await msg.reply_text(text, parse_mode=constants.ParseMode.HTML, reply_markup=keyboard)
 
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,7 +175,25 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data
 
     if data == "req_access":
+        uid = str(user.id)
+        if uid in PENDING_REQUESTS:
+            await query.answer("⏳ Your access request is already pending Admin approval!", show_alert=True)
+            return
+        PENDING_REQUESTS.add(uid)
         await query.answer("📩 Access request sent to Admins!", show_alert=True)
+        try:
+            await query.edit_message_text(
+                "⏳ <b>Access Request Pending</b>\n\n"
+                "Your access request has been submitted to the Admins (@Ghostofhackers & @R3V_X).\n"
+                "You will receive a notification as soon as an Admin approves your request.",
+                parse_mode=constants.ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers")]
+                ])
+            )
+        except Exception:
+            pass
+
         admin_text = (
             "🔔 <b>NEW ACCESS REQUEST</b>\n"
             "═══════════════════════\n"
@@ -169,6 +223,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     if data.startswith("app_"):
         target_id = data.split("app_")[1]
         APPROVED_USERS.add(target_id)
+        PENDING_REQUESTS.discard(target_id)
+        save_approved_users()
         await query.answer("✅ User Approved!", show_alert=True)
         admin_name = f"@{user.username}" if user.username else user.first_name
         await query.edit_message_text(
@@ -187,6 +243,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif data.startswith("deny_"):
         target_id = data.split("deny_")[1]
+        PENDING_REQUESTS.discard(target_id)
         await query.answer("❌ Request Declined!", show_alert=True)
         admin_name = f"@{user.username}" if user.username else user.first_name
         await query.edit_message_text(
@@ -205,7 +262,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await reply_denied(update.message)
+        await reply_denied(update.message, update.effective_user.id)
         return
     await update.message.reply_text(
         "🤖 Welcome to Ghidra Decompiler Bot!\n\n"
@@ -235,14 +292,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • String & symbol extraction\n"
         "  • ELF / PE / Mach-O / Android APK support\n"
         "  • Live progress animation (0-100%)\n\n"
-        "🚀 Send a file or a link now! Powered By @Ghostofhackers",
+        "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
         parse_mode=constants.ParseMode.HTML,
     )
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await reply_denied(update.message)
+        await reply_denied(update.message, update.effective_user.id)
         return
     help_text = (
         "🤖 <b>GHIDRA DECOMPILER BOT — HELP & COMMANDS</b>\n"
@@ -261,7 +318,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <b>Max Direct Upload:</b> 100 MB per file\n"
         "• <b>Daily Quota:</b> 30 files / day per user\n"
         "• <b>Server Concurrency:</b> Max 10 active jobs at a time\n\n"
-        "⚡ <i>Powered By @Ghostofhackers</i>"
+        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML)
 
@@ -325,7 +382,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await reply_denied(update.message)
+        await reply_denied(update.message, update.effective_user.id)
         return
 
     msg = update.message
@@ -360,7 +417,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await reply_denied(update.message)
+        await reply_denied(update.message, update.effective_user.id)
         return
 
     if not context.args:
@@ -392,7 +449,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_allowed(user.id):
-        await reply_denied(update.message)
+        await reply_denied(update.message, user.id)
         return
 
     today = date.today()
