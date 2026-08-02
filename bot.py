@@ -226,6 +226,35 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     user = query.from_user
     data = query.data
 
+    if data == "buy_sub":
+        await query.answer()
+        sub_details = (
+            "⭐ <b>GHIDRA DECOMPILER — PREMIUM SUBSCRIPTION</b>\n"
+            "═══════════════════════════════════\n"
+            "⚡ <b>WHY UPGRADE TO PREMIUM?</b>\n"
+            "• 📊 <b>Increased Daily Limit:</b> <b>70 Files / Day</b> (vs 30 Free)\n"
+            "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
+            "• 📦 <b>Batch ZIP Decompiler:</b> Upload & decompile up to <b>5 binaries in 1 ZIP</b>\n"
+            "• 🔔 <b>Expiry Warnings:</b> Advance 5-day & 1-day renewal alerts\n"
+            "• 🛠️ <b>Dedicated Priority Support</b>\n\n"
+            "═══════════════════════════════════\n"
+            "💳 <b>BUY / RENEW SUBSCRIPTION:</b>\n"
+            "Contact Admins to upgrade your plan:\n"
+            "👤 <b>Admin 1:</b> @Ghostofhackers\n"
+            "👤 <b>Admin 2:</b> @R3V_X"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("💬 Contact @Ghostofhackers", url="https://t.me/Ghostofhackers"),
+                InlineKeyboardButton("💬 Contact @R3V_X", url="https://t.me/R3V_X"),
+            ]
+        ])
+        try:
+            await query.message.reply_text(sub_details, parse_mode=constants.ParseMode.HTML, reply_markup=keyboard)
+        except Exception:
+            pass
+        return
+
     if data == "req_access":
         uid = str(user.id)
         if uid in PENDING_REQUESTS:
@@ -345,8 +374,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • ELF / PE / Mach-O / Android APK support\n"
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE:</b>\n"
-        "  • 🚀 <b>Higher Daily Quota</b> (Custom daily file limit)\n"
-        "  • ⚡ <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
+        "  • 🆓 <b>Free Quota:</b> 30 Files / Day\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Custom)\n"
+        "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
         "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
         "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
@@ -389,10 +419,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
         f"{admin_section}\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS:</b>\n"
-        "• <b>Custom Quotas:</b> Increased daily file limits tailored to your needs\n"
-        "• <b>Priority Queue:</b> Fast-lane execution during peak server load\n"
-        "• <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
-        "• <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts before expiry\n\n"
+        "• 🆓 <b>Free Quota:</b> 30 files / day per user\n"
+        "• ⭐ <b>Premium Quota:</b> 70 files / day (Custom limit)\n"
+        "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
+        "• 📦 <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
+        "• 🔔 <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts\n\n"
         "💳 <b>BUY / RENEW SUBSCRIPTION:</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
@@ -590,7 +621,13 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
-    await update.message.reply_text(profile_text, parse_mode=constants.ParseMode.HTML)
+    await update.message.reply_text(
+        profile_text,
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⭐ Buy / Upgrade Subscription", callback_data="buy_sub")]
+        ])
+    )
 
 
 async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
