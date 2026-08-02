@@ -38,6 +38,7 @@ ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split
 
 DATA_FILE = Path(__file__).parent / "approved_users.json"
 PENDING_REQUESTS = set()
+ADMIN_STATE = {}  # {user_id: state_str}
 
 
 def load_approved_users() -> set:
@@ -78,6 +79,8 @@ daily_usage = {}  # {user_id: {"date": date_obj, "count": int}}
 
 
 def check_daily_limit(user_id: int) -> str | None:
+    if str(user_id) in ADMIN_IDS:
+        return None  # Admins have NO limits!
     today = date.today()
     record = daily_usage.get(user_id)
     if record and record["date"] == today:
@@ -90,9 +93,15 @@ def check_daily_limit(user_id: int) -> str | None:
 
 
 async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = ""):
+    user_id = str(msg.from_user.id) if msg and msg.from_user else ""
     now = time.time()
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
-    if len(active_jobs_timestamps) >= MAX_CONCURRENT_JOBS:
+
+    # Admins bypass queue limits completely!
+    if user_id in ADMIN_IDS or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
+        active_jobs_timestamps.append(now)
+        await send_to_job(msg, status, file_url, filename, tg_file_path)
+    else:
         pos = job_queue.qsize() + 1
         await status.edit_text(
             f"⏳ <b>Server Busy! Task Queued (#Position {pos})</b>\n"
@@ -101,9 +110,6 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
             parse_mode=constants.ParseMode.HTML,
         )
         await job_queue.put((msg, status, file_url, filename, tg_file_path))
-    else:
-        active_jobs_timestamps.append(now)
-        await send_to_job(msg, status, file_url, filename, tg_file_path)
 
 
 async def queue_worker_loop():
@@ -479,94 +485,176 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(profile_text, parse_mode=constants.ParseMode.HTML)
 
 
+async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in ADMIN_IDS or user_id not in ADMIN_STATE:
+        return
+
+    state = ADMIN_STATE.pop(user_id)
+    text = update.message.text.strip()
+
+    if state == "AWAITING_APPROVE":
+        target_id = text
+        APPROVED_USERS.add(target_id)
+        PENDING_REQUESTS.discard(target_id)
+        save_approved_users()
+        await update.message.reply_text(f"✅ User <code>{target_id}</code> has been approved.", parse_mode=constants.ParseMode.HTML)
+        try:
+            await context.bot.send_message(chat_id=int(target_id), text="🎉 <b>Access Approved!</b>\nYour request for bot access has been approved by the Admin.", parse_mode=constants.ParseMode.HTML)
+        except Exception:
+            pass
+
+    elif state == "AWAITING_UNAPPROVE":
+        target_id = text
+        APPROVED_USERS.discard(target_id)
+        save_approved_users()
+        await update.message.reply_text(f"❌ User <code>{target_id}</code> has been unapproved/revoked.", parse_mode=constants.ParseMode.HTML)
+        try:
+            await context.bot.send_message(chat_id=int(target_id), text="🔒 <b>Access Revoked</b>\nYour access to the bot has been revoked by the Admin.", parse_mode=constants.ParseMode.HTML)
+        except Exception:
+            pass
+
+    elif state == "AWAITING_BAN":
+        target_id = text
+        BANNED_USERS.add(target_id)
+        APPROVED_USERS.discard(target_id)
+        save_approved_users()
+        await update.message.reply_text(f"🚫 User <code>{target_id}</code> has been banned.", parse_mode=constants.ParseMode.HTML)
+        try:
+            await context.bot.send_message(chat_id=int(target_id), text="🚫 <b>Account Banned</b>\nYou have been banned from using this bot.", parse_mode=constants.ParseMode.HTML)
+        except Exception:
+            pass
+
+    elif state == "AWAITING_UNBAN":
+        target_id = text
+        BANNED_USERS.discard(target_id)
+        await update.message.reply_text(f"✅ User <code>{target_id}</code> has been unbanned.", parse_mode=constants.ParseMode.HTML)
+
+    elif state == "AWAITING_BROADCAST":
+        broadcast_msg = text
+        target_users = set(list(APPROVED_USERS) + list(daily_usage.keys()))
+        sent, failed = 0, 0
+        status_msg = await update.message.reply_text("📢 Broadcasting message...")
+        for uid in target_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(uid),
+                    text=f"📢 <b>ANNOUNCEMENT:</b>\n\n{broadcast_msg}",
+                    parse_mode=constants.ParseMode.HTML,
+                )
+                sent += 1
+            except Exception:
+                failed += 1
+        await status_msg.edit_text(
+            f"✅ <b>Broadcast Complete!</b>\n"
+            f"📤 Sent: {sent}\n"
+            f"❌ Failed: {failed}",
+            parse_mode=constants.ParseMode.HTML,
+        )
+
+
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) not in ADMIN_IDS:
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS:
         await update.message.reply_text("❌ Only Admins can use this command.")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /approve <user_id>")
-        return
-    target_id = context.args[0].strip()
-    APPROVED_USERS.add(target_id)
-    await update.message.reply_text(f"✅ User <code>{target_id}</code> has been approved.", parse_mode=constants.ParseMode.HTML)
-    try:
-        await context.bot.send_message(chat_id=int(target_id), text="🎉 <b>Access Approved!</b>\nYour access request has been approved by the Admin.", parse_mode=constants.ParseMode.HTML)
-    except Exception:
-        pass
+    if context.args:
+        target_id = context.args[0].strip()
+        APPROVED_USERS.add(target_id)
+        PENDING_REQUESTS.discard(target_id)
+        save_approved_users()
+        await update.message.reply_text(f"✅ User <code>{target_id}</code> has been approved.", parse_mode=constants.ParseMode.HTML)
+        try:
+            await context.bot.send_message(chat_id=int(target_id), text="🎉 <b>Access Approved!</b>\nYour request for bot access has been approved by the Admin.", parse_mode=constants.ParseMode.HTML)
+        except Exception:
+            pass
+    else:
+        ADMIN_STATE[uid] = "AWAITING_APPROVE"
+        await update.message.reply_text("📝 Please send the <b>User ID</b> you want to approve:", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_unapprove(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) not in ADMIN_IDS:
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS:
         await update.message.reply_text("❌ Only Admins can use this command.")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /unapprove <user_id>")
-        return
-    target_id = context.args[0].strip()
-    APPROVED_USERS.discard(target_id)
-    await update.message.reply_text(f"❌ User <code>{target_id}</code> has been unapproved/revoked.", parse_mode=constants.ParseMode.HTML)
-    try:
-        await context.bot.send_message(chat_id=int(target_id), text="🔒 <b>Access Revoked</b>\nYour access to the bot has been revoked by the Admin.", parse_mode=constants.ParseMode.HTML)
-    except Exception:
-        pass
+    if context.args:
+        target_id = context.args[0].strip()
+        APPROVED_USERS.discard(target_id)
+        save_approved_users()
+        await update.message.reply_text(f"❌ User <code>{target_id}</code> has been unapproved/revoked.", parse_mode=constants.ParseMode.HTML)
+        try:
+            await context.bot.send_message(chat_id=int(target_id), text="🔒 <b>Access Revoked</b>\nYour access to the bot has been revoked by the Admin.", parse_mode=constants.ParseMode.HTML)
+        except Exception:
+            pass
+    else:
+        ADMIN_STATE[uid] = "AWAITING_UNAPPROVE"
+        await update.message.reply_text("📝 Please send the <b>User ID</b> you want to unapprove:", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) not in ADMIN_IDS:
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS:
         await update.message.reply_text("❌ Only Admins can use this command.")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /ban <user_id>")
-        return
-    target_id = context.args[0].strip()
-    BANNED_USERS.add(target_id)
-    APPROVED_USERS.discard(target_id)
-    await update.message.reply_text(f"🚫 User <code>{target_id}</code> has been banned.", parse_mode=constants.ParseMode.HTML)
-    try:
-        await context.bot.send_message(chat_id=int(target_id), text="🚫 <b>Account Banned</b>\nYou have been banned from using this bot.", parse_mode=constants.ParseMode.HTML)
-    except Exception:
-        pass
+    if context.args:
+        target_id = context.args[0].strip()
+        BANNED_USERS.add(target_id)
+        APPROVED_USERS.discard(target_id)
+        save_approved_users()
+        await update.message.reply_text(f"🚫 User <code>{target_id}</code> has been banned.", parse_mode=constants.ParseMode.HTML)
+        try:
+            await context.bot.send_message(chat_id=int(target_id), text="🚫 <b>Account Banned</b>\nYou have been banned from using this bot.", parse_mode=constants.ParseMode.HTML)
+        except Exception:
+            pass
+    else:
+        ADMIN_STATE[uid] = "AWAITING_BAN"
+        await update.message.reply_text("📝 Please send the <b>User ID</b> you want to ban:", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) not in ADMIN_IDS:
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS:
         await update.message.reply_text("❌ Only Admins can use this command.")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /unban <user_id>")
-        return
-    target_id = context.args[0].strip()
-    BANNED_USERS.discard(target_id)
-    await update.message.reply_text(f"✅ User <code>{target_id}</code> has been unbanned.", parse_mode=constants.ParseMode.HTML)
+    if context.args:
+        target_id = context.args[0].strip()
+        BANNED_USERS.discard(target_id)
+        await update.message.reply_text(f"✅ User <code>{target_id}</code> has been unbanned.", parse_mode=constants.ParseMode.HTML)
+    else:
+        ADMIN_STATE[uid] = "AWAITING_UNBAN"
+        await update.message.reply_text("📝 Please send the <b>User ID</b> you want to unban:", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_user.id) not in ADMIN_IDS:
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS:
         await update.message.reply_text("❌ Only Admins can use this command.")
         return
-    if not context.args:
-        await update.message.reply_text("Usage: /broadcast <message text>")
-        return
-    broadcast_msg = update.message.text.split(None, 1)[1]
-    target_users = set(list(APPROVED_USERS) + list(daily_usage.keys()))
-    sent, failed = 0, 0
-    status_msg = await update.message.reply_text("📢 Broadcasting message...")
-    for uid in target_users:
-        try:
-            await context.bot.send_message(
-                chat_id=int(uid),
-                text=f"📢 <b>ANNOUNCEMENT:</b>\n\n{broadcast_msg}",
-                parse_mode=constants.ParseMode.HTML,
-            )
-            sent += 1
-        except Exception:
-            failed += 1
-    await status_msg.edit_text(
-        f"✅ <b>Broadcast Complete!</b>\n"
-        f"📤 Sent: {sent}\n"
-        f"❌ Failed: {failed}",
-        parse_mode=constants.ParseMode.HTML,
-    )
+    if context.args:
+        broadcast_msg = update.message.text.split(None, 1)[1]
+        target_users = set(list(APPROVED_USERS) + list(daily_usage.keys()))
+        sent, failed = 0, 0
+        status_msg = await update.message.reply_text("📢 Broadcasting message...")
+        for tu in target_users:
+            try:
+                await context.bot.send_message(
+                    chat_id=int(tu),
+                    text=f"📢 <b>ANNOUNCEMENT:</b>\n\n{broadcast_msg}",
+                    parse_mode=constants.ParseMode.HTML,
+                )
+                sent += 1
+            except Exception:
+                failed += 1
+        await status_msg.edit_text(
+            f"✅ <b>Broadcast Complete!</b>\n"
+            f"📤 Sent: {sent}\n"
+            f"❌ Failed: {failed}",
+            parse_mode=constants.ParseMode.HTML,
+        )
+    else:
+        ADMIN_STATE[uid] = "AWAITING_BROADCAST"
+        await update.message.reply_text("📢 Please send the <b>Broadcast message text</b> you want to send to all users:", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -616,6 +704,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("link", cmd_link))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_file))
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
