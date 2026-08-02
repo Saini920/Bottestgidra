@@ -201,7 +201,7 @@ async def main():
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
 
-    edit("🟢 Job started! Preparing Ghidra engine on <b>7GB RAM</b> cloud server...", parse_mode="HTML")
+    edit("🟢 Job started! Preparing Ghidra engine on cloud server...", parse_mode="HTML")
     apply_memory_settings()
 
     work_dir = Path(tempfile.gettempdir()) / ("ghidra_" + os.urandom(8).hex())
@@ -276,7 +276,7 @@ async def main():
         if not out_files:
             tail = result["tail"][-600:]
             if "Killed" in tail or "OutOfMemory" in tail or "insufficient memory" in tail.lower():
-                edit("💥 Out of memory even on 7GB! The binary is extremely large or packed. Try a smaller file.")
+                edit("💥 Out of memory! The binary is extremely large or packed. Try a smaller file.")
             else:
                 edit("❌ Analysis failed. Format might not be supported.\n" + tail[-300:])
             return
@@ -299,7 +299,7 @@ async def main():
         edit("✅ Decompilation complete! Sending ZIP...")
         resp = send_document(
             zip_path,
-            f"✅ Decompiled <b>{safe_name}</b> with Ghidra on 7GB Cloud Server — Powered By @Ghostofhackers & @R3V_X",
+            f"✅ Decompiled <b>{safe_name}</b> with Ghidra — Powered By @Ghostofhackers & @R3V_X",
             f"{orig_stem}_decompiled.zip",
         )
         if resp and resp.get("ok"):

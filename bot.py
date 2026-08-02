@@ -316,7 +316,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Welcome to Ghidra Decompiler Bot!\n\n"
         "🔬 This bot uses <b>Ghidra</b> (NSA's reverse engineering framework) on a "
-        "<b>7GB RAM Cloud Server</b> — 100% FREE, no size limits!\n\n"
+        "<b>High Performance Cloud Server</b>!\n\n"
         "📦 <b>What you get back:</b>\n"
         "  • decompiled.c — full C code of every function 🧠\n"
         "  • info.txt — strings, symbols, compiler, architecture 📊\n"
@@ -336,7 +336,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  ✅ ZIP / APK / JAR are auto-extracted, binaries inside are found "
         "and decompiled\n\n"
         "⚡ <b>Features:</b>\n"
-        "  • Full decompilation (Ghidra engine, 7GB RAM)\n"
+        "  • Full decompilation (Ghidra engine)\n"
         "  • Function-by-function C reconstruction\n"
         "  • String & symbol extraction\n"
         "  • ELF / PE / Mach-O / Android APK support\n"
@@ -369,7 +369,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 <b>GHIDRA DECOMPILER BOT — HELP & COMMANDS</b>\n"
         "═══════════════════════════════════\n"
         "<b>Description:</b>\n"
-        "This bot decompiles binary executables (.exe, .dll, .so, .elf, .apk, .zip) into readable C source code and extracts symbol/string metadata using NSA's <b>Ghidra Engine</b> running on <b>7GB RAM Cloud Server</b>.\n\n"
+        "This bot decompiles binary executables (.exe, .dll, .so, .elf, .apk, .zip) into readable C source code and extracts symbol/string metadata using NSA's <b>Ghidra Engine</b> running on <b>Cloud Server</b>.\n\n"
         "📌 <b>USER COMMANDS:</b>\n"
         "• <code>/start</code> — Welcome guide and basic usage.\n"
         "• <code>/help</code> — View all commands and bot description.\n"
@@ -518,23 +518,44 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     today = date.today()
-    sub = USER_SUBS.get(str(user.id))
-    if sub:
-        daily_max = sub.get("daily_limit", MAX_DAILY_FILES)
-        sub_info = f"⭐ <b>Custom Subscription:</b> Active (Expires: {sub.get('expires_at')})\n"
+    uid_str = str(user.id)
+    sub = USER_SUBS.get(uid_str)
+
+    if uid_str in ADMIN_IDS:
+        daily_max = "Unlimited (Admin)"
+        sub_info = "⭐ <b>Subscription Plan:</b> Unlimited Admin Access\n"
+    elif sub:
+        try:
+            exp_date = date.fromisoformat(sub["expires_at"])
+            days_left = max(0, (exp_date - today).days)
+            daily_max = sub.get("daily_limit", MAX_DAILY_FILES)
+            sub_info = (
+                f"⭐ <b>Subscription Plan:</b> Custom Plan\n"
+                f"📊 <b>Custom Daily Quota:</b> {daily_max} files/day\n"
+                f"📅 <b>Expiry Date:</b> <code>{sub.get('expires_at')}</code>\n"
+                f"⏳ <b>Days Remaining:</b> <b>{days_left} days</b>\n"
+            )
+        except Exception:
+            daily_max = MAX_DAILY_FILES
+            sub_info = f"⭐ <b>Subscription Plan:</b> Standard ({MAX_DAILY_FILES} files/day)\n"
     else:
         daily_max = MAX_DAILY_FILES
-        sub_info = ""
+        sub_info = f"⭐ <b>Subscription Plan:</b> Standard Approved Access\n"
 
     used_today = record["count"] if ((record := daily_usage.get(user.id)) and record["date"] == today) else 0
-    remaining = max(0, daily_max - used_today)
+    if uid_str in ADMIN_IDS:
+        remaining = "Unlimited"
+        used_display = f"{used_today} / Unlimited"
+    else:
+        remaining = f"{max(0, daily_max - used_today)} files"
+        used_display = f"{used_today} / {daily_max}"
 
     now = time.time()
     active_now = len([t for t in active_jobs_timestamps if now - t < 600])
 
     profile_text = (
-        "👤 <b>USER PROFILE & STATS</b>\n"
-        "═══════════════════════\n"
+        "👤 <b>USER PROFILE & SUBSCRIPTION DETAILS</b>\n"
+        "═══════════════════════════════════\n"
         f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
         f"👤 <b>Name:</b> {user.full_name}\n"
         f"🌐 <b>Username:</b> @{user.username if user.username else 'N/A'}\n"
@@ -542,8 +563,8 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{sub_info}\n"
         "📊 <b>USAGE & LIMITS</b>\n"
         "───────────────────────\n"
-        f"📅 <b>Today's Files Used:</b> {used_today} / {daily_max}\n"
-        f"🔄 <b>Remaining Today:</b> {remaining} files\n"
+        f"📅 <b>Today's Files Used:</b> {used_display}\n"
+        f"🔄 <b>Remaining Today:</b> {remaining}\n"
         f"⚡ <b>Max Direct Upload:</b> {MAX_FILE_MB} MB\n"
         f"⚙️ <b>Server Active Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
