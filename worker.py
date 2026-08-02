@@ -201,7 +201,7 @@ async def main():
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
 
-    edit("🟢 GitHub job started! Preparing Ghidra engine on <b>7GB RAM</b> cloud server...", parse_mode="HTML")
+    edit("🟢 Job started! Preparing Ghidra engine on <b>7GB RAM</b> cloud server...", parse_mode="HTML")
     apply_memory_settings()
 
     work_dir = Path(tempfile.gettempdir()) / ("ghidra_" + os.urandom(8).hex())
@@ -299,7 +299,7 @@ async def main():
         edit("✅ Decompilation complete! Sending ZIP...")
         resp = send_document(
             zip_path,
-            f"✅ Decompiled <b>{safe_name}</b> with Ghidra on GitHub's 7GB server — Powered By @Ghostofhackers",
+            f"✅ Decompiled <b>{safe_name}</b> with Ghidra on 7GB Cloud Server — Powered By @Ghostofhackers",
             f"{orig_stem}_decompiled.zip",
         )
         if resp and resp.get("ok"):

@@ -210,7 +210,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Welcome to Ghidra Decompiler Bot!\n\n"
         "🔬 This bot uses <b>Ghidra</b> (NSA's reverse engineering framework) on a "
-        "<b>7GB RAM GitHub super server</b> — 100% FREE, no size limits!\n\n"
+        "<b>7GB RAM Cloud Server</b> — 100% FREE, no size limits!\n\n"
         "📦 <b>What you get back:</b>\n"
         "  • decompiled.c — full C code of every function 🧠\n"
         "  • info.txt — strings, symbols, compiler, architecture 📊\n"
@@ -248,7 +248,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 <b>GHIDRA DECOMPILER BOT — HELP & COMMANDS</b>\n"
         "═══════════════════════════════════\n"
         "<b>Description:</b>\n"
-        "This bot decompiles binary executables (.exe, .dll, .so, .elf, .apk, .zip) into readable C source code and extracts symbol/string metadata using NSA's <b>Ghidra Engine</b> running on <b>GitHub's 7GB RAM Cloud Server</b>.\n\n"
+        "This bot decompiles binary executables (.exe, .dll, .so, .elf, .apk, .zip) into readable C source code and extracts symbol/string metadata using NSA's <b>Ghidra Engine</b> running on <b>7GB RAM Cloud Server</b>.\n\n"
         "📌 <b>ALL AVAILABLE COMMANDS:</b>\n"
         "• <code>/start</code> — Welcome guide and basic usage.\n"
         "• <code>/help</code> — View all commands and bot description.\n"
@@ -344,7 +344,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(OVER_LIMIT_MSG.format(size=size_mb), parse_mode=constants.ParseMode.HTML)
         return
 
-    status = await msg.reply_text("🚀 File received! Sending to GitHub server...")
+    status = await msg.reply_text("🚀 File received! Sending to server...")
 
     try:
         tg_file = await doc.get_file()
@@ -384,7 +384,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = update.message
-    status = await msg.reply_text("🔗 Link received! Sending to GitHub server...")
+    status = await msg.reply_text("🔗 Link received! Sending to server...")
     filename = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "download"
     await enqueue_or_dispatch(msg, status, url, str(filename))
 
