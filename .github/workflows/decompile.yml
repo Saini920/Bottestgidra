@@ -1,0 +1,61 @@
+name: decompile-job
+
+on:
+  repository_dispatch:
+    types: [decompile-job]
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Ghidra
+        id: ghidra-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/ghidra
+          key: ghidra-12.1.2-v2
+
+      - name: Get Ghidra
+        if: steps.ghidra-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -f /opt/ghidra/support/analyzeHeadless ]; then
+            echo "Ghidra already valid at /opt/ghidra"
+            exit 0
+          fi
+          if [ -d /opt/ghidra ]; then
+            echo "stale cache layout, removing"
+            sudo rm -rf /opt/ghidra
+          fi
+          curl -L --retry 3 -o /tmp/ghidra.zip \
+            "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.2_build/ghidra_12.1.2_PUBLIC_20260605.zip"
+          sudo unzip -q -o /tmp/ghidra.zip -d /opt
+          ghdir=$(sudo bash -c 'ls -d /opt/ghidra_* 2>/dev/null | head -n1')
+          echo "extracted dir: $ghdir"
+          sudo mv "$ghdir" /opt/ghidra
+          test -f /opt/ghidra/support/analyzeHeadless
+          echo "Ghidra ready"
+          rm /tmp/ghidra.zip
+
+      - name: Run decompile worker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          PAYLOAD_FILE_URL: ${{ github.event.client_payload.file_url }}
+          PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
+          PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+          PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
+          JAVA_MAX_MEM: "6G"
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q httpx
+          /tmp/venv/bin/python worker.py
