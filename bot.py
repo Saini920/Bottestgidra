@@ -659,8 +659,14 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
                 await context.bot.send_message(
                     chat_id=int(target_id),
                     text=(
-                        f"🎉 <b>Subscription Updated!</b>\n\n"
-                        f"Your daily limit has been set to <b>{daily_limit} files/day</b> valid for <b>{days_val} days</b> (Expires on {exp_date})."
+                        "🎉 <b>YOUR SUBSCRIPTION HAS BEEN UPDATED!</b>\n"
+                        "═══════════════════════════════════\n"
+                        f"🆔 <b>User ID:</b> <code>{target_id}</code>\n"
+                        f"📊 <b>Daily Quota:</b> <b>{daily_limit} files / day</b>\n"
+                        f"📅 <b>Validity Duration:</b> <b>{days_val} Days</b>\n"
+                        f"⏳ <b>Expires On:</b> <b>{exp_date}</b>\n\n"
+                        "🚀 Enjoy full access to Ghidra Reverse Engineering Engine!\n"
+                        "👥 <b>Support Admins:</b> @Ghostofhackers | @R3V_X"
                     ),
                     parse_mode=constants.ParseMode.HTML,
                 )
@@ -805,8 +811,14 @@ async def cmd_setlimit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(
                     chat_id=int(target_id),
                     text=(
-                        f"🎉 <b>Subscription Updated!</b>\n\n"
-                        f"Your daily limit has been set to <b>{daily_limit} files/day</b> valid for <b>{days_val} days</b> (Expires on {exp_date})."
+                        "🎉 <b>YOUR SUBSCRIPTION HAS BEEN UPDATED!</b>\n"
+                        "═══════════════════════════════════\n"
+                        f"🆔 <b>User ID:</b> <code>{target_id}</code>\n"
+                        f"📊 <b>Daily Quota:</b> <b>{daily_limit} files / day</b>\n"
+                        f"📅 <b>Validity Duration:</b> <b>{days_val} Days</b>\n"
+                        f"⏳ <b>Expires On:</b> <b>{exp_date}</b>\n\n"
+                        "🚀 Enjoy full access to Ghidra Reverse Engineering Engine!\n"
+                        "👥 <b>Support Admins:</b> @Ghostofhackers | @R3V_X"
                     ),
                     parse_mode=constants.ParseMode.HTML,
                 )
@@ -841,12 +853,80 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(stats_text, parse_mode=constants.ParseMode.HTML)
 
 
+async def subscription_checker_loop(app: Application):
+    while True:
+        try:
+            today = date.today()
+            changed = False
+            for uid, sub in list(USER_SUBS.items()):
+                try:
+                    exp_date = date.fromisoformat(sub["expires_at"])
+                    days_left = (exp_date - today).days
+
+                    # 5 Days Warning
+                    if 1 < days_left <= 5 and not sub.get("warned_5"):
+                        sub["warned_5"] = True
+                        changed = True
+                        msg_text = (
+                            "⚠️ <b>SUBSCRIPTION EXPIRY WARNING</b>\n"
+                            "═══════════════════════════════════\n"
+                            f"Your bot subscription will expire in <b>{days_left} days</b> (Expires: <code>{exp_date}</code>).\n\n"
+                            "⚠️ Please contact an Admin to renew your subscription so you don't lose access!\n"
+                            "👥 <b>Admins:</b> @Ghostofhackers | @R3V_X"
+                        )
+                        try:
+                            await app.bot.send_message(
+                                chat_id=int(uid),
+                                text=msg_text,
+                                parse_mode=constants.ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("👤 Contact Admin to Renew", url="https://t.me/Ghostofhackers")]
+                                ])
+                            )
+                        except Exception as e:
+                            log.warning("Failed to send 5-day warning to %s: %s", uid, e)
+
+                    # 1 Day Warning (24h before expiry)
+                    elif 0 <= days_left <= 1 and not sub.get("warned_1"):
+                        sub["warned_1"] = True
+                        changed = True
+                        msg_text = (
+                            "🚨 <b>URGENT: SUBSCRIPTION EXPIRING TOMORROW!</b>\n"
+                            "═══════════════════════════════════\n"
+                            f"Your bot subscription will expire in <b>{max(1, days_left)} day</b> (Expires: <code>{exp_date}</code>).\n\n"
+                            "⚠️ Contact Admin to renew immediately so you don't lose access!\n"
+                            "👥 <b>Admins:</b> @Ghostofhackers | @R3V_X"
+                        )
+                        try:
+                            await app.bot.send_message(
+                                chat_id=int(uid),
+                                text=msg_text,
+                                parse_mode=constants.ParseMode.HTML,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("🔄 Renew Subscription", url="https://t.me/Ghostofhackers")]
+                                ])
+                            )
+                        except Exception as e:
+                            log.warning("Failed to send 1-day warning to %s: %s", uid, e)
+
+                except Exception as e:
+                    log.warning("Error checking subscription for %s: %s", uid, e)
+
+            if changed:
+                save_user_subscriptions()
+        except Exception as e:
+            log.exception("Error in subscription_checker_loop", exc_info=e)
+
+        await asyncio.sleep(21600)  # Check every 6 hours
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Handler error", exc_info=context.error)
 
 
 async def post_init(app: Application):
     asyncio.create_task(queue_worker_loop())
+    asyncio.create_task(subscription_checker_loop(app))
 
 
 def main():
