@@ -78,14 +78,57 @@ active_jobs_timestamps = []
 daily_usage = {}  # {user_id: {"date": date_obj, "count": int}}
 
 
+from datetime import date, timedelta
+
+SUBS_FILE = Path(__file__).parent / "user_subscriptions.json"
+ADMIN_TEMP_DATA = {}
+
+
+def load_user_subscriptions() -> dict:
+    if SUBS_FILE.exists():
+        try:
+            return json.loads(SUBS_FILE.read_text())
+        except Exception as e:
+            log.warning("Failed to load user_subscriptions.json: %s", e)
+    return {}
+
+
+def save_user_subscriptions():
+    try:
+        SUBS_FILE.write_text(json.dumps(USER_SUBS, indent=2))
+    except Exception as e:
+        log.warning("Failed to save user_subscriptions.json: %s", e)
+
+
+USER_SUBS = load_user_subscriptions()
+
+
 def check_daily_limit(user_id: int) -> str | None:
-    if str(user_id) in ADMIN_IDS:
+    uid = str(user_id)
+    if uid in ADMIN_IDS:
         return None  # Admins have NO limits!
+
     today = date.today()
+    sub = USER_SUBS.get(uid)
+    if sub:
+        try:
+            exp_date = date.fromisoformat(sub["expires_at"])
+            if today > exp_date:
+                APPROVED_USERS.discard(uid)
+                USER_SUBS.pop(uid, None)
+                save_user_subscriptions()
+                save_approved_users()
+                return "⚠️ <b>Access Expired!</b>\nYour custom subscription period has ended. Please contact Admin to renew."
+            user_max_files = sub.get("daily_limit", MAX_DAILY_FILES)
+        except Exception:
+            user_max_files = MAX_DAILY_FILES
+    else:
+        user_max_files = MAX_DAILY_FILES
+
     record = daily_usage.get(user_id)
     if record and record["date"] == today:
-        if record["count"] >= MAX_DAILY_FILES:
-            return f"⚠️ <b>Daily Limit Reached!</b>\nYou have reached your daily quota of <b>{MAX_DAILY_FILES} files</b>. Further uploads will be permitted tomorrow."
+        if record["count"] >= user_max_files:
+            return f"⚠️ <b>Daily Limit Reached!</b>\nYou have reached your daily quota of <b>{user_max_files} files</b>. Further uploads will be permitted tomorrow."
         record["count"] += 1
     else:
         daily_usage[user_id] = {"date": today, "count": 1}
@@ -459,9 +502,16 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     today = date.today()
-    record = daily_usage.get(user.id)
-    used_today = record["count"] if (record and record["date"] == today) else 0
-    remaining = max(0, MAX_DAILY_FILES - used_today)
+    sub = USER_SUBS.get(str(user.id))
+    if sub:
+        daily_max = sub.get("daily_limit", MAX_DAILY_FILES)
+        sub_info = f"⭐ <b>Custom Subscription:</b> Active (Expires: {sub.get('expires_at')})\n"
+    else:
+        daily_max = MAX_DAILY_FILES
+        sub_info = ""
+
+    used_today = record["count"] if ((record := daily_usage.get(user.id)) and record["date"] == today) else 0
+    remaining = max(0, daily_max - used_today)
 
     now = time.time()
     active_now = len([t for t in active_jobs_timestamps if now - t < 600])
@@ -472,15 +522,16 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🆔 <b>User ID:</b> <code>{user.id}</code>\n"
         f"👤 <b>Name:</b> {user.full_name}\n"
         f"🌐 <b>Username:</b> @{user.username if user.username else 'N/A'}\n"
-        f"✅ <b>Status:</b> Approved User\n\n"
+        f"✅ <b>Status:</b> Approved User\n"
+        f"{sub_info}\n"
         "📊 <b>USAGE & LIMITS</b>\n"
         "───────────────────────\n"
-        f"📅 <b>Today's Files Used:</b> {used_today} / {MAX_DAILY_FILES}\n"
+        f"📅 <b>Today's Files Used:</b> {used_today} / {daily_max}\n"
         f"🔄 <b>Remaining Today:</b> {remaining} files\n"
         f"⚡ <b>Max Direct Upload:</b> {MAX_FILE_MB} MB\n"
         f"⚙️ <b>Server Active Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
-        "⚡ <i>Powered By @Ghostofhackers</i>"
+        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(profile_text, parse_mode=constants.ParseMode.HTML)
 
@@ -551,6 +602,57 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
             f"❌ Failed: {failed}",
             parse_mode=constants.ParseMode.HTML,
         )
+
+    elif state == "AWAITING_SETLIMIT_USERID":
+        ADMIN_TEMP_DATA[user_id] = {"target_id": text}
+        ADMIN_STATE[user_id] = "AWAITING_SETLIMIT_LIMIT"
+        await update.message.reply_text("📊 Please send the <b>Daily File Limit</b> (e.g. 50):", parse_mode=constants.ParseMode.HTML)
+
+    elif state == "AWAITING_SETLIMIT_LIMIT":
+        try:
+            limit_val = int(text)
+            ADMIN_TEMP_DATA[user_id]["daily_limit"] = limit_val
+            ADMIN_STATE[user_id] = "AWAITING_SETLIMIT_DAYS"
+            await update.message.reply_text("📅 Please send the <b>Validity Period in Days</b> (e.g. 30):", parse_mode=constants.ParseMode.HTML)
+        except ValueError:
+            await update.message.reply_text("❌ Invalid limit number! Please enter a valid number (e.g. 50):")
+            ADMIN_STATE[user_id] = "AWAITING_SETLIMIT_LIMIT"
+
+    elif state == "AWAITING_SETLIMIT_DAYS":
+        try:
+            days_val = int(text)
+            temp = ADMIN_TEMP_DATA.pop(user_id, {})
+            target_id = temp.get("target_id")
+            daily_limit = temp.get("daily_limit", MAX_DAILY_FILES)
+            exp_date = (date.today() + timedelta(days=days_val)).isoformat()
+
+            USER_SUBS[target_id] = {"daily_limit": daily_limit, "expires_at": exp_date}
+            APPROVED_USERS.add(target_id)
+            save_user_subscriptions()
+            save_approved_users()
+
+            await update.message.reply_text(
+                f"✅ <b>Custom Limit Set Successfully!</b>\n\n"
+                f"👤 <b>User ID:</b> <code>{target_id}</code>\n"
+                f"📊 <b>Daily Quota:</b> {daily_limit} files/day\n"
+                f"📅 <b>Validity:</b> {days_val} days\n"
+                f"⏳ <b>Expires On:</b> {exp_date}",
+                parse_mode=constants.ParseMode.HTML,
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=int(target_id),
+                    text=(
+                        f"🎉 <b>Subscription Updated!</b>\n\n"
+                        f"Your daily limit has been set to <b>{daily_limit} files/day</b> valid for <b>{days_val} days</b> (Expires on {exp_date})."
+                    ),
+                    parse_mode=constants.ParseMode.HTML,
+                )
+            except Exception:
+                pass
+        except ValueError:
+            await update.message.reply_text("❌ Invalid days number! Please enter a valid number of days (e.g. 30):")
+            ADMIN_STATE[user_id] = "AWAITING_SETLIMIT_DAYS"
 
 
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -657,6 +759,50 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📢 Please send the <b>Broadcast message text</b> you want to send to all users:", parse_mode=constants.ParseMode.HTML)
 
 
+async def cmd_setlimit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS:
+        await update.message.reply_text("❌ Only Admins can use this command.")
+        return
+
+    if len(context.args) >= 3:
+        target_id = context.args[0].strip()
+        try:
+            daily_limit = int(context.args[1].strip())
+            days_val = int(context.args[2].strip())
+            exp_date = (date.today() + timedelta(days=days_val)).isoformat()
+
+            USER_SUBS[target_id] = {"daily_limit": daily_limit, "expires_at": exp_date}
+            APPROVED_USERS.add(target_id)
+            save_user_subscriptions()
+            save_approved_users()
+
+            await update.message.reply_text(
+                f"✅ <b>Custom Limit Set Successfully!</b>\n\n"
+                f"👤 <b>User ID:</b> <code>{target_id}</code>\n"
+                f"📊 <b>Daily Quota:</b> {daily_limit} files/day\n"
+                f"📅 <b>Validity:</b> {days_val} days\n"
+                f"⏳ <b>Expires On:</b> {exp_date}",
+                parse_mode=constants.ParseMode.HTML,
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=int(target_id),
+                    text=(
+                        f"🎉 <b>Subscription Updated!</b>\n\n"
+                        f"Your daily limit has been set to <b>{daily_limit} files/day</b> valid for <b>{days_val} days</b> (Expires on {exp_date})."
+                    ),
+                    parse_mode=constants.ParseMode.HTML,
+                )
+            except Exception:
+                pass
+        except ValueError:
+            await update.message.reply_text("❌ Invalid parameters! Usage: /setlimit <user_id> <daily_limit> <days>")
+    else:
+        ADMIN_STATE[uid] = "AWAITING_SETLIMIT_USERID"
+        await update.message.reply_text("📝 Please send the <b>User ID</b> you want to set custom limits for:", parse_mode=constants.ParseMode.HTML)
+
+
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) not in ADMIN_IDS:
         await update.message.reply_text("❌ Only Admins can use this command.")
@@ -670,10 +816,11 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "═══════════════════════\n"
         f"👥 <b>Approved Users:</b> {len(APPROVED_USERS)}\n"
         f"🚫 <b>Banned Users:</b> {len(BANNED_USERS)}\n"
+        f"⭐ <b>Custom Subscriptions:</b> {len(USER_SUBS)}\n"
         f"📅 <b>Total Files Processed Today:</b> {today_files}\n"
         f"⚙️ <b>Active Cloud Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
-        "⚡ <i>Powered By @Ghostofhackers</i>"
+        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(stats_text, parse_mode=constants.ParseMode.HTML)
 
@@ -702,6 +849,7 @@ def main():
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("setlimit", cmd_setlimit))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
