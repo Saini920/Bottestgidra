@@ -231,22 +231,25 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         sub_details = (
             "⭐ <b>GHIDRA DECOMPILER — PREMIUM SUBSCRIPTION</b>\n"
             "═══════════════════════════════════\n"
-            "⚡ <b>WHY UPGRADE TO PREMIUM?</b>\n"
+            "💳 <b>PRICE:</b> <b>₹99 ONLY</b>\n\n"
+            "⚡ <b>PREMIUM BENEFITS & FEATURES:</b>\n"
             "• 📊 <b>Increased Daily Limit:</b> <b>70 Files / Day</b> (vs 30 Free)\n"
+            "• 📦 <b>Direct File Upload Limit:</b> <b>100 MB</b> (vs 20 MB Free)\n"
+            "• 🔗 <b>Direct Link Method (/link):</b> Unlimited size decompilation\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
-            "• 📦 <b>Batch ZIP Decompiler:</b> Upload & decompile up to <b>5 binaries in 1 ZIP</b>\n"
+            "• 📦 <b>Batch ZIP Decompiler:</b> Upload up to <b>5 binaries in 1 ZIP</b>\n"
             "• 🔔 <b>Expiry Warnings:</b> Advance 5-day & 1-day renewal alerts\n"
             "• 🛠️ <b>Dedicated Priority Support</b>\n\n"
             "═══════════════════════════════════\n"
-            "💳 <b>BUY / RENEW SUBSCRIPTION:</b>\n"
-            "Contact Admins to upgrade your plan:\n"
+            "💳 <b>BUY / RENEW SUBSCRIPTION (₹99):</b>\n"
+            "Contact Admins to upgrade your account:\n"
             "👤 <b>Admin 1:</b> @Ghostofhackers\n"
             "👤 <b>Admin 2:</b> @R3V_X"
         )
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("💬 Contact @Ghostofhackers", url="https://t.me/Ghostofhackers"),
-                InlineKeyboardButton("💬 Contact @R3V_X", url="https://t.me/R3V_X"),
+                InlineKeyboardButton("💬 Contact @Ghostofhackers (₹99)", url="https://t.me/Ghostofhackers"),
+                InlineKeyboardButton("💬 Contact @R3V_X (₹99)", url="https://t.me/R3V_X"),
             ]
         ])
         try:
@@ -373,16 +376,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • String & symbol extraction\n"
         "  • ELF / PE / Mach-O / Android APK support\n"
         "  • Live progress animation (0-100%)\n\n"
-        "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE:</b>\n"
-        "  • 🆓 <b>Free Quota:</b> 30 Files / Day\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Custom)\n"
+        "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
+        "  • 🆓 <b>Free Quota:</b> 30 Files / Day (Max 20 MB Upload)\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 100 MB Upload + /link method)\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
+        "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
         "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
         "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⭐ Buy / Upgrade Premium Plan", url="https://t.me/Ghostofhackers")]
+            [InlineKeyboardButton("⭐ Buy Premium Plan (₹99)", url="https://t.me/Ghostofhackers")]
         ])
     )
 
@@ -418,13 +422,14 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/myid</code> — Display your Telegram User ID.\n"
         "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
         f"{admin_section}\n\n"
-        "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS:</b>\n"
-        "• 🆓 <b>Free Quota:</b> 30 files / day per user\n"
-        "• ⭐ <b>Premium Quota:</b> 70 files / day (Custom limit)\n"
+        "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
+        "• 🆓 <b>Free Quota:</b> 30 files / day (Max 20 MB upload limit)\n"
+        "• ⭐ <b>Premium Quota:</b> 70 files / day (Max 100 MB upload limit)\n"
+        "• 🔗 <b>Direct Link Method (/link):</b> Exclusive Premium Feature\n"
         "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
         "• 📦 <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
         "• 🔔 <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts\n\n"
-        "💳 <b>BUY / RENEW SUBSCRIPTION:</b>\n"
+        "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
         "• Send any binary file directly in chat (Max <b>100 MB</b>).\n\n"
@@ -512,9 +517,27 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(err, parse_mode=constants.ParseMode.HTML)
         return
 
+    user_id = str(update.effective_user.id)
+    is_premium = user_id in ADMIN_IDS or user_id in USER_SUBS
+    user_max_mb = 100 if is_premium else 20
+
     size_mb = (doc.file_size or 0) / (1024 * 1024)
-    if size_mb > MAX_FILE_MB:
-        await msg.reply_text(OVER_LIMIT_MSG.format(size=size_mb), parse_mode=constants.ParseMode.HTML)
+    if size_mb > user_max_mb:
+        if not is_premium:
+            limit_msg = (
+                "⚠️ <b>File Size Limit Exceeded!</b>\n\n"
+                f"Free users can upload files up to <b>20 MB</b> (your file is <b>{size_mb:.1f} MB</b>).\n\n"
+                "⭐ Upgrade to <b>Premium (₹99)</b> to upload files up to <b>100 MB</b> and unlock the <b>/link method</b>!"
+            )
+            await msg.reply_text(
+                limit_msg,
+                parse_mode=constants.ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
+                ])
+            )
+        else:
+            await msg.reply_text(OVER_LIMIT_MSG.format(size=size_mb), parse_mode=constants.ParseMode.HTML)
         return
 
     status = await msg.reply_text("🚀 File received! Sending to server...")
@@ -532,8 +555,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
     if not is_allowed(update.effective_user.id):
         await reply_denied(update.message, update.effective_user.id)
+        return
+
+    is_premium = user_id in ADMIN_IDS or user_id in USER_SUBS
+    if not is_premium:
+        await update.message.reply_text(
+            "🔒 <b>FEATURE RESTRICTED TO PREMIUM SUBSCRIBERS!</b>\n\n"
+            "The <b>/link method</b> is an exclusive <b>Premium Feature (₹99)</b>.\n"
+            "Free users are restricted to direct file uploads (Max 20 MB).\n"
+            "Upgrade your account to decompile large files via direct link without limits!\n\n"
+            "💳 <b>Price:</b> <b>₹99</b>\n"
+            "👥 Contact Admins to Upgrade: <b>@Ghostofhackers</b> | <b>@R3V_X</b>",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
+            ])
+        )
         return
 
     if not context.args:
