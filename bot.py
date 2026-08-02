@@ -227,7 +227,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     data = query.data
 
     if data == "buy_sub":
-        await query.answer()
+        await query.answer("⭐ Ghidra Decompiler Premium Plan (₹99)", show_alert=False)
         sub_details = (
             "⭐ <b>GHIDRA DECOMPILER — PREMIUM SUBSCRIPTION</b>\n"
             "═══════════════════════════════════\n"
@@ -253,9 +253,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             ]
         ])
         try:
-            await query.message.reply_text(sub_details, parse_mode=constants.ParseMode.HTML, reply_markup=keyboard)
-        except Exception:
-            pass
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=sub_details,
+                parse_mode=constants.ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+        except Exception as e:
+            log.warning("Could not send buy_sub message to user %s: %s", user.id, e)
         return
 
     if data == "req_access":
