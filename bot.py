@@ -391,7 +391,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("⭐ Buy Premium Plan (₹99)", url="https://t.me/Ghostofhackers")]
+            [InlineKeyboardButton("⭐ Buy Premium Plan (₹99)", callback_data="buy_sub")]
         ])
     )
 
@@ -445,7 +445,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML, reply_markup=InlineKeyboardMarkup([
-        [InlineKeyboardButton("⭐ Buy / Upgrade Subscription", url="https://t.me/Ghostofhackers")]
+        [InlineKeyboardButton("⭐ Buy / Upgrade Subscription", callback_data="buy_sub")]
     ]))
 
 
