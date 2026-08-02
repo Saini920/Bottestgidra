@@ -256,29 +256,66 @@ async def main():
             last[0], last[1] = pct, label
             edit(f"{label}\n{progress_bar(pct)}")
 
-        try:
-            result = await asyncio.wait_for(
-                run_ghidra(dest, work_dir / "analysis", on_progress), timeout=3900
-            )
-        except TimeoutError:
-            edit("⏰ Timeout! The file is too big or packed.")
-            return
-        except Exception as e:
-            log.exception("analysis crashed")
-            edit("❌ Analysis crashed: " + str(e)[:300])
-            return
-
         out_files = []
-        for fp in [result["c"], result["meta"]]:
-            if fp.exists() and fp.stat().st_size > 0:
-                out_files.append(fp)
+
+        # Check if downloaded file is a ZIP archive containing multiple binaries (Batch Decompile)
+        if zipfile.is_zipfile(dest) and not filename.lower().endswith(".apk"):
+            extract_dir = work_dir / "extracted_batch"
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                with zipfile.ZipFile(dest, "r") as zf:
+                    zf.extractall(extract_dir)
+            except Exception as e:
+                log.warning("ZIP extract error: %s", e)
+
+            candidates = []
+            for root, dirs, files in os.walk(extract_dir):
+                for f in files:
+                    fp = Path(root) / f
+                    ext = fp.suffix.lower()
+                    if ext in [".so", ".dll", ".exe", ".elf", ".apk", ".bin", ".jar", ".o", ".dylib"] or (not ext and fp.stat().st_size > 1024):
+                        candidates.append(fp)
+
+            if len(candidates) > 5:
+                edit(f"⚠️ <b>Batch Limit Exceeded!</b>\nZIP archive contains <b>{len(candidates)} binary files</b>. Maximum batch limit is <b>5 files</b> per ZIP.", parse_mode="HTML")
+                return
+
+            if len(candidates) > 1:
+                edit(f"📦 <b>Batch ZIP Detected!</b> Found {len(candidates)} binary file(s). Starting multi-file decompilation...", parse_mode="HTML")
+                for idx, bin_path in enumerate(candidates, start=1):
+                    edit(f"⚙️ <b>Processing Batch ({idx}/{len(candidates)}):</b> <code>{bin_path.name}</code>...", parse_mode="HTML")
+                    try:
+                        res = await asyncio.wait_for(
+                            run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress), timeout=1800
+                        )
+                        bname = bin_path.stem
+                        if res["c"].exists() and res["c"].stat().st_size > 0:
+                            out_files.append((f"{bname}.c", res["c"]))
+                        if res["meta"].exists() and res["meta"].stat().st_size > 0:
+                            out_files.append((f"{bname}_info.txt", res["meta"]))
+                    except Exception as e:
+                        log.warning("Batch file %s failed: %s", bin_path.name, e)
 
         if not out_files:
-            tail = result["tail"][-600:]
-            if "Killed" in tail or "OutOfMemory" in tail or "insufficient memory" in tail.lower():
-                edit("💥 Out of memory! The binary is extremely large or packed. Try a smaller file.")
-            else:
-                edit("❌ Analysis failed. Format might not be supported.\n" + tail[-300:])
+            try:
+                result = await asyncio.wait_for(
+                    run_ghidra(dest, work_dir / "analysis", on_progress), timeout=3900
+                )
+                bname = Path(filename).stem or "decompiled"
+                if result["c"].exists() and result["c"].stat().st_size > 0:
+                    out_files.append((f"{bname}.c", result["c"]))
+                if result["meta"].exists() and result["meta"].stat().st_size > 0:
+                    out_files.append((f"{bname}_info.txt", result["meta"]))
+            except TimeoutError:
+                edit("⏰ Timeout! The file is too big or packed.")
+                return
+            except Exception as e:
+                log.exception("analysis crashed")
+                edit("❌ Analysis crashed: " + str(e)[:300])
+                return
+
+        if not out_files:
+            edit("❌ Analysis failed or no output files generated.")
             return
 
         edit("📦 Packaging results...")
@@ -287,13 +324,7 @@ async def main():
 
         zip_path = work_dir / f"{orig_stem}_decompiled.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for fp in out_files:
-                if fp.name == "decompiled.c":
-                    arcname = f"{orig_stem}.c"
-                elif fp.name == "info.txt":
-                    arcname = f"{orig_stem}_info.txt"
-                else:
-                    arcname = f"{orig_stem}_{fp.name}"
+            for arcname, fp in out_files:
                 zf.write(fp, arcname)
 
         edit("✅ Decompilation complete! Sending ZIP...")

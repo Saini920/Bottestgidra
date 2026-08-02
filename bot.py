@@ -140,15 +140,18 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
     now = time.time()
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
 
-    # Admins bypass queue limits completely!
-    if user_id in ADMIN_IDS or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
+    is_priority = user_id in ADMIN_IDS or user_id in USER_SUBS
+
+    if is_priority or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
         active_jobs_timestamps.append(now)
         await send_to_job(msg, status, file_url, filename, tg_file_path)
     else:
         pos = job_queue.qsize() + 1
+        priority_label = "⚡ <b>Priority Fast-Lane Slot Granted!</b>\n" if is_priority else ""
         await status.edit_text(
             f"⏳ <b>Server Busy! Task Queued (#Position {pos})</b>\n"
-            f"All active worker slots ({MAX_CONCURRENT_JOBS}/{MAX_CONCURRENT_JOBS}) are currently occupied.\n"
+            f"{priority_label}"
+            f"All active worker slots ({MAX_CONCURRENT_JOBS}/{MAX_CONCURRENT_JOBS}) are occupied.\n"
             "Decompilation will start automatically as soon as a slot opens.",
             parse_mode=constants.ParseMode.HTML,
         )
@@ -941,6 +944,35 @@ async def subscription_checker_loop(app: Application):
         await asyncio.sleep(21600)  # Check every 6 hours
 
 
+async def weekly_analytics_loop(app: Application):
+    while True:
+        await asyncio.sleep(604800)  # Every 7 days
+        try:
+            today = date.today()
+            today_files = sum(rec["count"] for rec in daily_usage.values() if rec.get("date") == today)
+            report_text = (
+                "📈 <b>AUTOMATED WEEKLY ADMIN ANALYTICS REPORT</b>\n"
+                "═══════════════════════════════════\n"
+                f"👥 <b>Total Approved Users:</b> {len(APPROVED_USERS)}\n"
+                f"⭐ <b>Custom Subscribers:</b> {len(USER_SUBS)}\n"
+                f"🚫 <b>Banned Users:</b> {len(BANNED_USERS)}\n"
+                f"📅 <b>Today's Files Processed:</b> {today_files}\n"
+                "⚙️ <b>Server Health:</b> 100% Operational 🔥\n\n"
+                "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
+            )
+            for admin_id in ADMIN_IDS:
+                try:
+                    await app.bot.send_message(
+                        chat_id=int(admin_id),
+                        text=report_text,
+                        parse_mode=constants.ParseMode.HTML,
+                    )
+                except Exception as e:
+                    log.warning("Failed to send weekly report to %s: %s", admin_id, e)
+        except Exception as e:
+            log.exception("Error in weekly_analytics_loop", exc_info=e)
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Handler error", exc_info=context.error)
 
@@ -948,6 +980,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     asyncio.create_task(queue_worker_loop())
     asyncio.create_task(subscription_checker_loop(app))
+    asyncio.create_task(weekly_analytics_loop(app))
 
 
 def main():
