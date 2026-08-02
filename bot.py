@@ -562,6 +562,12 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
 
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     if WEBHOOK_URL:
         log.info("Webhook mode: %s", WEBHOOK_URL)
         app.run_webhook(
