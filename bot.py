@@ -708,21 +708,19 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     status = await msg.reply_text("🔗 Link received! Processing...")
     filename = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "download"
-    if filename.lower().endswith(".apk"):
-        import uuid
-        job_id = str(uuid.uuid4())[:8]
-        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
-        await status.edit_text(
-            "🤖 <b>APK Detected!</b>\nChoose your decompilation engine:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
-                [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
-            ])
-        )
-    else:
-        await status.edit_text("🔗 Link received! Sending to server...")
-        await enqueue_or_dispatch(msg, status, url, str(filename))
+    import uuid
+    job_id = str(uuid.uuid4())[:8]
+    PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
+    await status.edit_text(
+        "🤖 <b>Link Received!</b>\nChoose your decompilation engine:\n\n"
+        "• 📱 <b>Apktool:</b> Best for APKs (Smali/XML)\n"
+        "• ⚙️ <b>Ghidra:</b> Best for native binaries & ZIPs (C Code)",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
+            [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
+        ])
+    )
 
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
