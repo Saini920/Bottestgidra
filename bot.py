@@ -471,6 +471,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• <code>/setlimit</code> — Set custom limit & days (interactive or <code>/setlimit &lt;id&gt; &lt;limit&gt; &lt;days&gt;</code>)\n"
             "• <code>/broadcast</code> — Broadcast message to all users (interactive or <code>/broadcast &lt;msg&gt;</code>)\n"
             "• <code>/stats</code> — View complete admin system statistics\n"
+            "\n👥 <b>USER LISTS:</b>\n"
+            "• <code>/approved_users</code> — List all approved users\n"
+            "• <code>/unapproved_users</code> — List pending approval requests\n"
+            "• <code>/ban_users</code> — List all banned users\n"
+            "• <code>/premium_users</code> — List premium subscribers\n"
         )
 
     help_text = (
