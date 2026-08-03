@@ -38,7 +38,7 @@ jobs:
 
     - name: Run Build Worker
       env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
         PAYLOAD_FILE_URL: ${{ github.event.client_payload.file_url }}
         PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
         PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
