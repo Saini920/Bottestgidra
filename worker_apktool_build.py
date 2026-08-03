@@ -1,0 +1,270 @@
+import asyncio
+import logging
+import os
+import re
+import shutil
+import zipfile
+import sys
+import tempfile
+from pathlib import Path
+from urllib.parse import unquote
+from html import unescape
+
+import httpx
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("worker_apktool_build")
+
+BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+FILE_URL = os.environ.get("PAYLOAD_FILE_URL", "")
+TG_FILE_PATH = os.environ.get("PAYLOAD_TG_FILE_PATH", "")
+CHAT_ID = os.environ.get("PAYLOAD_CHAT_ID", "")
+MESSAGE_ID = os.environ.get("PAYLOAD_MESSAGE_ID", "")
+FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
+JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
+IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
+MAX_DOWNLOAD_MB = int(os.environ.get("MAX_DOWNLOAD_MB", "500"))
+
+API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+def notify_app(message: str, title: str = None):
+    if not JOB_ID:
+        return
+    headers = {}
+    if title:
+        headers["Title"] = title.encode("utf-8")
+    try:
+        httpx.post(f"https://ntfy.sh/{JOB_ID}", data=message.encode("utf-8"), headers=headers, timeout=10)
+    except Exception:
+        pass
+
+def upload_gofile(file_path: Path) -> str:
+    token = "j7HmWBxOe5wamBhhg4gb9DOwCN5WzOKh"
+    try:
+        with httpx.Client(timeout=180) as client:
+            r = client.get("https://api.gofile.io/servers")
+            servers = r.json().get("data", {}).get("servers", [])
+            if not servers: return ""
+            server = servers[0]["name"]
+            
+            with open(file_path, "rb") as fh:
+                r = client.post(
+                    f"https://{server}.gofile.io/contents/uploadfile",
+                    data={"token": token},
+                    files={"file": (file_path.name, fh)}
+                )
+                return r.json().get("data", {}).get("downloadPage", "")
+    except Exception as e:
+        log.warning("GoFile upload failed: %s", e)
+    return ""
+
+def tg(method: str, **params):
+    try:
+        resp = httpx.post(f"{API}/{method}", data=params, timeout=60)
+        return resp.json()
+    except Exception as e:
+        log.warning("tg %s failed: %s", method, e)
+        return None
+
+def edit(text: str, parse_mode: str = None):
+    params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
+    if parse_mode:
+        params["parse_mode"] = parse_mode
+    tg("editMessageText", **params)
+    notify_app(text)
+
+def progress_bar(pct: float) -> str:
+    val = float(pct)
+    filled = max(0, min(16, int(val * 16 / 100)))
+    bar = "▰" * filled + "▱" * (16 - filled)
+    return f"{bar} {val:.2f} %"
+
+async def download_url(url: str, dest: Path, on_progress) -> str:
+    headers = {"User-Agent": "Mozilla/5.0"}
+    fid = None
+    if "drive.google.com" in url:
+        m = re.search(r"/file/d/([^/?#]+)", url) or re.search(r"[?&]id=([^&#]+)", url)
+        if m:
+            fid = m.group(1)
+            url = f"https://drive.google.com/uc?export=download&id={fid}"
+
+    timeout = httpx.Timeout(30.0, connect=30.0, read=300.0, write=300.0)
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout, transport=transport) as client:
+        for attempt in range(3):
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                ct = resp.headers.get("content-type", "")
+                if "text/html" in ct:
+                    if attempt == 2:
+                        raise ValueError("The link is a webpage, not a direct file.")
+                    html = (await resp.aread()).decode(errors="replace")
+                    if fid:
+                        m = re.search(r'name="confirm"\s+value="([^"]+)"', html)
+                        if m:
+                            url = (f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm={m.group(1)}")
+                            continue
+                        if "Google Drive" in html or "drive.google" in html:
+                            raise ValueError("Google Drive file not accessible.")
+                    m = re.search(r'href="(https?://download[0-9]+\.mediafire\.com/[^"]+)"', html)
+                    if m:
+                        url = unescape(m.group(1))
+                        continue
+                    raise ValueError("The link is a webpage, not a direct file.")
+
+                filename = "download.zip"
+                cd = resp.headers.get("content-disposition", "")
+                m = re.search(r'filename="?([^";]+)"?', cd)
+                if m:
+                    filename = unquote(m.group(1)).strip()
+                else:
+                    path_part = unquote(resp.url.path.rstrip("/").rsplit("/", 1)[-1])
+                    if path_part:
+                        filename = path_part
+
+                total = int(resp.headers.get("content-length") or 0)
+                downloaded = 0
+                with open(dest, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(65536):
+                        fh.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            pct = min(100, int(downloaded * 100 / total))
+                            await on_progress(pct)
+                return filename
+        raise ValueError("Could not download file from this link.")
+
+def send_document(file_path: Path, caption: str, filename: str):
+    with open(file_path, "rb") as fh:
+        resp = httpx.post(
+            f"{API}/sendDocument",
+            data={"chat_id": CHAT_ID, "caption": caption[:1024], "parse_mode": "HTML"},
+            files={"document": (filename, fh, "application/zip" if file_path.name.endswith(".zip") else "text/plain")},
+            timeout=180,
+        )
+    return resp.json()
+
+async def main():
+    if not BOT_TOKEN or not CHAT_ID:
+        sys.exit(1)
+
+    edit("🟢 Job started! Preparing Compiler on cloud server...", parse_mode="HTML")
+    work_dir = Path(tempfile.gettempdir()) / ("apktool_build_" + os.urandom(8).hex())
+    try:
+        work_dir.mkdir(parents=True)
+        dest = work_dir / "input.zip"
+        last = [0]
+
+        async def on_dl(pct: int):
+            if pct < last[0] or pct - last[0] < 2: return
+            last[0] = pct
+            edit(f"📥 Downloading ZIP...\n{progress_bar(pct)}")
+
+        try:
+            if TG_FILE_PATH:
+                dl_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{TG_FILE_PATH}"
+                edit("📥 Downloading from Telegram...")
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    async with client.stream("GET", dl_url) as resp:
+                        resp.raise_for_status()
+                        total = int(resp.headers.get("content-length") or 0)
+                        downloaded = 0
+                        with open(dest, "wb") as fh:
+                            async for chunk in resp.aiter_bytes(65536):
+                                fh.write(chunk)
+                                downloaded += len(chunk)
+                                if total:
+                                    pct = min(100, int(downloaded * 100 / total))
+                                    await on_dl(pct)
+            else:
+                await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
+        except Exception as e:
+            edit("❌ Download failed: " + str(e)[:300])
+            return
+
+        edit("📦 Extracting project...")
+        proj_dir = work_dir / "project"
+        proj_dir.mkdir()
+        try:
+            with zipfile.ZipFile(dest, "r") as zf:
+                zf.extractall(proj_dir)
+        except Exception as e:
+            edit("❌ Extraction failed. Please send a valid ZIP containing an apktool project.")
+            return
+
+        # Find where apktool.yml is
+        target_dir = None
+        for root, dirs, files in os.walk(proj_dir):
+            if "apktool.yml" in files:
+                target_dir = Path(root)
+                break
+        
+        if not target_dir:
+            edit("❌ Missing `apktool.yml`! Could not find a valid apktool decompiled project in the ZIP.")
+            return
+
+        edit("🔨 Compiling APK with Apktool (Android 1-16)...")
+        unsigned_apk = work_dir / "unsigned.apk"
+        cmd = ["java", "-jar", "/opt/apktool/apktool.jar", "b", str(target_dir), "-o", str(unsigned_apk)]
+        
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        stdout, _ = await proc.communicate()
+        out_text = stdout.decode(errors="replace")
+        
+        if proc.returncode != 0 or not unsigned_apk.exists():
+            error_file = work_dir / "error.txt"
+            with open(error_file, "w") as f:
+                f.write("Apktool Build Log:\n\n" + out_text)
+            send_document(error_file, "❌ <b>Compilation Failed!</b>\nPlease check the `error.txt` file for syntax or resource errors.", "error.txt")
+            return
+            
+        edit("🔑 Signing APK with Debug Keystore...")
+        aligned_apk = work_dir / "aligned.apk"
+        signed_apk = work_dir / "signed.apk"
+        
+        # Zipalign
+        align_proc = await asyncio.create_subprocess_exec("zipalign", "-p", "4", str(unsigned_apk), str(aligned_apk))
+        await align_proc.communicate()
+        
+        # Sign
+        ks_path = "/opt/debug.keystore"
+        if os.path.exists(ks_path):
+            sign_proc = await asyncio.create_subprocess_exec("apksigner", "sign", "--ks", ks_path, "--ks-pass", "pass:android", str(aligned_apk))
+            await sign_proc.communicate()
+            if align_proc.returncode == 0 and sign_proc.returncode == 0:
+                shutil.copy(aligned_apk, signed_apk)
+        
+        edit("📦 Packaging Signed & Unsigned APKs...")
+        safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", FILENAME)[:60].replace(".zip", "") or "app"
+        out_zip = work_dir / f"{safe_name}_compiled.zip"
+        
+        with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(unsigned_apk, f"{safe_name}_unsigned.apk")
+            if signed_apk.exists():
+                zf.write(signed_apk, f"{safe_name}_signed.apk")
+
+        if out_zip.stat().st_size > 49_000_000:
+            edit("📦 File is larger than 50MB. Uploading to GoFile Cloud...")
+            gofile_url = upload_gofile(out_zip)
+            if gofile_url:
+                edit(f"✅ <b>Compilation Complete!</b>\n\n📁 <b>File:</b> <code>{out_zip.name}</code>\n📦 <b>Size:</b> {out_zip.stat().st_size / (1024*1024):.2f} MB\n☁️ <b>Download:</b> {gofile_url}", parse_mode="HTML")
+            else:
+                edit("❌ Result ZIP is too large for Telegram, and GoFile upload failed.")
+        else:
+            resp = send_document(
+                out_zip,
+                f"✅ Compiled <b>{safe_name}</b> successfully!\nIncludes both Signed & Unsigned versions. — Powered By @Ghostofhackers & @R3V_X",
+                out_zip.name,
+            )
+            if resp and resp.get("ok"):
+                edit("✅ Compilation complete! ZIP file delivered. 🔥")
+            else:
+                edit("❌ Result ZIP ready, but Telegram send failed.")
+
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+if __name__ == "__main__":
+    asyncio.run(main())

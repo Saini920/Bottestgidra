@@ -152,7 +152,7 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
             "Decompilation will start automatically as soon as a slot opens.",
             parse_mode=constants.ParseMode.HTML,
         )
-        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin))
+        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin, engine))
 
 
 async def queue_worker_loop():
@@ -162,8 +162,12 @@ async def queue_worker_loop():
             if len(item) == 5:
                 msg, status, file_url, filename, tg_file_path = item
                 is_admin = False
-            else:
+                engine = "ghidra"
+            elif len(item) == 6:
                 msg, status, file_url, filename, tg_file_path, is_admin = item
+                engine = "ghidra"
+            else:
+                msg, status, file_url, filename, tg_file_path, is_admin, engine = item
             now = time.time()
             active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
             while len(active_jobs_timestamps) >= MAX_CONCURRENT_JOBS:
@@ -710,13 +714,15 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     job_id = str(uuid.uuid4())[:8]
     PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
     await status.edit_text(
-        "🤖 <b>Link Received!</b>\nChoose your decompilation engine:\n\n"
-        "• 📱 <b>Apktool:</b> Best for APKs (Smali/XML)\n"
-        "• ⚙️ <b>Ghidra:</b> Best for native binaries & ZIPs (C Code)",
+        "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
+        "• 📱 <b>Apktool:</b> Decompile APKs (Smali/XML)\n"
+        "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (C Code)\n"
+        "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
-            [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
+            [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
+            [InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")]
         ])
     )
 

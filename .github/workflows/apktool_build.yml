@@ -1,0 +1,48 @@
+name: Apktool Build Job
+
+on:
+  repository_dispatch:
+    types: [compile-apktool]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y default-jdk zipalign apksigner
+        # Install Apktool
+        sudo mkdir -p /opt/apktool
+        sudo wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /usr/local/bin/apktool
+        sudo wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O /opt/apktool/apktool.jar
+        sudo chmod +x /usr/local/bin/apktool
+        
+        # Generate Debug Keystore
+        keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+        sudo mv debug.keystore /opt/debug.keystore
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install httpx
+
+    - name: Run Build Worker
+      env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        PAYLOAD_FILE_URL: ${{ github.event.client_payload.file_url }}
+        PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
+        PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
+        PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+        PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
+        PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
+        PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
+      run: python worker_apktool_build.py
