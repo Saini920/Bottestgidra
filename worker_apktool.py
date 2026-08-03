@@ -282,7 +282,7 @@ async def main():
             edit("📦 File is larger than 50MB. Uploading to GoFile Cloud...")
             gofile_url = upload_gofile(zip_path)
             if gofile_url:
-                edit(f"✅ <b>Decompilation Complete!</b>\\n\\n📁 <b>File:</b> <code>{orig_stem}_apktool.zip</code>\\n📦 <b>Size:</b> {zip_path.stat().st_size / (1024*1024):.2f} MB\\n\\n☁️ <b>Download Link:</b>\\n{gofile_url}\\n\\n<i>⚡ Powered By @Ghostofhackers & @R3V_X</i>", parse_mode="HTML")
+                edit(f"✅ <b>Decompilation Complete!</b>\n\n📁 <b>File:</b> <code>{orig_stem}_apktool.zip</code>\n📦 <b>Size:</b> {zip_path.stat().st_size / (1024*1024):.2f} MB\n☁️ <b>Download:</b> {gofile_url.replace('https://', '')}", parse_mode="HTML")
             else:
                 edit("❌ Result ZIP is too large for Telegram, and GoFile upload failed.")
         else:
