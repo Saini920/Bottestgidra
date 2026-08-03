@@ -66,9 +66,13 @@ jobs:
           /tmp/venv/bin/pip install -q httpx
           /tmp/venv/bin/python worker.py
 
-      - name: Delete Workflow Run
+      - name: Delete Old Workflow Runs
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api -X DELETE /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          runs=$(gh api repos/${{ github.repository }}/actions/runs -q ".workflow_runs[] | select(.status == \"completed\") | .id")
+          for run_id in $runs; do
+            echo "Deleting run $run_id"
+            gh api -X DELETE /repos/${{ github.repository }}/actions/runs/$run_id || true
+          done
