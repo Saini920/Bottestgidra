@@ -293,7 +293,7 @@ async def main():
         out_files = []
 
         # Check if downloaded file is a ZIP archive containing multiple binaries (Batch Decompile)
-        if zipfile.is_zipfile(dest) and not filename.lower().endswith(".apk"):
+        if zipfile.is_zipfile(dest):
             extract_dir = work_dir / "extracted_batch"
             extract_dir.mkdir(parents=True, exist_ok=True)
             try:
@@ -303,21 +303,27 @@ async def main():
                 log.warning("ZIP extract error: %s", e)
 
             candidates = []
+            is_apk = filename.lower().endswith(".apk")
             for root, dirs, files in os.walk(extract_dir):
                 for f in files:
                     fp = Path(root) / f
                     ext = fp.suffix.lower()
-                    if ext in [".so", ".dll", ".exe", ".elf", ".apk", ".bin", ".jar", ".o", ".dylib"] or (not ext and fp.stat().st_size > 1024):
-                        candidates.append(fp)
+                    if is_apk:
+                        # For APKs, only decompile native .so files
+                        if ext == ".so":
+                            candidates.append(fp)
+                    else:
+                        if ext in [".so", ".dll", ".exe", ".elf", ".apk", ".bin", ".jar", ".o", ".dylib"] or (not ext and fp.stat().st_size > 1024):
+                            candidates.append(fp)
 
             if len(candidates) > 5 and not IS_ADMIN:
-                edit(f"⚠️ <b>Batch Limit Exceeded!</b>\nZIP archive contains <b>{len(candidates)} binary files</b>. Maximum batch limit is <b>5 files</b> per ZIP.", parse_mode="HTML")
+                edit(f"⚠️ <b>Batch Limit Exceeded!</b>\nArchive contains <b>{len(candidates)} binary files</b>. Maximum batch limit is <b>5 files</b> per ZIP.", parse_mode="HTML")
                 return
 
-            if len(candidates) > 1:
-                edit(f"📦 <b>Batch ZIP Detected!</b> Found {len(candidates)} binary file(s). Starting multi-file decompilation...", parse_mode="HTML")
+            if len(candidates) >= 1:
+                edit(f"📦 <b>Batch / APK Detected!</b> Found {len(candidates)} binary file(s). Starting multi-file decompilation...", parse_mode="HTML")
                 for idx, bin_path in enumerate(candidates, start=1):
-                    edit(f"⚙️ <b>Processing Batch ({idx}/{len(candidates)}):</b> <code>{bin_path.name}</code>...", parse_mode="HTML")
+                    edit(f"⚙️ <b>Processing ({idx}/{len(candidates)}):</b> <code>{bin_path.name}</code>...", parse_mode="HTML")
                     try:
                         res = await asyncio.wait_for(
                             run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress), timeout=1800
