@@ -581,7 +581,14 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             parse_mode=constants.ParseMode.HTML,
         )
         return
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, 'decompile-apktool' if engine == 'apktool' else 'decompile-job'):
+    if engine == "apktool":
+        event_type = "decompile-apktool"
+    elif engine == "apktool-build":
+        event_type = "compile-apktool"
+    else:
+        event_type = "decompile-job"
+        
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
