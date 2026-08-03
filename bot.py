@@ -44,8 +44,8 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Saini920/Bottestgidra")
 GITHUB_EVENT = os.environ.get("GITHUB_EVENT", "decompile-job")
 
-from database import GistDB
-db = GistDB(GITHUB_TOKEN)
+from database import RepoDB
+db = RepoDB(GITHUB_TOKEN, GITHUB_REPO)
 
 def record_user_name(user):
     uid = str(user.id)
@@ -135,7 +135,7 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
 
     is_admin = user_id in ADMIN_IDS
-    is_priority = is_admin or user_id in USER_SUBS
+    is_priority = is_admin or user_id in db.data["subscriptions"]
 
     if is_priority or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
         active_jobs_timestamps.append(now)
@@ -588,7 +588,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     user_id = str(update.effective_user.id)
-    is_premium = user_id in ADMIN_IDS or user_id in USER_SUBS
+    is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
     user_max_mb = 100 if is_premium else 20
 
     size_mb = (doc.file_size or 0) / (1024 * 1024)
@@ -631,7 +631,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply_denied(update.message, update.effective_user.id)
         return
 
-    is_premium = user_id in ADMIN_IDS or user_id in USER_SUBS
+    is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
     if not is_premium:
         await update.message.reply_text(
             "🔒 <b>FEATURE RESTRICTED TO PREMIUM SUBSCRIBERS!</b>\n\n"

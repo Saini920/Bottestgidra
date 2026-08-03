@@ -1,71 +1,53 @@
 import json
 import httpx
 import logging
+import base64
 
 log = logging.getLogger(__name__)
 
-class GistDB:
-    def __init__(self, token):
+class RepoDB:
+    def __init__(self, token, repo):
         self.token = token
+        self.repo = repo
         self.headers = {"Authorization": f"token {self.token}", "Accept": "application/vnd.github.v3+json"}
-        self.gist_id = None
         self.data = {"approved": [], "banned": [], "subscriptions": {}, "names": {}}
-        if self.token:
-            self.gist_id = self._get_or_create_gist()
+        self.file_sha = None
+        if self.token and self.repo:
             self._load()
 
-    def _get_or_create_gist(self):
-        try:
-            r = httpx.get("https://api.github.com/gists", headers=self.headers, timeout=10)
-            if r.status_code == 200:
-                for g in r.json():
-                    if "ghidra_bot_db.json" in g.get("files", {}):
-                        return g["id"]
-            
-            # Create if not found
-            payload = {
-                "description": "Ghidra Telegram Bot Database",
-                "public": False,
-                "files": {
-                    "ghidra_bot_db.json": {
-                        "content": json.dumps(self.data)
-                    }
-                }
-            }
-            r = httpx.post("https://api.github.com/gists", headers=self.headers, json=payload, timeout=10)
-            if r.status_code == 201:
-                return r.json()["id"]
-        except Exception as e:
-            log.error(f"GistDB initialization error: {e}")
-        return None
-
     def _load(self):
-        if not self.gist_id: return
         try:
-            r = httpx.get(f"https://api.github.com/gists/{self.gist_id}", headers=self.headers, timeout=10)
+            r = httpx.get(f"https://api.github.com/repos/{self.repo}/contents/database.json", headers=self.headers, timeout=10)
             if r.status_code == 200:
-                content = r.json()["files"]["ghidra_bot_db.json"]["content"]
+                self.file_sha = r.json()["sha"]
+                content = base64.b64decode(r.json()["content"]).decode("utf-8")
                 loaded = json.loads(content)
                 self.data["approved"] = loaded.get("approved", [])
                 self.data["banned"] = loaded.get("banned", [])
                 self.data["subscriptions"] = loaded.get("subscriptions", {})
                 self.data["names"] = loaded.get("names", {})
         except Exception as e:
-            log.error(f"GistDB load error: {e}")
+            log.error(f"RepoDB load error: {e}")
 
     def save(self):
-        if not self.gist_id: return
+        if not self.token or not self.repo: return
         try:
+            content_str = json.dumps(self.data, indent=2)
+            content_b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
             payload = {
-                "files": {
-                    "ghidra_bot_db.json": {
-                        "content": json.dumps(self.data, indent=2)
-                    }
-                }
+                "message": "Update database [skip ci]",
+                "content": content_b64
             }
-            httpx.patch(f"https://api.github.com/gists/{self.gist_id}", headers=self.headers, json=payload, timeout=10)
+            if self.file_sha:
+                payload["sha"] = self.file_sha
+            
+            r = httpx.put(f"https://api.github.com/repos/{self.repo}/contents/database.json", headers=self.headers, json=payload, timeout=10)
+            if r.status_code in (200, 201):
+                self.file_sha = r.json()["content"]["sha"]
+            else:
+                log.error(f"RepoDB save failed: {r.status_code} {r.text}")
         except Exception as e:
-            log.error(f"GistDB save error: {e}")
+            log.error(f"RepoDB save error: {e}")
 
     def add_approved(self, uid: str, name: str = ""):
         if uid not in self.data["approved"]:
