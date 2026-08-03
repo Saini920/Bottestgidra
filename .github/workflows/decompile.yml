@@ -4,6 +4,10 @@ on:
   repository_dispatch:
     types: [decompile-job]
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   decompile:
     runs-on: ubuntu-latest
