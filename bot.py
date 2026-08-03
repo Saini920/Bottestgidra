@@ -212,8 +212,6 @@ async def check_force_join(update, context) -> bool:
             return False
     return True
 
-def is_allowed(user_id: int) -> bool:
-    return not APPROVED_USERS or str(user_id) in APPROVED_USERS
 
 
 async def reply_denied(msg, user_id: int = None) -> None:
