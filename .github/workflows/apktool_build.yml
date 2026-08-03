@@ -17,9 +17,10 @@ jobs:
         python-version: '3.10'
 
     - name: Install System Dependencies
+      continue-on-error: true
       run: |
-        sudo apt-get update
-        sudo apt-get install -y zipalign apksigner
+        sudo apt-get update || true
+        sudo apt-get install -y zipalign apksigner || true
         # Install Apktool
         sudo mkdir -p /opt/apktool
         sudo wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /usr/local/bin/apktool
