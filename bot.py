@@ -442,10 +442,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
-        "• Send any binary file directly in chat (Max <b>100 MB</b>).\n\n"
+        "• Send any binary file directly in chat (Max <b>100 MB</b> for Premium, Unlimited for Admins).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
-        "• <b>Max Direct Upload:</b> 100 MB per file\n"
-        "• <b>Daily Quota:</b> 30 files / day per user\n"
+        "• <b>Max Direct Upload:</b> 100 MB (Unlimited for Admins)\n"
+        "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
         "• <b>Server Concurrency:</b> Max 10 active jobs at a time\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
@@ -648,9 +648,11 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if uid_str in ADMIN_IDS:
         remaining = "Unlimited"
         used_display = f"{used_today} / Unlimited"
+        upload_display = "Unlimited (Max Telegram API Limit)"
     else:
         remaining = f"{max(0, daily_max - used_today)} files"
         used_display = f"{used_today} / {daily_max}"
+        upload_display = f"{MAX_FILE_MB} MB"
 
     now = time.time()
     active_now = len([t for t in active_jobs_timestamps if now - t < 600])
@@ -667,7 +669,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "───────────────────────\n"
         f"📅 <b>Today's Files Used:</b> {used_display}\n"
         f"🔄 <b>Remaining Today:</b> {remaining}\n"
-        f"⚡ <b>Max Direct Upload:</b> {MAX_FILE_MB} MB\n"
+        f"⚡ <b>Max Direct Upload:</b> {upload_display}\n"
         f"⚙️ <b>Server Active Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
