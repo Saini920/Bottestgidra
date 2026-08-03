@@ -36,71 +36,57 @@ MAX_DAILY_FILES = 30
 ADMIN_IDS = ["6684870256", "7251749429"]
 ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split(",") if u.strip()]
 
-DATA_FILE = Path(__file__).parent / "approved_users.json"
 PENDING_REQUESTS = set()
 ADMIN_STATE = {}  # {user_id: state_str}
-
-
-def load_approved_users() -> set:
-    users = set(ALLOWED_USERS + ADMIN_IDS)
-    if DATA_FILE.exists():
-        try:
-            data = json.loads(DATA_FILE.read_text())
-            users.update(data.get("approved", []))
-        except Exception as e:
-            log.warning("Failed to load approved_users.json: %s", e)
-    return users
-
-
-def save_approved_users():
-    try:
-        DATA_FILE.write_text(json.dumps({"approved": list(APPROVED_USERS)}, indent=2))
-    except Exception as e:
-        log.warning("Failed to save approved_users.json: %s", e)
-
-
-APPROVED_USERS = load_approved_users()
-BANNED_USERS = set()
+ADMIN_TEMP_DATA = {}
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Saini920/Bottestgidra")
 GITHUB_EVENT = os.environ.get("GITHUB_EVENT", "decompile-job")
 
+from database import GistDB
+db = GistDB(GITHUB_TOKEN)
+
+
+FORCE_CHANNELS = ["@allinformation0173"]
+try:
+    if os.environ.get("FORCE_CHANNEL_2"):
+        FORCE_CHANNELS.append(os.environ.get("FORCE_CHANNEL_2"))
+except: pass
+
+async def check_force_join(update, context) -> bool:
+    uid = update.effective_user.id
+    if str(uid) in ADMIN_IDS: return True
+    for ch in FORCE_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(chat_id=ch, user_id=uid)
+            if member.status in ["left", "kicked"]:
+                raise Exception("Not member")
+        except Exception:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Join Channel 1", url="https://t.me/allinformation0173")],
+                [InlineKeyboardButton("Join Channel 2", url="https://t.me/+gQawrH0MFs00M2Y1")]
+            ])
+            try:
+                await update.message.reply_text("❌ <b>You must join our channels to use this bot!</b>\nJoin the channels and try again.", reply_markup=keyboard, parse_mode="HTML")
+            except: pass
+            return False
+    return True
 
 def is_allowed(user_id: int) -> bool:
     uid = str(user_id)
-    if uid in BANNED_USERS:
+    if uid in db.data["banned"]:
         return False
-    return not APPROVED_USERS or uid in APPROVED_USERS
+    # Admins and allowed users from ENV bypass approval
+    if uid in ADMIN_IDS or uid in ALLOWED_USERS:
+        return True
+    return uid in db.data["approved"]
 
 job_queue = asyncio.Queue()
 active_jobs_timestamps = []
 daily_usage = {}  # {user_id: {"date": date_obj, "count": int}}
 
-
 from datetime import date, timedelta
-
-SUBS_FILE = Path(__file__).parent / "user_subscriptions.json"
-ADMIN_TEMP_DATA = {}
-
-
-def load_user_subscriptions() -> dict:
-    if SUBS_FILE.exists():
-        try:
-            return json.loads(SUBS_FILE.read_text())
-        except Exception as e:
-            log.warning("Failed to load user_subscriptions.json: %s", e)
-    return {}
-
-
-def save_user_subscriptions():
-    try:
-        SUBS_FILE.write_text(json.dumps(USER_SUBS, indent=2))
-    except Exception as e:
-        log.warning("Failed to save user_subscriptions.json: %s", e)
-
-
-USER_SUBS = load_user_subscriptions()
 
 
 def check_daily_limit(user_id: int) -> str | None:
@@ -109,15 +95,15 @@ def check_daily_limit(user_id: int) -> str | None:
         return None  # Admins have NO limits!
 
     today = date.today()
-    sub = USER_SUBS.get(uid)
+    sub = db.data["subscriptions"].get(uid)
     if sub:
         try:
             exp_date = date.fromisoformat(sub["expires_at"])
             if today > exp_date:
-                APPROVED_USERS.discard(uid)
-                USER_SUBS.pop(uid, None)
-                save_user_subscriptions()
-                save_approved_users()
+                db.remove_approved(uid)
+                db.remove_sub(uid)
+                
+                
                 return "⚠️ <b>Access Expired!</b>\nYour custom subscription period has ended. Please contact Admin to renew."
             user_max_files = sub.get("daily_limit", MAX_DAILY_FILES)
         except Exception:
@@ -199,6 +185,32 @@ ACCESS_DENIED_MSG = (
     "👥 <b>Admins:</b> @R3V_X | @Ghostofhackers"
 )
 
+
+
+FORCE_CHANNELS = ["@allinformation0173"]
+try:
+    if os.environ.get("FORCE_CHANNEL_2"):
+        FORCE_CHANNELS.append(os.environ.get("FORCE_CHANNEL_2"))
+except: pass
+
+async def check_force_join(update, context) -> bool:
+    uid = update.effective_user.id
+    if str(uid) in ADMIN_IDS: return True
+    for ch in FORCE_CHANNELS:
+        try:
+            member = await context.bot.get_chat_member(chat_id=ch, user_id=uid)
+            if member.status in ["left", "kicked"]:
+                raise Exception("Not member")
+        except Exception:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("Join Channel 1", url="https://t.me/allinformation0173")],
+                [InlineKeyboardButton("Join Channel 2", url="https://t.me/+gQawrH0MFs00M2Y1")]
+            ])
+            try:
+                await update.message.reply_text("❌ <b>You must join our channels to use this bot!</b>\nJoin the channels and try again.", reply_markup=keyboard, parse_mode="HTML")
+            except: pass
+            return False
+    return True
 
 def is_allowed(user_id: int) -> bool:
     return not APPROVED_USERS or str(user_id) in APPROVED_USERS
@@ -316,9 +328,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     if data.startswith("app_"):
         target_id = data.split("app_")[1]
-        APPROVED_USERS.add(target_id)
+        db.add_approved(target_id)
         PENDING_REQUESTS.discard(target_id)
-        save_approved_users()
+        
         await query.answer("✅ User Approved!", show_alert=True)
         admin_name = f"@{user.username}" if user.username else user.first_name
         await query.edit_message_text(
@@ -354,7 +366,35 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             log.warning("Could not notify user %s: %s", target_id, e)
 
 
+
+async def cmd_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = str(update.effective_user.id)
+    if uid not in ADMIN_IDS: return
+    cmd = update.message.text.split()[0].lower()
+    
+    if cmd == "/approved_users":
+        users = db.data["approved"]
+        title = "👥 Approved Users"
+    elif cmd == "/unapproved_users":
+        users = [] # Need to fetch from bot history or PENDING_REQUESTS? We only have pending.
+        users = list(PENDING_REQUESTS)
+        title = "⏳ Pending Users"
+    elif cmd == "/ban_users" or cmd == "/banned_users":
+        users = db.data["banned"]
+        title = "🚫 Banned Users"
+    elif cmd == "/premium_users":
+        users = list(db.data["subscriptions"].keys())
+        title = "⭐ Premium Users"
+    else: return
+    
+    text = f"<b>{title} ({len(users)}):</b>\n"
+    for u in users:
+        text += f"• <code>{u}</code>\n"
+    if not users: text += "None found."
+    await update.message.reply_text(text, parse_mode="HTML")
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_force_join(update, context): return
     if not is_allowed(update.effective_user.id):
         await reply_denied(update.message, update.effective_user.id)
         return
@@ -513,6 +553,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
 
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_force_join(update, context): return
     if not is_allowed(update.effective_user.id):
         await reply_denied(update.message, update.effective_user.id)
         return
@@ -566,6 +607,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_force_join(update, context): return
     user_id = str(update.effective_user.id)
     if not is_allowed(update.effective_user.id):
         await reply_denied(update.message, update.effective_user.id)
@@ -621,7 +663,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     today = date.today()
     uid_str = str(user.id)
-    sub = USER_SUBS.get(uid_str)
+    sub = db.data["subscriptions"].get(uid_str)
 
     if uid_str in ADMIN_IDS:
         daily_max = "Unlimited (Admin)"
@@ -693,9 +735,9 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
 
     if state == "AWAITING_APPROVE":
         target_id = text
-        APPROVED_USERS.add(target_id)
+        db.add_approved(target_id)
         PENDING_REQUESTS.discard(target_id)
-        save_approved_users()
+        
         await update.message.reply_text(f"✅ User <code>{target_id}</code> has been approved.", parse_mode=constants.ParseMode.HTML)
         try:
             await context.bot.send_message(chat_id=int(target_id), text="🎉 <b>Access Approved!</b>\nYour request for bot access has been approved by the Admin.", parse_mode=constants.ParseMode.HTML)
@@ -704,8 +746,8 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
 
     elif state == "AWAITING_UNAPPROVE":
         target_id = text
-        APPROVED_USERS.discard(target_id)
-        save_approved_users()
+        db.remove_approved(target_id)
+        
         await update.message.reply_text(f"❌ User <code>{target_id}</code> has been unapproved/revoked.", parse_mode=constants.ParseMode.HTML)
         try:
             await context.bot.send_message(chat_id=int(target_id), text="🔒 <b>Access Revoked</b>\nYour access to the bot has been revoked by the Admin.", parse_mode=constants.ParseMode.HTML)
@@ -714,9 +756,9 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
 
     elif state == "AWAITING_BAN":
         target_id = text
-        BANNED_USERS.add(target_id)
-        APPROVED_USERS.discard(target_id)
-        save_approved_users()
+        db.ban(target_id)
+        db.remove_approved(target_id)
+        
         await update.message.reply_text(f"🚫 User <code>{target_id}</code> has been banned.", parse_mode=constants.ParseMode.HTML)
         try:
             await context.bot.send_message(chat_id=int(target_id), text="🚫 <b>Account Banned</b>\nYou have been banned from using this bot.", parse_mode=constants.ParseMode.HTML)
@@ -725,12 +767,12 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
 
     elif state == "AWAITING_UNBAN":
         target_id = text
-        BANNED_USERS.discard(target_id)
+        db.unban(target_id)
         await update.message.reply_text(f"✅ User <code>{target_id}</code> has been unbanned.", parse_mode=constants.ParseMode.HTML)
 
     elif state == "AWAITING_BROADCAST":
         broadcast_msg = text
-        target_users = set(list(APPROVED_USERS) + list(daily_usage.keys()))
+        target_users = set(db.data["approved"] + list(daily_usage.keys()))
         sent, failed = 0, 0
         status_msg = await update.message.reply_text("📢 Broadcasting message...")
         for uid in target_users:
@@ -773,10 +815,8 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
             daily_limit = temp.get("daily_limit", MAX_DAILY_FILES)
             exp_date = (date.today() + timedelta(days=days_val)).isoformat()
 
-            USER_SUBS[target_id] = {"daily_limit": daily_limit, "expires_at": exp_date}
-            APPROVED_USERS.add(target_id)
-            save_user_subscriptions()
-            save_approved_users()
+            db.set_sub(target_id, exp_date, daily_limit)
+            db.add_approved(target_id)
 
             await update.message.reply_text(
                 f"✅ <b>Custom Limit Set Successfully!</b>\n\n"
@@ -815,9 +855,9 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.args:
         target_id = context.args[0].strip()
-        APPROVED_USERS.add(target_id)
+        db.add_approved(target_id)
         PENDING_REQUESTS.discard(target_id)
-        save_approved_users()
+        
         await update.message.reply_text(f"✅ User <code>{target_id}</code> has been approved.", parse_mode=constants.ParseMode.HTML)
         try:
             await context.bot.send_message(chat_id=int(target_id), text="🎉 <b>Access Approved!</b>\nYour request for bot access has been approved by the Admin.", parse_mode=constants.ParseMode.HTML)
@@ -835,8 +875,8 @@ async def cmd_unapprove(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.args:
         target_id = context.args[0].strip()
-        APPROVED_USERS.discard(target_id)
-        save_approved_users()
+        db.remove_approved(target_id)
+        
         await update.message.reply_text(f"❌ User <code>{target_id}</code> has been unapproved/revoked.", parse_mode=constants.ParseMode.HTML)
         try:
             await context.bot.send_message(chat_id=int(target_id), text="🔒 <b>Access Revoked</b>\nYour access to the bot has been revoked by the Admin.", parse_mode=constants.ParseMode.HTML)
@@ -854,9 +894,9 @@ async def cmd_ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.args:
         target_id = context.args[0].strip()
-        BANNED_USERS.add(target_id)
-        APPROVED_USERS.discard(target_id)
-        save_approved_users()
+        db.ban(target_id)
+        db.remove_approved(target_id)
+        
         await update.message.reply_text(f"🚫 User <code>{target_id}</code> has been banned.", parse_mode=constants.ParseMode.HTML)
         try:
             await context.bot.send_message(chat_id=int(target_id), text="🚫 <b>Account Banned</b>\nYou have been banned from using this bot.", parse_mode=constants.ParseMode.HTML)
@@ -874,7 +914,7 @@ async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.args:
         target_id = context.args[0].strip()
-        BANNED_USERS.discard(target_id)
+        db.unban(target_id)
         await update.message.reply_text(f"✅ User <code>{target_id}</code> has been unbanned.", parse_mode=constants.ParseMode.HTML)
     else:
         ADMIN_STATE[uid] = "AWAITING_UNBAN"
@@ -888,7 +928,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.args:
         broadcast_msg = update.message.text.split(None, 1)[1]
-        target_users = set(list(APPROVED_USERS) + list(daily_usage.keys()))
+        target_users = set(db.data["approved"] + list(daily_usage.keys()))
         sent, failed = 0, 0
         status_msg = await update.message.reply_text("📢 Broadcasting message...")
         for tu in target_users:
@@ -925,10 +965,8 @@ async def cmd_setlimit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             days_val = int(context.args[2].strip())
             exp_date = (date.today() + timedelta(days=days_val)).isoformat()
 
-            USER_SUBS[target_id] = {"daily_limit": daily_limit, "expires_at": exp_date}
-            APPROVED_USERS.add(target_id)
-            save_user_subscriptions()
-            save_approved_users()
+            db.set_sub(target_id, exp_date, daily_limit)
+            db.add_approved(target_id)
 
             await update.message.reply_text(
                 f"✅ <b>Custom Limit Set Successfully!</b>\n\n"
@@ -973,9 +1011,9 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_text = (
         "📊 <b>ADMIN SYSTEM STATS</b>\n"
         "═══════════════════════\n"
-        f"👥 <b>Approved Users:</b> {len(APPROVED_USERS)}\n"
-        f"🚫 <b>Banned Users:</b> {len(BANNED_USERS)}\n"
-        f"⭐ <b>Custom Subscriptions:</b> {len(USER_SUBS)}\n"
+        f"👥 <b>Approved Users:</b> {len(db.data["approved"])}\n"
+        f"🚫 <b>Banned Users:</b> {len(db.data["banned"])}\n"
+        f"⭐ <b>Custom Subscriptions:</b> {len(db.data["subscriptions"])}\n"
         f"📅 <b>Total Files Processed Today:</b> {today_files}\n"
         f"⚙️ <b>Active Cloud Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
@@ -989,7 +1027,7 @@ async def subscription_checker_loop(app: Application):
         try:
             today = date.today()
             changed = False
-            for uid, sub in list(USER_SUBS.items()):
+            for uid, sub in list(db.data["subscriptions"].items()):
                 try:
                     exp_date = date.fromisoformat(sub["expires_at"])
                     days_left = (exp_date - today).days
@@ -1044,7 +1082,7 @@ async def subscription_checker_loop(app: Application):
                     log.warning("Error checking subscription for %s: %s", uid, e)
 
             if changed:
-                save_user_subscriptions()
+                db.save()
         except Exception as e:
             log.exception("Error in subscription_checker_loop", exc_info=e)
 
@@ -1060,9 +1098,9 @@ async def weekly_analytics_loop(app: Application):
             report_text = (
                 "📈 <b>AUTOMATED WEEKLY ADMIN ANALYTICS REPORT</b>\n"
                 "═══════════════════════════════════\n"
-                f"👥 <b>Total Approved Users:</b> {len(APPROVED_USERS)}\n"
-                f"⭐ <b>Custom Subscribers:</b> {len(USER_SUBS)}\n"
-                f"🚫 <b>Banned Users:</b> {len(BANNED_USERS)}\n"
+                f"👥 <b>Total Approved Users:</b> {len(db.data["approved"])}\n"
+                f"⭐ <b>Custom Subscribers:</b> {len(db.data["subscriptions"])}\n"
+                f"🚫 <b>Banned Users:</b> {len(db.data["banned"])}\n"
                 f"📅 <b>Today's Files Processed:</b> {today_files}\n"
                 "⚙️ <b>Server Health:</b> 100% Operational 🔥\n\n"
                 "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
@@ -1097,6 +1135,12 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
+    
+    app.add_handler(CommandHandler("approved_users", cmd_list_users))
+    app.add_handler(CommandHandler("unapproved_users", cmd_list_users))
+    app.add_handler(CommandHandler("ban_users", cmd_list_users))
+    app.add_handler(CommandHandler("banned_users", cmd_list_users))
+    app.add_handler(CommandHandler("premium_users", cmd_list_users))
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("myid", cmd_myid))

@@ -61,3 +61,10 @@ jobs:
           python3 -m venv /tmp/venv
           /tmp/venv/bin/pip install -q httpx
           /tmp/venv/bin/python worker.py
+
+      - name: Delete Workflow Run
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X DELETE /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}
