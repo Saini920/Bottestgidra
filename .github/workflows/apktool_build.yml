@@ -23,9 +23,7 @@ jobs:
         sudo apt-get install -y zipalign apksigner || true
         # Install Apktool
         sudo mkdir -p /opt/apktool
-        sudo wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool -O /usr/local/bin/apktool
-        sudo wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar -O /opt/apktool/apktool.jar
-        sudo chmod +x /usr/local/bin/apktool
+        sudo curl -L -o /opt/apktool/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar
         
         # Generate Debug Keystore
         keytool -genkey -v -keystore debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
