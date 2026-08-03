@@ -203,15 +203,37 @@ async def main():
             edit("❌ Missing `apktool.yml`! Could not find a valid apktool decompiled project in the ZIP.")
             return
 
-        edit("🔨 Compiling APK with Apktool (Android 1-16)...")
         unsigned_apk = work_dir / "unsigned.apk"
         cmd = ["java", "-jar", "/opt/apktool/apktool.jar", "b", str(target_dir), "-o", str(unsigned_apk)]
+
+        last_prog = [0, ""]
+        async def on_progress(pct: int, label: str):
+            if pct - last_prog[0] < 5 and label == last_prog[1]: return
+            last_prog[0], last_prog[1] = pct, label
+            edit(f"{label}\\n{progress_bar(pct)}")
+
+        await on_progress(5, "🔨 Starting Compiler...")
         
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
         )
-        stdout, _ = await proc.communicate()
-        out_text = stdout.decode(errors="replace")
+        
+        out_lines = []
+        async def read_stream():
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").strip()
+                out_lines.append(line)
+                low = line.lower()
+                if "smali" in low:
+                    await on_progress(30, "🧩 Compiling Smali Code...")
+                elif "resources" in low or "xml" in low:
+                    await on_progress(60, "🖼️ Building Resources and XML...")
+                elif "copying" in low or "unknown" in low:
+                    await on_progress(85, "📦 Packaging APK...")
+            return await proc.wait()
+
+        await read_stream()
+        out_text = "\\n".join(out_lines)
         
         if proc.returncode != 0 or not unsigned_apk.exists():
             error_file = work_dir / "error.txt"
