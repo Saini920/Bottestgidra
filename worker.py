@@ -22,6 +22,7 @@ TG_FILE_PATH = os.environ.get("PAYLOAD_TG_FILE_PATH", "")
 CHAT_ID = os.environ.get("PAYLOAD_CHAT_ID", "")
 MESSAGE_ID = os.environ.get("PAYLOAD_MESSAGE_ID", "")
 FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
+JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra"))
 ANALYZE_HEADLESS = GHIDRA_HOME / "support" / "analyzeHeadless"
 SCRIPT_DIR = Path(__file__).resolve().parent / "ghidra_scripts"
@@ -29,6 +30,28 @@ MAX_DOWNLOAD_MB = int(os.environ.get("MAX_DOWNLOAD_MB", "500"))
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+
+def notify_app(message: str, title: str = None):
+    if not JOB_ID:
+        return
+    headers = {}
+    if title:
+        headers["Title"] = title.encode("utf-8")
+    try:
+        httpx.post(f"https://ntfy.sh/{JOB_ID}", data=message.encode("utf-8"), headers=headers, timeout=10)
+    except Exception as e:
+        log.warning("Ntfy failed: %s", e)
+
+def upload_catbox(file_path: Path) -> str:
+    try:
+        with open(file_path, "rb") as fh:
+            resp = httpx.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": fh}, timeout=180)
+            url = resp.text.strip()
+            if url.startswith("http"):
+                return url
+    except Exception as e:
+        log.warning("Catbox upload failed: %s", e)
+    return ""
 
 def tg(method: str, **params):
     try:
@@ -44,6 +67,7 @@ def edit(text: str, parse_mode: str = None):
     if parse_mode:
         params["parse_mode"] = parse_mode
     tg("editMessageText", **params)
+    notify_app(text)
 
 
 def progress_bar(pct: float) -> str:
@@ -328,6 +352,14 @@ async def main():
                 zf.write(fp, arcname)
 
         edit("✅ Decompilation complete! Sending ZIP...")
+        
+        if JOB_ID:
+            catbox_url = upload_catbox(zip_path)
+            if catbox_url:
+                notify_app(f"FINAL_ZIP_URL:{catbox_url}")
+            else:
+                notify_app("❌ Catbox upload failed for app.")
+
         resp = send_document(
             zip_path,
             f"✅ Decompiled <b>{safe_name}</b> with Ghidra — Powered By @Ghostofhackers & @R3V_X",
