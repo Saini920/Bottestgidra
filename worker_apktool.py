@@ -209,7 +209,7 @@ async def main():
 
         try:
             if TG_FILE_PATH:
-                dl_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{TG_FILE_PATH}"
+                dl_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{TG_FILE_PATH}"
                 edit("📥 Downloading from Telegram...")
                 async with httpx.AsyncClient(timeout=300.0) as client:
                     async with client.stream("GET", dl_url) as resp:
