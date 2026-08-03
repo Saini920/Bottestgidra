@@ -47,11 +47,22 @@ GITHUB_EVENT = os.environ.get("GITHUB_EVENT", "decompile-job")
 from database import GistDB
 db = GistDB(GITHUB_TOKEN)
 
+def record_user_name(user):
+    uid = str(user.id)
+    name = user.first_name
+    if user.username:
+        name += f" (@{user.username})"
+    if db.get_name(uid) != name:
+        db.data["names"][uid] = name
+        db.save()
+
+
 
 FORCE_CHANNELS = ["-1002378157598", "-1003121382577"]
 
 async def check_force_join(update, context) -> bool:
     uid = update.effective_user.id
+    record_user_name(update.effective_user)
     if str(uid) in ADMIN_IDS: return True
     for ch in FORCE_CHANNELS:
         try:
@@ -192,6 +203,7 @@ except: pass
 
 async def check_force_join(update, context) -> bool:
     uid = update.effective_user.id
+    record_user_name(update.effective_user)
     if str(uid) in ADMIN_IDS: return True
     for ch in FORCE_CHANNELS:
         try:
@@ -236,6 +248,7 @@ async def reply_denied(msg, user_id: int = None) -> None:
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = query.from_user
+    record_user_name(user)
     data = query.data
 
     if data == "buy_sub":
@@ -384,7 +397,12 @@ async def cmd_list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = f"<b>{title} ({len(users)}):</b>\n"
     for u in users:
-        text += f"• <code>{u}</code>\n"
+        name = db.get_name(u)
+        if name == "Unknown":
+            name = ""
+        else:
+            name = f" - {name}"
+        text += f"• <code>{u}</code>{name}\n"
     if not users: text += "None found."
     await update.message.reply_text(text, parse_mode="HTML")
 
