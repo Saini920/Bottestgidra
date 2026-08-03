@@ -101,8 +101,7 @@ from datetime import date, timedelta
 
 def check_daily_limit(user_id: int) -> str | None:
     uid = str(user_id)
-    if uid in ADMIN_IDS:
-        return None  # Admins have NO limits!
+    is_admin = uid in ADMIN_IDS
 
     today = date.today()
     today_iso = today.isoformat()
@@ -113,9 +112,8 @@ def check_daily_limit(user_id: int) -> str | None:
             if today > exp_date:
                 db.remove_approved(uid)
                 db.remove_sub(uid)
-                
-                
-                return "⚠️ <b>Access Expired!</b>\nYour custom subscription period has ended. Please contact Admin to renew."
+                if not is_admin:
+                    return "⚠️ <b>Access Expired!</b>\nYour custom subscription period has ended. Please contact Admin to renew."
             user_max_files = sub.get("daily_limit", MAX_DAILY_FILES)
         except Exception:
             user_max_files = MAX_DAILY_FILES
@@ -124,7 +122,7 @@ def check_daily_limit(user_id: int) -> str | None:
 
     record = db.data['daily_usage'].get(uid)
     if record and record["date"] == today_iso:
-        if record["count"] >= user_max_files:
+        if not is_admin and record["count"] >= user_max_files:
             return f"⚠️ <b>Daily Limit Reached!</b>\nYou have reached your daily quota of <b>{user_max_files} files</b>. Further uploads will be permitted tomorrow."
         record["count"] += 1
     else:
