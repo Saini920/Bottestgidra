@@ -92,7 +92,6 @@ def is_allowed(user_id: int) -> bool:
 
 job_queue = asyncio.Queue()
 active_jobs_timestamps = []
-daily_usage = {}  # {user_id: {"date": date_obj, "count": int}}
 
 from datetime import date, timedelta
 
@@ -103,6 +102,7 @@ def check_daily_limit(user_id: int) -> str | None:
         return None  # Admins have NO limits!
 
     today = date.today()
+    today_iso = today.isoformat()
     sub = db.data["subscriptions"].get(uid)
     if sub:
         try:
@@ -119,13 +119,14 @@ def check_daily_limit(user_id: int) -> str | None:
     else:
         user_max_files = MAX_DAILY_FILES
 
-    record = daily_usage.get(user_id)
-    if record and record["date"] == today:
+    record = db.data['daily_usage'].get(uid)
+    if record and record["date"] == today_iso:
         if record["count"] >= user_max_files:
             return f"⚠️ <b>Daily Limit Reached!</b>\nYou have reached your daily quota of <b>{user_max_files} files</b>. Further uploads will be permitted tomorrow."
         record["count"] += 1
     else:
-        daily_usage[user_id] = {"date": today, "count": 1}
+        db.data['daily_usage'][uid] = {"date": today_iso, "count": 1}
+    db.save()
     return None
 
 
@@ -704,7 +705,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         daily_max = MAX_DAILY_FILES
         sub_info = f"⭐ <b>Subscription Plan:</b> Standard Approved Access\n"
 
-    used_today = record["count"] if ((record := daily_usage.get(user.id)) and record["date"] == today) else 0
+    used_today = record["count"] if ((record := db.data['daily_usage'].get(user.id)) and record["date"] == today.isoformat()) else 0
     if uid_str in ADMIN_IDS:
         remaining = "Unlimited"
         used_display = f"{used_today} / Unlimited"
@@ -790,7 +791,7 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
 
     elif state == "AWAITING_BROADCAST":
         broadcast_msg = text
-        target_users = set(db.data["approved"] + list(daily_usage.keys()))
+        target_users = set(db.data["approved"] + list(db.data['daily_usage'].keys()))
         sent, failed = 0, 0
         status_msg = await update.message.reply_text("📢 Broadcasting message...")
         for uid in target_users:
@@ -946,7 +947,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if context.args:
         broadcast_msg = update.message.text.split(None, 1)[1]
-        target_users = set(db.data["approved"] + list(daily_usage.keys()))
+        target_users = set(db.data["approved"] + list(db.data['daily_usage'].keys()))
         sent, failed = 0, 0
         status_msg = await update.message.reply_text("📢 Broadcasting message...")
         for tu in target_users:
@@ -1024,8 +1025,8 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     now = time.time()
     active_now = len([t for t in active_jobs_timestamps if now - t < 600])
-    today = date.today()
-    today_files = sum(rec["count"] for rec in daily_usage.values() if rec.get("date") == today)
+    today_iso = date.today().isoformat()
+    today_files = sum(rec["count"] for rec in db.data['daily_usage'].values() if rec.get("date") == today_iso)
     stats_text = (
         "📊 <b>ADMIN SYSTEM STATS</b>\n"
         "═══════════════════════\n"
@@ -1112,7 +1113,8 @@ async def weekly_analytics_loop(app: Application):
         await asyncio.sleep(604800)  # Every 7 days
         try:
             today = date.today()
-            today_files = sum(rec["count"] for rec in daily_usage.values() if rec.get("date") == today)
+            today_iso = today.isoformat()
+            today_files = sum(rec["count"] for rec in db.data['daily_usage'].values() if rec.get("date") == today_iso)
             report_text = (
                 "📈 <b>AUTOMATED WEEKLY ADMIN ANALYTICS REPORT</b>\n"
                 "═══════════════════════════════════\n"

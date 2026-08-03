@@ -10,7 +10,7 @@ class RepoDB:
         self.token = token
         self.repo = repo
         self.headers = {"Authorization": f"token {self.token}", "Accept": "application/vnd.github.v3+json"}
-        self.data = {"approved": [], "banned": [], "subscriptions": {}, "names": {}}
+        self.data = {"approved": [], "banned": [], "subscriptions": {}, "names": {}, "daily_usage": {}}
         self.file_sha = None
         if self.token and self.repo:
             self._load()
@@ -26,6 +26,7 @@ class RepoDB:
                 self.data["banned"] = loaded.get("banned", [])
                 self.data["subscriptions"] = loaded.get("subscriptions", {})
                 self.data["names"] = loaded.get("names", {})
+                self.data["daily_usage"] = loaded.get("daily_usage", {})
         except Exception as e:
             log.error(f"RepoDB load error: {e}")
 
