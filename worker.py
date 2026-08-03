@@ -43,15 +43,24 @@ def notify_app(message: str, title: str = None):
     except Exception as e:
         log.warning("Ntfy failed: %s", e)
 
-def upload_catbox(file_path: Path) -> str:
+def upload_gofile(file_path: Path) -> str:
+    token = "j7HmWBxOe5wamBhhg4gb9DOwCN5WzOKh"
     try:
-        with open(file_path, "rb") as fh:
-            resp = httpx.post("https://catbox.moe/user/api.php", data={"reqtype": "fileupload"}, files={"fileToUpload": fh}, timeout=180)
-            url = resp.text.strip()
-            if url.startswith("http"):
-                return url
+        with httpx.Client(timeout=180) as client:
+            r = client.get("https://api.gofile.io/servers")
+            servers = r.json().get("data", {}).get("servers", [])
+            if not servers: return ""
+            server = servers[0]["name"]
+            
+            with open(file_path, "rb") as fh:
+                r = client.post(
+                    f"https://{server}.gofile.io/contents/uploadfile",
+                    data={"token": token},
+                    files={"file": (file_path.name, fh)}
+                )
+                return r.json().get("data", {}).get("downloadPage", "")
     except Exception as e:
-        log.warning("Catbox upload failed: %s", e)
+        log.warning("GoFile upload failed: %s", e)
     return ""
 
 def tg(method: str, **params):
@@ -355,21 +364,29 @@ async def main():
         edit("✅ Decompilation complete! Sending ZIP...")
         
         if JOB_ID:
-            catbox_url = upload_catbox(zip_path)
-            if catbox_url:
-                notify_app(f"FINAL_ZIP_URL:{catbox_url}")
+            gofile_url = upload_gofile(zip_path)
+            if gofile_url:
+                notify_app(f"FINAL_ZIP_URL:{gofile_url}")
             else:
-                notify_app("❌ Catbox upload failed for app.")
+                notify_app("❌ GoFile upload failed for app.")
 
-        resp = send_document(
-            zip_path,
-            f"✅ Decompiled <b>{safe_name}</b> with Ghidra — Powered By @Ghostofhackers & @R3V_X",
-            f"{orig_stem}_decompiled.zip",
-        )
-        if resp and resp.get("ok"):
-            edit("✅ Decompilation complete! ZIP file delivered. 🔥")
+        if zip_path.stat().st_size > 49_000_000:
+            edit("📦 File is larger than 50MB. Uploading to GoFile Cloud...")
+            gofile_url = upload_gofile(zip_path)
+            if gofile_url:
+                edit(f"✅ <b>Decompilation Complete!</b>\n\n📁 <b>File:</b> <code>{orig_stem}_decompiled.zip</code>\n📦 <b>Size:</b> {zip_path.stat().st_size / (1024*1024):.2f} MB\n\n☁️ <b>Download Link:</b>\n{gofile_url}\n\n<i>⚡ Powered By @Ghostofhackers & @R3V_X</i>", parse_mode="HTML")
+            else:
+                edit("❌ Result ZIP is too large for Telegram, and GoFile upload failed.")
         else:
-            edit("❌ Result ZIP ready, but Telegram send failed. Try again.")
+            resp = send_document(
+                zip_path,
+                f"✅ Decompiled <b>{safe_name}</b> with Ghidra — Powered By @Ghostofhackers & @R3V_X",
+                f"{orig_stem}_decompiled.zip",
+            )
+            if resp and resp.get("ok"):
+                edit("✅ Decompilation complete! ZIP file delivered. 🔥")
+            else:
+                edit("❌ Result ZIP ready, but Telegram send failed. Try again.")
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
