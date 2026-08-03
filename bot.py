@@ -1122,6 +1122,29 @@ def main():
         )
     else:
         log.info("Polling mode")
+        
+        # Start a dummy HTTP server to pass Railway healthchecks
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        class HealthCheckHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"OK")
+            def log_message(self, format, *args):
+                pass
+        
+        def start_dummy_server():
+            try:
+                server = HTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
+                log.info(f"Dummy HTTP server started on port {PORT} for health checks")
+                server.serve_forever()
+            except Exception as e:
+                log.error(f"Failed to start dummy HTTP server: {e}")
+                
+        threading.Thread(target=start_dummy_server, daemon=True).start()
+        
         app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
