@@ -93,6 +93,7 @@ def is_allowed(user_id: int) -> bool:
     return uid in db.data["approved"]
 
 job_queue = asyncio.Queue()
+PENDING_JOBS = {}
 active_jobs_timestamps = []
 
 from datetime import date, timedelta
@@ -132,7 +133,7 @@ def check_daily_limit(user_id: int) -> str | None:
     return None
 
 
-async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = ""):
+async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", engine: str = "ghidra"):
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
     now = time.time()
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
@@ -142,7 +143,7 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
 
     if is_priority or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
         active_jobs_timestamps.append(now)
-        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin)
+        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine)
     else:
         pos = job_queue.qsize() + 1
         priority_label = "⚡ <b>Priority Fast-Lane Slot Granted!</b>\n" if is_priority else ""
@@ -173,7 +174,7 @@ async def queue_worker_loop():
                 active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
 
             active_jobs_timestamps.append(now)
-            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin)
+            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine)
             job_queue.task_done()
         except Exception as e:
             log.exception("Queue worker error", exc_info=e)
@@ -519,7 +520,7 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Your Telegram User ID:\n<code>{update.effective_user.id}</code>", parse_mode=constants.ParseMode.HTML)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False) -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT) -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
@@ -533,7 +534,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         client_payload["tg_file_path"] = tg_file_path
     else:
         client_payload["file_url"] = file_url
-    payload = {"event_type": GITHUB_EVENT, "client_payload": client_payload}
+    payload = {"event_type": event_type, "client_payload": client_payload}
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
@@ -548,7 +549,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     return resp.status_code in (204, 200)
 
 
-async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False):
+async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra"):
     if not GITHUB_TOKEN:
         await status.edit_text(
             "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b> on Railway.\n"
@@ -557,7 +558,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             parse_mode=constants.ParseMode.HTML,
         )
         return
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin):
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, 'decompile-apktool' if engine == 'apktool' else 'decompile-job'):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
@@ -622,7 +623,20 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status.edit_text("❌ Could not get file path from Telegram. Try the /link method.")
             return
 
-        await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path)
+        if doc.file_name and doc.file_name.lower().endswith(".apk"):
+            import uuid
+            job_id = str(uuid.uuid4())[:8]
+            PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": ""}
+            await status.edit_text(
+                "🤖 <b>APK Detected!</b>\nChoose your decompilation engine:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
+                    [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
+                ])
+            )
+        else:
+            await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path)
     except Exception as e:
         await status.edit_text("❌ File processing failed: " + str(e))
 
@@ -671,9 +685,23 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = update.message
-    status = await msg.reply_text("🔗 Link received! Sending to server...")
+    status = await msg.reply_text("🔗 Link received! Processing...")
     filename = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "download"
-    await enqueue_or_dispatch(msg, status, url, str(filename))
+    if filename.lower().endswith(".apk"):
+        import uuid
+        job_id = str(uuid.uuid4())[:8]
+        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
+        await status.edit_text(
+            "🤖 <b>APK Detected!</b>\nChoose your decompilation engine:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
+                [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
+            ])
+        )
+    else:
+        await status.edit_text("🔗 Link received! Sending to server...")
+        await enqueue_or_dispatch(msg, status, url, str(filename))
 
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):

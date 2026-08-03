@@ -1,0 +1,52 @@
+name: decompile-apktool
+
+on:
+  repository_dispatch:
+    types: [decompile-apktool]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Apktool
+        id: apktool-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/apktool
+          key: apktool-2.10.0
+
+      - name: Get Apktool
+        if: steps.apktool-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo mkdir -p /opt/apktool
+          sudo curl -L -o /opt/apktool/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar
+          echo "Apktool ready"
+
+      - name: Run apktool worker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+          PAYLOAD_FILE_URL: ${{ github.event.client_payload.file_url }}
+          PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
+          PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+          PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
+          PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
+          PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q httpx
+          /tmp/venv/bin/python worker_apktool.py
