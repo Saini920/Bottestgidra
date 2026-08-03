@@ -48,11 +48,7 @@ from database import GistDB
 db = GistDB(GITHUB_TOKEN)
 
 
-FORCE_CHANNELS = ["@allinformation0173"]
-try:
-    if os.environ.get("FORCE_CHANNEL_2"):
-        FORCE_CHANNELS.append(os.environ.get("FORCE_CHANNEL_2"))
-except: pass
+FORCE_CHANNELS = ["-1002378157598", "-1003121382577"]
 
 async def check_force_join(update, context) -> bool:
     uid = update.effective_user.id
@@ -62,7 +58,8 @@ async def check_force_join(update, context) -> bool:
             member = await context.bot.get_chat_member(chat_id=ch, user_id=uid)
             if member.status in ["left", "kicked"]:
                 raise Exception("Not member")
-        except Exception:
+        except Exception as e:
+            log.warning(f"Force join check failed for {ch}: {e}")
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("Join Channel 1", url="https://t.me/allinformation0173")],
                 [InlineKeyboardButton("Join Channel 2", url="https://t.me/+gQawrH0MFs00M2Y1")]
