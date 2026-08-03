@@ -249,6 +249,25 @@ async def reply_denied(msg, user_id: int = None) -> None:
     await msg.reply_text(text, parse_mode=constants.ParseMode.HTML, reply_markup=keyboard)
 
 
+
+async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    
+    parts = data.split("_")
+    if len(parts) != 3: return
+    engine = parts[1]
+    job_id = parts[2]
+    
+    if job_id not in PENDING_JOBS:
+        await query.edit_message_text("❌ This request has expired or is invalid.")
+        return
+        
+    job = PENDING_JOBS.pop(job_id)
+    await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
+    await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine)
+
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = query.from_user
@@ -1274,6 +1293,7 @@ def main():
     app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_file))
+    app.add_handler(CallbackQueryHandler(handle_engine_choice, pattern="^engine_"))
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
 
