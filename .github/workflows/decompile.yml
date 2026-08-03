@@ -54,6 +54,7 @@ jobs:
           PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
           PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
           PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
+          PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
           JAVA_MAX_MEM: "6G"
         run: |
           python3 -m venv /tmp/venv
