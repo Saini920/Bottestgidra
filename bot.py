@@ -646,20 +646,35 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status.edit_text("❌ Could not get file path from Telegram. Try the /link method.")
             return
 
+        import uuid
+        job_id = str(uuid.uuid4())[:8]
+        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": ""}
+        
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
-            import uuid
-            job_id = str(uuid.uuid4())[:8]
-            PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": ""}
             await status.edit_text(
-                "🤖 <b>APK Detected!</b>\nChoose your decompilation engine:",
+                "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
+                "• 📱 <b>Apktool:</b> Decompile APKs (Smali/XML)\n"
+                "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (C Code)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
                     [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
                 ])
             )
+        elif doc.file_name and doc.file_name.lower().endswith(".zip"):
+            await status.edit_text(
+                "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
+                "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP\n"
+                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                    [InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")]
+                ])
+            )
         else:
-            await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path)
+            await status.edit_text("📥 <b>Downloading to Cloud Server...</b>\n⏳ Processing with Ghidra Engine...", parse_mode="HTML")
+            await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra")
     except Exception as e:
         await status.edit_text("❌ File processing failed: " + str(e))
 
