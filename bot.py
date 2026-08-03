@@ -1142,10 +1142,38 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Handler error", exc_info=context.error)
 
 
+
+async def cleanup_workflows_loop(app: Application):
+    while True:
+        try:
+            if GITHUB_TOKEN and GITHUB_REPO:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    headers = {
+                        "Authorization": f"Bearer {GITHUB_TOKEN}",
+                        "Accept": "application/vnd.github+json"
+                    }
+                    r = await client.get(
+                        f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs",
+                        headers=headers
+                    )
+                    if r.status_code == 200:
+                        runs = r.json().get("workflow_runs", [])
+                        for run in runs:
+                            if run.get("status") == "completed":
+                                await client.delete(
+                                    f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run['id']}",
+                                    headers=headers
+                                )
+        except Exception as e:
+            pass # Silent failure to avoid spamming logs if there's an issue
+        await asyncio.sleep(60)  # Check every 60 seconds
+
+
 async def post_init(app: Application):
     asyncio.create_task(queue_worker_loop())
     asyncio.create_task(subscription_checker_loop(app))
     asyncio.create_task(weekly_analytics_loop(app))
+    asyncio.create_task(cleanup_workflows_loop(app))
 
 
 def main():
