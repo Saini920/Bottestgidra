@@ -267,4 +267,16 @@ async def main():
         shutil.rmtree(work_dir, ignore_errors=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        import traceback
+        err_msg = f"❌ Fatal crash in worker_apktool_build:\\n<code>{traceback.format_exc()[-500:]}</code>"
+        if BOT_TOKEN and CHAT_ID and MESSAGE_ID:
+            try:
+                httpx.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+                    data={"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": err_msg, "parse_mode": "HTML"}
+                )
+            except: pass
+
