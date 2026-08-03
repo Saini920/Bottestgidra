@@ -140,11 +140,12 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
     now = time.time()
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
 
-    is_priority = user_id in ADMIN_IDS or user_id in USER_SUBS
+    is_admin = user_id in ADMIN_IDS
+    is_priority = is_admin or user_id in USER_SUBS
 
     if is_priority or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
         active_jobs_timestamps.append(now)
-        await send_to_job(msg, status, file_url, filename, tg_file_path)
+        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin)
     else:
         pos = job_queue.qsize() + 1
         priority_label = "⚡ <b>Priority Fast-Lane Slot Granted!</b>\n" if is_priority else ""
@@ -155,14 +156,18 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
             "Decompilation will start automatically as soon as a slot opens.",
             parse_mode=constants.ParseMode.HTML,
         )
-        await job_queue.put((msg, status, file_url, filename, tg_file_path))
+        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin))
 
 
 async def queue_worker_loop():
     while True:
         try:
             item = await job_queue.get()
-            msg, status, file_url, filename, tg_file_path = item
+            if len(item) == 5:
+                msg, status, file_url, filename, tg_file_path = item
+                is_admin = False
+            else:
+                msg, status, file_url, filename, tg_file_path, is_admin = item
             now = time.time()
             active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
             while len(active_jobs_timestamps) >= MAX_CONCURRENT_JOBS:
@@ -171,7 +176,7 @@ async def queue_worker_loop():
                 active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
 
             active_jobs_timestamps.append(now)
-            await send_to_job(msg, status, file_url, filename, tg_file_path)
+            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin)
             job_queue.task_done()
         except Exception as e:
             log.exception("Queue worker error", exc_info=e)
@@ -453,7 +458,7 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Your Telegram User ID:\n<code>{update.effective_user.id}</code>", parse_mode=constants.ParseMode.HTML)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "") -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False) -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
@@ -461,6 +466,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "message_id": str(message_id),
         "filename": filename,
         "bot_token": BOT_TOKEN,
+        "is_admin": str(is_admin),
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
@@ -481,7 +487,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     return resp.status_code in (204, 200)
 
 
-async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = ""):
+async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False):
     if not GITHUB_TOKEN:
         await status.edit_text(
             "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b> on Railway.\n"
@@ -490,7 +496,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             parse_mode=constants.ParseMode.HTML,
         )
         return
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path):
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "

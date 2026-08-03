@@ -23,6 +23,7 @@ CHAT_ID = os.environ.get("PAYLOAD_CHAT_ID", "")
 MESSAGE_ID = os.environ.get("PAYLOAD_MESSAGE_ID", "")
 FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
 JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
+IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra"))
 ANALYZE_HEADLESS = GHIDRA_HOME / "support" / "analyzeHeadless"
 SCRIPT_DIR = Path(__file__).resolve().parent / "ghidra_scripts"
@@ -266,7 +267,7 @@ async def main():
         if size == 0:
             edit("❌ Downloaded file is empty.")
             return
-        if size > MAX_DOWNLOAD_MB * 1024 * 1024:
+        if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.")
             return
 
@@ -300,7 +301,7 @@ async def main():
                     if ext in [".so", ".dll", ".exe", ".elf", ".apk", ".bin", ".jar", ".o", ".dylib"] or (not ext and fp.stat().st_size > 1024):
                         candidates.append(fp)
 
-            if len(candidates) > 5:
+            if len(candidates) > 5 and not IS_ADMIN:
                 edit(f"⚠️ <b>Batch Limit Exceeded!</b>\nZIP archive contains <b>{len(candidates)} binary files</b>. Maximum batch limit is <b>5 files</b> per ZIP.", parse_mode="HTML")
                 return
 
