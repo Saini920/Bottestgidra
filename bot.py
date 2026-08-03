@@ -88,6 +88,8 @@ def is_allowed(user_id: int) -> bool:
     # Admins and allowed users from ENV bypass approval
     if uid in ADMIN_IDS or uid in ALLOWED_USERS:
         return True
+    if db.data.get("free_mode", False):
+        return True
     return uid in db.data["approved"]
 
 job_queue = asyncio.Queue()
@@ -877,6 +879,21 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
             ADMIN_STATE[user_id] = "AWAITING_SETLIMIT_DAYS"
 
 
+
+async def cmd_free(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) not in ADMIN_IDS:
+        return
+    db.data["free_mode"] = True
+    db.save()
+    await update.message.reply_text("✅ <b>Bot is now in FREE mode!</b>\nAll users can now use the bot without needing approval.", parse_mode="HTML")
+
+async def cmd_unfree(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) not in ADMIN_IDS:
+        return
+    db.data["free_mode"] = False
+    db.save()
+    await update.message.reply_text("❌ <b>Bot is NO LONGER in free mode.</b>\nNew users will need to request approval again. Previously approved users will continue working fine.", parse_mode="HTML")
+
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(update.effective_user.id)
     if uid not in ADMIN_IDS:
@@ -1213,6 +1230,8 @@ def main():
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("profile", cmd_profile))
+    app.add_handler(CommandHandler("free", cmd_free))
+    app.add_handler(CommandHandler("unfree", cmd_unfree))
     app.add_handler(CommandHandler("approve", cmd_approve))
     app.add_handler(CommandHandler("unapprove", cmd_unapprove))
     app.add_handler(CommandHandler("ban", cmd_ban))
