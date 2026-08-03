@@ -705,7 +705,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         daily_max = MAX_DAILY_FILES
         sub_info = f"⭐ <b>Subscription Plan:</b> Standard Approved Access\n"
 
-    used_today = record["count"] if ((record := db.data['daily_usage'].get(user.id)) and record["date"] == today.isoformat()) else 0
+    used_today = record["count"] if ((record := db.data['daily_usage'].get(uid_str)) and record["date"] == today.isoformat()) else 0
     if uid_str in ADMIN_IDS:
         remaining = "Unlimited"
         used_display = f"{used_today} / Unlimited"
@@ -717,6 +717,16 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     now = time.time()
     active_now = len([t for t in active_jobs_timestamps if now - t < 600])
+    if GITHUB_TOKEN and GITHUB_REPO:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+                r1 = await client.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status=in_progress", headers=headers)
+                r2 = await client.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status=queued", headers=headers)
+                if r1.status_code == 200 and r2.status_code == 200:
+                    active_now = r1.json().get("total_count", 0) + r2.json().get("total_count", 0)
+        except Exception:
+            pass
 
     profile_text = (
         "👤 <b>USER PROFILE & SUBSCRIPTION DETAILS</b>\n"
@@ -1025,6 +1035,16 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     now = time.time()
     active_now = len([t for t in active_jobs_timestamps if now - t < 600])
+    if GITHUB_TOKEN and GITHUB_REPO:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+                r1 = await client.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status=in_progress", headers=headers)
+                r2 = await client.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status=queued", headers=headers)
+                if r1.status_code == 200 and r2.status_code == 200:
+                    active_now = r1.json().get("total_count", 0) + r2.json().get("total_count", 0)
+        except Exception:
+            pass
     today_iso = date.today().isoformat()
     today_files = sum(rec["count"] for rec in db.data['daily_usage'].values() if rec.get("date") == today_iso)
     stats_text = (
