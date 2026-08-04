@@ -1,0 +1,43 @@
+name: compile-cocos
+run-name: Cocos-${{ github.event.client_payload.engine }}-${{ github.event.client_payload.chat_id }}
+on:
+  repository_dispatch:
+    types: [compile-cocos]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  build_cocos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Cocos Console / LuaJIT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit lua5.1 wget unzip nodejs npm
+          # We'll download Cocos console or jscompile binaries inside the worker script if needed.
+
+      - name: Run Cocos worker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+          PAYLOAD_FILE_URL: ${{ github.event.client_payload.file_url }}
+          PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
+          PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+          PAYLOAD_ORIGINAL_MESSAGE_ID: ${{ github.event.client_payload.original_message_id }}
+          PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
+          PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
+          PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
+          PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
+          PAYLOAD_ENGINE: ${{ github.event.client_payload.engine }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto
+          /tmp/venv/bin/python worker_cocos.py

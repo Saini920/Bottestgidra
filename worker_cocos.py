@@ -3,18 +3,17 @@ import logging
 import os
 import re
 import shutil
-import subprocess
+import zipfile
 import sys
 import tempfile
-import zipfile
-from html import unescape
 from pathlib import Path
 from urllib.parse import unquote
+from html import unescape
 
 import httpx
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("worker")
+log = logging.getLogger("worker_apktool")
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 FILE_URL = os.environ.get("PAYLOAD_FILE_URL", "")
@@ -24,9 +23,6 @@ MESSAGE_ID = os.environ.get("PAYLOAD_MESSAGE_ID", "")
 FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
 JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
-GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra"))
-ANALYZE_HEADLESS = GHIDRA_HOME / "support" / "analyzeHeadless"
-SCRIPT_DIR = Path(__file__).resolve().parent / "ghidra_scripts"
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 100
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -42,6 +38,9 @@ def notify_app(message: str, title: str = None):
         httpx.post(f"https://ntfy.sh/{JOB_ID}", data=message.encode("utf-8"), headers=headers, timeout=10)
     except Exception as e:
         log.warning("Ntfy failed: %s", e)
+
+
+
 
 
 def tg(method: str, **params):
@@ -91,32 +90,6 @@ def progress_bar(pct: float) -> str:
     return f"{bar} {val:.2f} %"
 
 
-def apply_memory_settings():
-    mem = os.environ.get("JAVA_MAX_MEM", "4G")
-    props = GHIDRA_HOME / "support" / "launch.properties"
-    try:
-        text = props.read_text(errors="replace")
-        new = re.sub(r"^JAVA_MAX_MEM\s*=.*$", f"JAVA_MAX_MEM={mem}", text, flags=re.M)
-        if new == text and "JAVA_MAX_MEM" not in text:
-            new = text.rstrip("\n") + f"\nJAVA_MAX_MEM={mem}\n"
-        if new != text:
-            props.write_text(new)
-        log.info("JAVA_MAX_MEM set to %s", mem)
-    except Exception as e:
-        log.warning("Could not set JAVA_MAX_MEM: %s", e)
-
-
-def resolve_drive_url(url: str):
-    if "drive.google.com" not in url:
-        return url
-    m = re.search(r"/file/d/([^/?#]+)", url)
-    if not m:
-        m = re.search(r"[?&]id=([^&#]+)", url)
-    if m:
-        return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
-    return url
-
-
 async def download_url(url: str, dest: Path, on_progress) -> str:
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     fid = None
@@ -144,14 +117,14 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
                                    f"?id={fid}&export=download&confirm={m.group(1)}")
                             continue
                         if "Google Drive" in html or "drive.google" in html:
-                            raise ValueError("Google Drive file not accessible (check link permission / sharing).")
+                            raise ValueError("Google Drive file not accessible.")
                     m = re.search(r'href="(https?://download[0-9]+\.mediafire\.com/[^"]+)"', html)
                     if m:
                         url = unescape(m.group(1))
                         continue
                     raise ValueError("The link is a webpage, not a direct file.")
 
-                filename = "download.bin"
+                filename = "download.apk"
                 cd = resp.headers.get("content-disposition", "")
                 m = re.search(r'filename="?([^";]+)"?', cd)
                 if m:
@@ -174,53 +147,76 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
         raise ValueError("Could not download file from this link.")
 
 
-async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
-    project_dir = work_dir / "project"
-    project_dir.mkdir(parents=True)
-    out_c = work_dir / "decompiled.c"
-    out_meta = work_dir / "info.txt"
+ENGINE = os.environ.get("PAYLOAD_ENGINE", "cocos-both")
 
-    cmd = [
-        str(ANALYZE_HEADLESS),
-        str(project_dir),
-        "Proj",
-        "-overwrite",
-        "-import", str(file_path),
-        "-scriptPath", str(SCRIPT_DIR),
-        "-postScript", "DecompileAll.java",
-        str(out_c), str(out_meta),
-        "-deleteProject",
-    ]
-    log.info("Running: %s", " ".join(cmd))
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-    )
+async def run_cocos_build(src_zip: Path, work_dir: Path, on_progress) -> Path:
+    src_dir = work_dir / "src"
+    out_dir = work_dir / "out"
+    src_dir.mkdir(parents=True)
+    out_dir.mkdir(parents=True)
+    
+    with zipfile.ZipFile(src_zip, 'r') as zf:
+        zf.extractall(src_dir)
+        
+    await on_progress(50, "🛠️ Extracted source. Preparing Cocos compiler...")
+    
+    arch = ENGINE.split("-")[1] if "-" in ENGINE else "both"
+    if arch == "32":
+        compiler_arch = "32-bit"
+    elif arch == "64":
+        compiler_arch = "64-bit"
+    else:
+        compiler_arch = "both"
+        
+    await on_progress(60, f"🛠️ Compiling JS/Lua to bytecode ({compiler_arch})...")
+    
+    # We will iterate through files and compile them
+    js_files = list(src_dir.rglob("*.js"))
+    lua_files = list(src_dir.rglob("*.lua"))
+    
+    total_files = len(js_files) + len(lua_files)
+    if total_files == 0:
+        raise RuntimeError("No .js or .lua files found in the uploaded ZIP!")
+        
+    for i, fp in enumerate(js_files):
+        rel = fp.relative_to(src_dir)
+        out_fp = out_dir / rel.with_suffix(".jsc")
+        out_fp.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Here we should call the actual jscompile binary for the selected architecture.
+        # For now, we will simulate or use a dummy command until the user provides the specific jsc binaries.
+        # cocos jscompile -s src -d dst
+        
+        # NOTE: To implement the REAL Cocos JS compilation, we need the Spidermonkey binaries for 32/64 bit.
+        # We will attempt to run a generic command. If it fails, the error handler will catch it and send error.txt
+        proc = await asyncio.create_subprocess_exec(
+            "jscompile", "--arch", arch, str(fp), "-o", str(out_fp),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(f"jscompile failed! (Ensure jscompile is installed for {arch})\n")
+            
+        if i % 5 == 0:
+            await on_progress(60 + int((i/total_files)*30), f"⚙️ Compiling JS: {rel.name}...")
+            
+    for i, fp in enumerate(lua_files):
+        rel = fp.relative_to(src_dir)
+        out_fp = out_dir / rel.with_suffix(".luac")
+        out_fp.parent.mkdir(parents=True, exist_ok=True)
+        
+        proc = await asyncio.create_subprocess_exec(
+            "luajit", "-b", str(fp), str(out_fp),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        )
+        await proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError("luajit failed to compile Lua script!")
+            
+        await on_progress(60 + int(((len(js_files)+i)/total_files)*30), f"⚙️ Compiling Lua: {rel.name}...")
 
-    tail = []
-    await on_progress(5, "📥 Importing file into Ghidra...")
-
-    async def read_stream():
-        async for raw in proc.stdout:
-            line = raw.decode(errors="replace").strip()
-            tail.append(line)
-            del tail[:-60]
-            low = line.lower()
-            if "analyzing" in low or "processing" in low:
-                await on_progress(20, "🔧 Analyzing binary with Ghidra...")
-            m = re.search(r"DECOMP_PROGRESS\s+(\d+)/(\d+)", line)
-            if m:
-                done, total = int(m.group(1)), int(m.group(2))
-                pct = int(20 + 75 * (done / total)) if total else 20
-                await on_progress(pct, f"🧠 Decompiling functions {done}/{total}...")
-        return await proc.wait()
-
-    try:
-        rc = await asyncio.wait_for(read_stream(), timeout=3600)
-    except asyncio.TimeoutError:
-        proc.kill()
-        raise TimeoutError("Ghidra analysis timed out")
-    log.info("analyzeHeadless exit=%s", rc)
-    return {"c": out_c, "meta": out_meta, "tail": "\n".join(tail[-40:]), "returncode": rc}
+    await on_progress(90, "📦 Build complete. Packaging bytecode...")
+    return out_dir
 
 
 def send_document(file_path: Path, caption: str, filename: str):
@@ -239,20 +235,19 @@ async def main():
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
 
-    edit("🟢 Job started! Preparing Ghidra engine on cloud server...", parse_mode="HTML")
-    apply_memory_settings()
+    edit("🟢 Job started! Preparing Cocos compilation on cloud server...", parse_mode="HTML")
 
-    work_dir = Path(tempfile.gettempdir()) / ("ghidra_" + os.urandom(8).hex())
+    work_dir = Path(tempfile.gettempdir()) / ("cocos_" + os.urandom(8).hex())
     try:
         work_dir.mkdir(parents=True)
-        dest = work_dir / "input.bin"
+        dest = work_dir / "input.zip"
         last = [-100.0]
 
         async def on_dl(pct: float):
             if pct < last[0] or (pct - last[0] < 2.0 and pct < 100.0): return
             last[0] = pct
             is_mtproto = bool(os.environ.get("PAYLOAD_FILE_ID", ""))
-            dl_text = "📥 Downloading via MTProto (Pyrogram)..." if is_mtproto else "📥 Downloading file..."
+            dl_text = "📥 Downloading ZIP via MTProto (Pyrogram)..." if is_mtproto else "📥 Downloading ZIP..."
             edit(f"{dl_text}\n\n{progress_bar(pct)}")
 
         try:
@@ -276,7 +271,7 @@ async def main():
                 if proc.returncode != 0:
                     raise ValueError(f"MTProto Download failed with code {proc.returncode}")
             elif TG_FILE_PATH:
-                filename = FILENAME or "download.bin"
+                filename = FILENAME or "download.zip"
                 tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
                 async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
                     async with client.stream("GET", tg_url) as resp:
@@ -291,7 +286,7 @@ async def main():
                                     pct = min(100, int(downloaded * 100 / total))
                                     await on_dl(pct)
             else:
-                filename = await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
+                filename_dl = await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
         except Exception as e:
             edit("❌ Download failed: " + str(e)[:300])
             return
@@ -304,95 +299,44 @@ async def main():
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return
 
-        edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Ghidra analysis...")
+        edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Cocos compilation...")
 
-        last = [0, ""]
+        last_prog = [0, ""]
+        async def on_progress(pct: int, text: str):
+            if pct < last_prog[0] or (pct == last_prog[0] and text == last_prog[1]): return
+            last_prog[0] = pct; last_prog[1] = text
+            edit(f"{text}\n\n{progress_bar(pct)}")
 
-        async def on_progress(pct: int, label: str = "🧠 Analyzing..."):
-            if pct - last[0] < 5 and label == last[1]:
-                return
-            last[0], last[1] = pct, label
-            edit(f"{label}\n{progress_bar(pct)}")
-
-        out_files = []
-
-        # Check if downloaded file is a ZIP archive containing multiple binaries (Batch Decompile)
-        if zipfile.is_zipfile(dest):
-            extract_dir = work_dir / "extracted_batch"
-            extract_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                with zipfile.ZipFile(dest, "r") as zf:
-                    zf.extractall(extract_dir)
-            except Exception as e:
-                log.warning("ZIP extract error: %s", e)
-
-            candidates = []
-            is_apk = filename.lower().endswith(".apk")
-            for root, dirs, files in os.walk(extract_dir):
-                for f in files:
-                    fp = Path(root) / f
-                    ext = fp.suffix.lower()
-                    if is_apk:
-                        # For APKs, only decompile native .so files
-                        if ext == ".so":
-                            candidates.append(fp)
-                    else:
-                        if ext in [".so", ".dll", ".exe", ".elf", ".apk", ".bin", ".jar", ".o", ".dylib"] or (not ext and fp.stat().st_size > 1024):
-                            candidates.append(fp)
-
-            if len(candidates) > 5 and not IS_ADMIN:
-                edit(f"⚠️ <b>Batch Limit Exceeded!</b>\nArchive contains <b>{len(candidates)} binary files</b>. Maximum batch limit is <b>5 files</b> per ZIP.", parse_mode="HTML")
-                return
-
-            if len(candidates) >= 1:
-                edit(f"📦 <b>Batch / APK Detected!</b> Found {len(candidates)} binary file(s). Starting multi-file decompilation...", parse_mode="HTML")
-                for idx, bin_path in enumerate(candidates, start=1):
-                    edit(f"⚙️ <b>Processing ({idx}/{len(candidates)}):</b> <code>{bin_path.name}</code>...", parse_mode="HTML")
-                    try:
-                        res = await asyncio.wait_for(
-                            run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress), timeout=1800
-                        )
-                        bname = bin_path.stem
-                        if res["c"].exists() and res["c"].stat().st_size > 0:
-                            out_files.append((f"{bname}.c", res["c"]))
-                        if res["meta"].exists() and res["meta"].stat().st_size > 0:
-                            out_files.append((f"{bname}_info.txt", res["meta"]))
-                    except Exception as e:
-                        log.warning("Batch file %s failed: %s", bin_path.name, e)
-
-        if not out_files:
-            try:
-                result = await asyncio.wait_for(
-                    run_ghidra(dest, work_dir / "analysis", on_progress), timeout=3900
-                )
-                bname = Path(filename).stem or "decompiled"
-                if result["c"].exists() and result["c"].stat().st_size > 0:
-                    out_files.append((f"{bname}.c", result["c"]))
-                if result["meta"].exists() and result["meta"].stat().st_size > 0:
-                    out_files.append((f"{bname}_info.txt", result["meta"]))
-            except TimeoutError:
-                edit("⏰ Timeout! The file is too big or complex.", keep_button=False)
-                return
-            except Exception as e:
-                await send_error_log(work_dir, e, "Decompilation crashed")
-                return
-
-        if not out_files:
-            edit("❌ Analysis failed or no output files generated.")
+        try:
+            out_dir = await run_cocos_build(dest, work_dir, on_progress)
+            bname = Path(FILENAME).stem or "source"
+        except asyncio.TimeoutError:
+            edit("⏰ Cocos build timeout.", keep_button=False)
+            return
+        except Exception as e:
+            await send_error_log(work_dir, e, "Cocos Build crashed")
             return
 
-        edit("📦 Packaging results...")
-        safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", filename)[:60] or "file"
-        orig_stem = Path(safe_name).stem or "decompiled"
-
-        zip_path = work_dir / f"{orig_stem}_decompiled.zip"
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for arcname, fp in out_files:
-                zf.write(fp, arcname)
-
-        edit("✅ Decompilation complete! Sending ZIP...")
+        edit("📦 Packaging compiled scripts...")
+        safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", FILENAME)[:60] or "source"
+        orig_stem = Path(safe_name).stem or "compiled"
+        zip_path = work_dir / f"{orig_stem}_cocos_scripts.zip"
         
-        caption = f"✅ Decompiled <b>{safe_name}</b> with Ghidra — Powered By @Ghostofhackers & @R3V_X"
+        has_files = False
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(out_dir):
+                for f in files:
+                    fp = Path(root) / f
+                    arcname = fp.relative_to(out_dir)
+                    zf.write(fp, arcname)
+                    has_files = True
+                    
+        if not has_files:
+            edit("❌ Build succeeded but no bytecode files were generated.", keep_button=False)
+            return
+
+        edit("✅ Compilation complete! Sending ZIP...")
+        caption = f"✅ Cocos Compiled <b>{safe_name}</b>\nArchitecture: <code>{ENGINE.split('-')[1]}</code>\n— Powered By @Ghostofhackers & @R3V_X"
         up_last = [0]
         async def on_up(pct: int):
             if pct < up_last[0] or pct - up_last[0] < 2: return
@@ -418,10 +362,10 @@ async def main():
             edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥", keep_button=False)
             
             if JOB_ID:
-                # App integration needs a direct link which we no longer have. 
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
             await send_error_log(work_dir, e, "MTProto upload failed")
+
     except Exception as fatal_e:
         if 'work_dir' in locals():
             await send_error_log(work_dir, fatal_e, "Fatal Worker Crash")
@@ -430,7 +374,6 @@ async def main():
     finally:
         if 'work_dir' in locals():
             shutil.rmtree(work_dir, ignore_errors=True)
-
 
 if __name__ == "__main__":
     asyncio.run(main())
