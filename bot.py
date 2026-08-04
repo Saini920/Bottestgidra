@@ -446,8 +446,10 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
                 env=env,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
             )
+            dl_logs = []
             async for raw in proc.stdout:
                 line = raw.decode(errors="replace").strip()
+                if line: dl_logs.append(line)
                 if line.startswith("PROGRESS:") and progress_cb:
                     try:
                         pct = float(line.split(":")[1])
@@ -457,6 +459,9 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
             await proc.wait()
             if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
                 return True
+            else:
+                err_msg = "\n".join(dl_logs[-10:])
+                log.error(f"bot.py MTProto Download Failed (code {proc.returncode}). Logs:\n{err_msg}")
         except Exception as e:
             log.warning("MTProto download failed in bot.py: %s", e)
 
