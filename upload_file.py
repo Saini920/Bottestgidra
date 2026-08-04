@@ -7,10 +7,14 @@ async def progress(current, total):
         print(f"PROGRESS:{pct:.2f}", flush=True)
 
 async def main():
-    api_id = int(os.environ.get("API_ID", 0))
-    api_hash = os.environ.get("API_HASH", "")
-    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("PAYLOAD_CHAT_ID", "")
+    raw_api = os.environ.get("API_ID", "").strip()
+    api_id = int(raw_api) if raw_api.isdigit() else 0
+    api_hash = os.environ.get("API_HASH", "").strip()
+    bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    
+    raw_chat = os.environ.get("PAYLOAD_CHAT_ID", "").strip()
+    chat_id = int(raw_chat) if raw_chat.lstrip("-").isdigit() else 0
+    
     file_path = sys.argv[1] if len(sys.argv) > 1 else ""
     caption = sys.argv[2] if len(sys.argv) > 2 else ""
     
