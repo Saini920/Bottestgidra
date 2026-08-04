@@ -41,9 +41,9 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "42def829": {
+    "c7a6cb3c": {
       "chat_id": 7251749429,
-      "status_message_id": 654,
+      "status_message_id": 660,
       "filename": "test video.zip",
       "tg_file_path": "",
       "file_url": "",
