@@ -41,9 +41,9 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "e5f8fdd0": {
+    "69a3b90c": {
       "chat_id": 7251749429,
-      "status_message_id": 729,
+      "status_message_id": 731,
       "filename": "libgojni.so",
       "tg_file_path": "",
       "file_url": "",
