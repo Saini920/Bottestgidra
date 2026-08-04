@@ -165,8 +165,8 @@ async def main():
             if file_id:
                 filename = FILENAME or "download.zip"
                 edit(f"📥 Downloading ZIP via MTProto (Pyrogram)...")
-                import subprocess
-                res = subprocess.run(["python3", "download_file.py", str(dest)], capture_output=True, text=True)
+                import subprocess, sys
+                res = subprocess.run([sys.executable, "download_file.py", str(dest)], capture_output=True, text=True)
                 if res.returncode != 0:
                     raise ValueError(f"MTProto Download failed: {res.stderr}\n{res.stdout}")
             elif TG_FILE_PATH:

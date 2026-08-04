@@ -52,5 +52,5 @@ jobs:
           GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
         run: |
           python3 -m venv /tmp/venv
-          /tmp/venv/bin/pip install -q httpx
+          /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto
           /tmp/venv/bin/python worker_apktool.py

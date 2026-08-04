@@ -255,8 +255,8 @@ async def main():
             if file_id:
                 filename = FILENAME or "download.bin"
                 edit(f"📥 Downloading large file via MTProto (Pyrogram)...\n(Bypassing Telegram 20MB limit)")
-                import subprocess
-                res = subprocess.run(["python3", "download_file.py", str(dest)], capture_output=True, text=True)
+                import subprocess, sys
+                res = subprocess.run([sys.executable, "download_file.py", str(dest)], capture_output=True, text=True)
                 if res.returncode != 0:
                     raise ValueError(f"MTProto Download failed: {res.stderr}\n{res.stdout}")
             elif TG_FILE_PATH:
