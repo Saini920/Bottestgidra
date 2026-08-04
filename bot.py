@@ -278,42 +278,8 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
         return
         
     job = PENDING_JOBS.pop(job_id)
-    if engine in ["ndk", "cocos"]:
-        # Ask for architecture
-        await query.edit_message_text(
-            f"🛠️ <b>{engine.upper()} Selected!</b>\nChoose architecture for compilation:",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("32-bit (armeabi-v7a)", callback_data=f"arch_{engine}_32_{job_id}")],
-                [InlineKeyboardButton("64-bit (arm64-v8a)", callback_data=f"arch_{engine}_64_{job_id}")],
-                [InlineKeyboardButton("Both (32-bit & 64-bit)", callback_data=f"arch_{engine}_both_{job_id}")]
-            ])
-        )
-        # Re-insert job since we need it for the next callback
-        PENDING_JOBS[job_id] = job
-        return
-        
     await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
     await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine, job.get("file_id", ""))
-
-async def handle_arch_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    parts = query.data.split("_")
-    if len(parts) != 4: return
-    engine = parts[1]
-    arch = parts[2]
-    job_id = parts[3]
-    
-    if job_id not in PENDING_JOBS:
-        await query.edit_message_text("❌ This request has expired or is invalid.")
-        return
-        
-    job = PENDING_JOBS.pop(job_id)
-    await query.edit_message_text(f"🚀 Job submitted for {engine.upper()} ({arch}) engine! Sending to server...")
-    engine_with_arch = f"{engine}-{arch}"
-    await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine_with_arch, job.get("file_id", ""))
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -631,7 +597,7 @@ async def cancel_github_job(job_name: str):
                 log.warning("Failed to cancel github job %s: %s", job_name, e)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, engine: str = "") -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0) -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
@@ -642,7 +608,6 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
         "file_id": file_id,
-        "engine": engine,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
@@ -680,14 +645,10 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-apktool"
     elif engine == "apktool-build":
         event_type = "compile-apktool"
-    elif engine.startswith("ndk-"):
-        event_type = "compile-ndk"
-    elif engine.startswith("cocos-"):
-        event_type = "compile-cocos"
     else:
         event_type = "decompile-job"
         
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, engine):
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
@@ -789,25 +750,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
             if is_premium:
-                btn_build = InlineKeyboardButton("🔨 Compile APK", callback_data=f"engine_apktool-build_{job_id}")
-                btn_ndk = InlineKeyboardButton("🛠️ Android NDK (.so)", callback_data=f"engine_ndk_{job_id}")
-                btn_cocos = InlineKeyboardButton("🎮 Cocos2d-x (.jsc)", callback_data=f"engine_cocos_{job_id}")
+                btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
             else:
-                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium)", callback_data="buy_sub")
-                btn_ndk = InlineKeyboardButton("🔒 Android NDK (Premium)", callback_data="buy_sub")
-                btn_cocos = InlineKeyboardButton("🔒 Cocos2d-x (Premium)", callback_data="buy_sub")
+                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
                 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
-                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)\n"
-                "• 🛠️ <b>Android NDK:</b> Compile C/C++ source to .so (⭐ Premium)\n"
-                "• 🎮 <b>Cocos2d-x:</b> Compile JS/Lua to .jsc/.luac (⭐ Premium)",
+                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
-                    [btn_build],
-                    [btn_ndk, btn_cocos]
+                    [btn_build]
                 ])
             )
         else:
@@ -871,28 +825,22 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
     
     if is_premium:
-        btn_apktool = InlineKeyboardButton("📱 Apktool", callback_data=f"engine_apktool_{job_id}")
-        btn_build = InlineKeyboardButton("🔨 Compile APK", callback_data=f"engine_apktool-build_{job_id}")
-        btn_ndk = InlineKeyboardButton("🛠️ Android NDK (.so)", callback_data=f"engine_ndk_{job_id}")
-        btn_cocos = InlineKeyboardButton("🎮 Cocos2d-x (.jsc)", callback_data=f"engine_cocos_{job_id}")
+        btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
+        btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
     else:
-        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium)", callback_data="buy_sub")
-        btn_build = InlineKeyboardButton("🔒 Compile APK (Premium)", callback_data="buy_sub")
-        btn_ndk = InlineKeyboardButton("🔒 Android NDK (Premium)", callback_data="buy_sub")
-        btn_cocos = InlineKeyboardButton("🔒 Cocos2d-x (Premium)", callback_data="buy_sub")
+        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
+        btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
 
     await status.edit_text(
         "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
         "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
         "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
-        "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)\n"
-        "• 🛠️ <b>Android NDK:</b> Compile C/C++ source to .so (⭐ Premium)\n"
-        "• 🎮 <b>Cocos2d-x:</b> Compile JS/Lua to .jsc/.luac (⭐ Premium)",
+        "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
-            [btn_apktool, btn_build],
-            [InlineKeyboardButton("⚙️ Ghidra (C Code / ZIP)", callback_data=f"engine_ghidra_{job_id}")],
-            [btn_ndk, btn_cocos]
+            [btn_apktool],
+            [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
+            [btn_build]
         ])
     )
 
@@ -1465,7 +1413,6 @@ def main():
     app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_file))
-    app.add_handler(CallbackQueryHandler(handle_arch_choice, pattern="^arch_"))
     app.add_handler(CallbackQueryHandler(handle_engine_choice, pattern="^engine_"))
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
