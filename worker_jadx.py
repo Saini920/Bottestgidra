@@ -148,9 +148,9 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
     target_file = file_path
     if file_path.suffix.lower() == ".zip":
         with zipfile.ZipFile(file_path, "r") as zf:
-            dex_files = [n for n in zf.namelist() if n.lower().endswith(".dex")]
+            dex_files = [n for n in zf.namelist() if n.lower().endswith((".dex", ".smali", ".class", ".jar"))]
             if dex_files:
-                extract_dir = work_dir / "extracted_dex"
+                extract_dir = work_dir / "extracted_src"
                 extract_dir.mkdir(exist_ok=True)
                 for df in dex_files:
                     zf.extract(df, extract_dir)
