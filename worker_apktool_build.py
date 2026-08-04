@@ -227,7 +227,7 @@ async def main():
         async def on_progress(pct: int, label: str):
             if pct - last_prog[0] < 5 and label == last_prog[1]: return
             last_prog[0], last_prog[1] = pct, label
-            edit(f"{label}\\n{progress_bar(pct)}")
+            edit(f"{label}\n{progress_bar(pct)}")
 
         await on_progress(5, "🔨 Starting Compiler...")
         
@@ -250,7 +250,7 @@ async def main():
             return await proc.wait()
 
         await read_stream()
-        out_text = "\\n".join(out_lines)
+        out_text = "\n".join(out_lines)
         
         if proc.returncode != 0 or not unsigned_apk.exists():
             error_file = work_dir / "error.txt"
@@ -285,7 +285,7 @@ async def main():
             if signed_apk.exists():
                 zf.write(signed_apk, f"{safe_name}_signed.apk")
 
-        caption = f"✅ Compiled <b>{safe_name}</b> successfully!\\nIncludes both Signed & Unsigned versions. — Powered By @Ghostofhackers & @R3V_X"
+        caption = f"✅ Compiled <b>{safe_name}</b> successfully!\nIncludes both Signed & Unsigned versions. — Powered By @Ghostofhackers & @R3V_X"
         up_last = [0]
         async def on_up(pct: int):
             if pct < up_last[0] or pct - up_last[0] < 2: return
@@ -323,7 +323,7 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         import traceback
-        err_msg = f"❌ Fatal crash in worker_apktool_build:\\n<code>{traceback.format_exc()[-500:]}</code>"
+        err_msg = f"❌ Fatal crash in worker_apktool_build:\n<code>{traceback.format_exc()[-500:]}</code>"
         if BOT_TOKEN and CHAT_ID and MESSAGE_ID:
             try:
                 httpx.post(
