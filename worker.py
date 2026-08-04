@@ -44,7 +44,7 @@ def notify_app(message: str, title: str = None):
         log.warning("Ntfy failed: %s", e)
 
 def upload_gofile(file_path: Path) -> str:
-    token = "j7HmWBxOe5wamBhhg4gb9DOwCN5WzOKh"
+    token = os.environ.get("GOFILE_TOKEN", "j7HmWBxOe5wamBhhg4gb9DOwCN5WzOKh")
     try:
         with httpx.Client(timeout=180) as client:
             r = client.get("https://api.gofile.io/servers")

@@ -44,4 +44,5 @@ jobs:
         PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
         PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
         PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
+        GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
       run: python worker_apktool_build.py
