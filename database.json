@@ -41,13 +41,13 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "ccc8a50f": {
+    "42def829": {
       "chat_id": 7251749429,
-      "status_message_id": 650,
-      "filename": "MainActivity.smali",
-      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_22.smali",
+      "status_message_id": 654,
+      "filename": "test video.zip",
+      "tg_file_path": "",
       "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICgmpx5hFPI2sqGd2O1KPomY2AtnP4AAJiHwACk7qQVyK1OHkWio1XPQQ",
+      "file_id": "BQACAgUAAxkBAAICZmpx28IY9GBAWznGGWCgAeg4oN2IAAJHHwACk7qQV5v3JgLrl_dmPQQ",
       "user_id": 7251749429
     }
   }
