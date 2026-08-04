@@ -158,11 +158,15 @@ async def run_ndk_build(src_zip: Path, work_dir: Path, on_progress) -> Path:
         
     await on_progress(50, "🛠️ Extracted source. Preparing NDK...")
     
-    android_mk_list = list(src_dir.rglob("Android.mk"))
-    if not android_mk_list:
-        raise RuntimeError("Android.mk not found in the uploaded ZIP! Please include an Android.mk file.")
-        
-    android_mk = android_mk_list[0]
+    jni_dir = src_dir / "jni"
+    if not jni_dir.exists():
+        if (src_dir / "Android.mk").exists():
+            jni_dir.mkdir()
+            for item in src_dir.iterdir():
+                if item.name != "jni":
+                    shutil.move(str(item), str(jni_dir / item.name))
+        else:
+            pass
             
     arch = ENGINE.split("-")[1] if "-" in ENGINE else "both"
     if arch == "32":
@@ -172,8 +176,8 @@ async def run_ndk_build(src_zip: Path, work_dir: Path, on_progress) -> Path:
     else:
         app_abi = "armeabi-v7a arm64-v8a"
         
-    app_mk = android_mk.parent / "Application.mk"
-    if not app_mk.exists():
+    app_mk = src_dir / "jni" / "Application.mk"
+    if (src_dir / "jni").exists() and not app_mk.exists():
         app_mk.write_text(f"APP_ABI := {app_abi}\nAPP_PLATFORM := android-21\n")
         
     ndk_home = os.environ.get("ANDROID_NDK_HOME", "")
@@ -182,10 +186,7 @@ async def run_ndk_build(src_zip: Path, work_dir: Path, on_progress) -> Path:
     await on_progress(60, f"🛠️ Starting NDK Build ({app_abi})...")
     
     proc = await asyncio.create_subprocess_exec(
-        str(ndk_build), 
-        f"NDK_PROJECT_PATH={src_dir}",
-        f"APP_BUILD_SCRIPT={android_mk}",
-        f"NDK_APPLICATION_MK={app_mk}",
+        str(ndk_build), "-C", str(src_dir),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
     )
     
