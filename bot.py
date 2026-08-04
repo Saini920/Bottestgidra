@@ -4,6 +4,8 @@ import os
 import re
 import sys
 import time
+import tempfile
+import shutil
 
 from datetime import date
 import httpx
