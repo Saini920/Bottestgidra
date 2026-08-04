@@ -93,6 +93,7 @@ def is_allowed(user_id: int) -> bool:
     return uid in db.data["approved"]
 
 job_queue = asyncio.Queue()
+PENDING_JOBS = {}
 active_jobs_timestamps = []
 CANCELLED_JOBS = set()
 
