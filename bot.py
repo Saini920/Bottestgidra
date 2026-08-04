@@ -462,8 +462,10 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
             else:
                 err_msg = "\n".join(dl_logs[-10:])
                 log.error(f"bot.py MTProto Download Failed (code {proc.returncode}). Logs:\n{err_msg}")
+                raise ValueError(f"MTProto Download Failed:\n{err_msg}")
         except Exception as e:
             log.warning("MTProto download failed in bot.py: %s", e)
+            raise
 
     target_url = ""
     if tg_file_path:
@@ -489,8 +491,9 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
                 return True
         except Exception as e:
             log.warning("HTTP download failed in bot.py: %s", e)
+            raise ValueError(f"HTTP download failed: {e}")
 
-    return False
+    raise ValueError("No valid URL or File ID found to download.")
 
 
 async def get_so_count_from_zip(job, context) -> int:
