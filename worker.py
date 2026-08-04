@@ -53,10 +53,16 @@ def tg(method: str, **params):
         return None
 
 
-def edit(text: str, parse_mode: str = None):
+import json
+
+def edit(text: str, parse_mode: str = None, keep_button: bool = True):
     params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
     if parse_mode:
         params["parse_mode"] = parse_mode
+    if keep_button:
+        params["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
+        })
     tg("editMessageText", **params)
     notify_app(text)
 
@@ -276,10 +282,10 @@ async def main():
 
         size = dest.stat().st_size
         if size == 0:
-            edit("❌ Downloaded file is empty.")
+            edit("❌ Downloaded file is empty.", keep_button=False)
             return
         if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
-            edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.")
+            edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return
 
         edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Ghidra analysis...")
@@ -349,11 +355,11 @@ async def main():
                 if result["meta"].exists() and result["meta"].stat().st_size > 0:
                     out_files.append((f"{bname}_info.txt", result["meta"]))
             except TimeoutError:
-                edit("⏰ Timeout! The file is too big or packed.")
+                edit("⏰ Timeout! The file is too big or complex.", keep_button=False)
                 return
             except Exception as e:
-                log.exception("analysis crashed")
-                edit("❌ Analysis crashed: " + str(e)[:300])
+                log.exception("Ghidra crashed")
+                edit("❌ Decompilation failed: " + str(e)[:300], keep_button=False)
                 return
 
         if not out_files:
@@ -395,13 +401,13 @@ async def main():
             await proc.wait()
             if proc.returncode != 0:
                 raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
-            edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥")
+            edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥", keep_button=False)
             
             if JOB_ID:
                 # App integration needs a direct link which we no longer have. 
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
-            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}")
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}", keep_button=False)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 

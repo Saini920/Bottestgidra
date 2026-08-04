@@ -52,10 +52,16 @@ def tg(method: str, **params):
         return None
 
 
-def edit(text: str, parse_mode: str = None):
+import json
+
+def edit(text: str, parse_mode: str = None, keep_button: bool = True):
     params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
     if parse_mode:
         params["parse_mode"] = parse_mode
+    if keep_button:
+        params["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
+        })
     tg("editMessageText", **params)
     notify_app(text)
 
@@ -234,10 +240,10 @@ async def main():
 
         size = dest.stat().st_size
         if size == 0:
-            edit("❌ Downloaded file is empty.")
+            edit("❌ Downloaded file is empty.", keep_button=False)
             return
         if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
-            edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.")
+            edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return
 
         edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Apktool analysis...")
@@ -253,11 +259,11 @@ async def main():
             out_dir = await run_apktool(dest, work_dir, on_progress)
             bname = Path(FILENAME).stem or "decompiled_apk"
         except TimeoutError:
-            edit("⏰ Timeout! The APK is too big.")
+            edit("⏰ Timeout! The APK is too big.", keep_button=False)
             return
         except Exception as e:
             log.exception("Apktool crashed")
-            edit("❌ Apktool failed: " + str(e)[:300])
+            edit("❌ Apktool failed: " + str(e)[:300], keep_button=False)
             return
 
         edit("📦 Packaging results...")
@@ -300,12 +306,12 @@ async def main():
             await proc.wait()
             if proc.returncode != 0:
                 raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
-            edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥")
+            edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥", keep_button=False)
             
             if JOB_ID:
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
-            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}")
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}", keep_button=False)
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

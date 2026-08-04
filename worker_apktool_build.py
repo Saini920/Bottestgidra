@@ -48,10 +48,16 @@ def tg(method: str, **params):
         log.warning("tg %s failed: %s", method, e)
         return None
 
-def edit(text: str, parse_mode: str = None):
+import json
+
+def edit(text: str, parse_mode: str = None, keep_button: bool = True):
     params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
     if parse_mode:
         params["parse_mode"] = parse_mode
+    if keep_button:
+        params["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
+        })
     tg("editMessageText", **params)
     notify_app(text)
 
@@ -113,6 +119,13 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
                         if total:
                             pct = min(100, int(downloaded * 100 / total))
                             await on_progress(pct)
+                size = dest.stat().st_size
+                if size == 0:
+                    edit("❌ Downloaded file is empty.", keep_button=False)
+                    return ""
+                if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
+                    edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
+                    return ""
                 return filename
         raise ValueError("Could not download file from this link.")
 
@@ -204,7 +217,7 @@ async def main():
                 break
         
         if not target_dir:
-            edit("❌ Missing `apktool.yml`! Could not find a valid apktool decompiled project in the ZIP.")
+            edit("❌ Missing `apktool.yml`! Could not find a valid apktool decompiled project in the ZIP.", keep_button=False)
             return
 
         unsigned_apk = work_dir / "unsigned.apk"
@@ -243,6 +256,7 @@ async def main():
             error_file = work_dir / "error.txt"
             with open(error_file, "w") as f:
                 f.write("Apktool Build Log:\n\n" + out_text)
+            edit("❌ Compilation Failed! Check error.txt", keep_button=False)
             send_document(error_file, "❌ <b>Compilation Failed!</b>\nPlease check the `error.txt` file for syntax or resource errors.", "error.txt")
             return
             
@@ -295,12 +309,12 @@ async def main():
             await proc.wait()
             if proc.returncode != 0:
                 raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
-            edit("✅ Compilation complete! ZIP file delivered via MTProto. 🔥")
+            edit("✅ Compilation complete! ZIP file delivered via MTProto. 🔥", keep_button=False)
             
             if JOB_ID:
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
-            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}")
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}", keep_button=False)
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

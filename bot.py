@@ -93,8 +93,8 @@ def is_allowed(user_id: int) -> bool:
     return uid in db.data["approved"]
 
 job_queue = asyncio.Queue()
-PENDING_JOBS = {}
 active_jobs_timestamps = []
+CANCELLED_JOBS = set()
 
 from datetime import date, timedelta
 
@@ -151,6 +151,7 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
             f"All active worker slots ({MAX_CONCURRENT_JOBS}/{MAX_CONCURRENT_JOBS}) are occupied.\n"
             "Decompilation will start automatically as soon as a slot opens.",
             parse_mode=constants.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status.message_id}")]])
         )
         await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id))
 
@@ -159,8 +160,12 @@ async def queue_worker_loop():
     while True:
         try:
             item = await job_queue.get()
-            if len(item) == 8:
-                msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id = item
+            msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id = item
+            
+            if status.message_id in CANCELLED_JOBS:
+                CANCELLED_JOBS.remove(status.message_id)
+                job_queue.task_done()
+                continue
             elif len(item) == 7:
                 msg, status, file_url, filename, tg_file_path, is_admin, engine = item
                 file_id = ""
@@ -280,6 +285,21 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     user = query.from_user
     record_user_name(user)
     data = query.data
+
+    if data.startswith("stop_"):
+        await query.answer("🛑 Stopping job...", show_alert=False)
+        try:
+            msg_id = int(data.split("_")[1])
+            chat_id = query.message.chat_id
+            job_name = f"job-{chat_id}-{msg_id}"
+            
+            CANCELLED_JOBS.add(msg_id)
+            asyncio.create_task(cancel_github_job(job_name))
+            
+            await query.edit_message_text("❌ <b>Job Cancelled by User.</b>", parse_mode=constants.ParseMode.HTML)
+        except Exception as e:
+            log.warning("Cancel failed: %s", e)
+        return
 
     if data == "buy_sub":
         await query.answer("⭐ Ghidra Decompiler Premium Plan (₹99)", show_alert=False)
@@ -550,6 +570,30 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Your Telegram User ID:\n<code>{update.effective_user.id}</code>", parse_mode=constants.ParseMode.HTML)
 
 
+async def cancel_github_job(job_name: str):
+    if not GITHUB_TOKEN: return
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ghidra-bot"
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for status in ["in_progress", "queued"]:
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}"
+            try:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    runs = resp.json().get("workflow_runs", [])
+                    for run in runs:
+                        if run.get("name") == job_name:
+                            run_id = run["id"]
+                            await client.post(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/cancel", headers=headers)
+                            log.info("Cancelled Github run %s for %s", run_id, job_name)
+                            return
+            except Exception as e:
+                log.warning("Failed to cancel github job %s: %s", job_name, e)
+
+
 async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "") -> bool:
     if not GITHUB_TOKEN:
         return False
@@ -581,6 +625,10 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
 
 
 async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra", file_id: str = ""):
+    if status.message_id in CANCELLED_JOBS:
+        CANCELLED_JOBS.remove(status.message_id)
+        return
+        
     if not GITHUB_TOKEN:
         await status.edit_text(
             "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b> on Railway.\n"
@@ -609,6 +657,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         "⏱️ Expected: 2-10 minutes.\n"
         "▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱ 0.00 %",
         parse_mode=constants.ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status.message_id}")]])
     )
 
 
