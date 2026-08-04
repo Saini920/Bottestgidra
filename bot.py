@@ -1032,19 +1032,23 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
             if is_premium:
+                btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
                 btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
                 btn_jadx = InlineKeyboardButton("☕ JADX (Decompile DEX/Smali in ZIP)", callback_data=f"engine_jadx_{job_id}")
             else:
+                btn_inspect = InlineKeyboardButton("🔒 Analyze & Security (Premium)", callback_data="buy_sub")
                 btn_build = InlineKeyboardButton("🔒 Compile APK (Premium)", callback_data="buy_sub")
                 btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
                 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
+                "• 🔍 <b>Analyze:</b> Instant Security & Packer Inspection (⭐ Premium)\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
                 "• ☕ <b>JADX:</b> Convert DEX/Smali inside ZIP to Java (⭐ Premium)\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_inspect],
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
                     [btn_jadx],
                     [btn_build]
