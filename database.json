@@ -41,18 +41,9 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "31f86337": {
+    "a71cb935": {
       "chat_id": 7251749429,
-      "status_message_id": 676,
-      "filename": "Spotify_1.3.apk",
-      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_21.apk",
-      "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICNmpxthDJAhekBiDWYnSMBRePUnQ7AAIZHgACk7qIV0ZnZsDNBvRnPQQ",
-      "user_id": 7251749429
-    },
-    "f583b7bc": {
-      "chat_id": 7251749429,
-      "status_message_id": 679,
+      "status_message_id": 684,
       "filename": "Spotify_1.3.apk",
       "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_21.apk",
       "file_url": "",
