@@ -41,23 +41,14 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "a71cb935": {
-      "chat_id": 7251749429,
-      "status_message_id": 684,
-      "filename": "Spotify_1.3.apk",
-      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_21.apk",
+    "f57f15e6": {
+      "chat_id": 6684870256,
+      "status_message_id": 688,
+      "filename": "libgojni.so",
+      "tg_file_path": "",
       "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICNmpxthDJAhekBiDWYnSMBRePUnQ7AAIZHgACk7qIV0ZnZsDNBvRnPQQ",
-      "user_id": 7251749429
-    },
-    "ea394637": {
-      "chat_id": 7251749429,
-      "status_message_id": 686,
-      "filename": "MainActivity.smali",
-      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_22.smali",
-      "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICgmpx5hFPI2sqGd2O1KPomY2AtnP4AAJiHwACk7qQVyK1OHkWio1XPQQ",
-      "user_id": 7251749429
+      "file_id": "BQACAgUAAxkBAAICr2px7A8p8hMgrT5KgzefhfrkosNEAAK7IgACIQRwV6GAq5VbeagVPQQ",
+      "user_id": 6684870256
     }
   }
 }
