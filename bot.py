@@ -274,9 +274,10 @@ def progress_bar(pct: float) -> str:
     return f"{bar} {val:.2f} %"
 
 
-async def inspect_apk_file_async(file_path: Path, progress_cb=None) -> str:
+async def inspect_apk_file_async(file_path: Path, filename_input: str = "app", progress_cb=None) -> tuple[str, str]:
     import zipfile
     import re
+    import hashlib
 
     packers = {
         r"libjiagu.*\.so": "🛡️ 360 Qihoo Guard (360加固)",
@@ -293,10 +294,22 @@ async def inspect_apk_file_async(file_path: Path, progress_cb=None) -> str:
     }
 
     detected_protections = []
-    archs = set()
-    dex_count = 0
+    arch_files = {}
+    so_files_list = []
+    dex_list = []
     total_files = 0
     pkg_name = "Unknown"
+
+    file_size_bytes = file_path.stat().st_size
+    file_size_mb = file_size_bytes / (1024 * 1024)
+
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            sha256_hash.update(chunk)
+    hash_str = sha256_hash.hexdigest()
+
+    file_types_count = {"dex": 0, "so": 0, "xml": 0, "png/jpg": 0, "other": 0}
 
     with zipfile.ZipFile(file_path, "r") as zf:
         namelist = zf.namelist()
@@ -304,14 +317,26 @@ async def inspect_apk_file_async(file_path: Path, progress_cb=None) -> str:
         for i, name in enumerate(namelist):
             if i % 100 == 0 and progress_cb:
                 scan_pct = min(95.0, 50.0 + (i / max(1, total_files)) * 45.0)
-                await progress_cb(scan_pct, "🔍 <b>Scanning APK & Security Protection...</b>")
+                await progress_cb(scan_pct, "🔍 <b>Scanning APK Structure & Protections...</b>")
 
-            if name.startswith("lib/"):
+            low_name = name.lower()
+            if low_name.endswith(".dex"):
+                file_types_count["dex"] += 1
+                dex_list.append(name)
+            elif low_name.endswith(".so"):
+                file_types_count["so"] += 1
+                so_files_list.append(name)
                 parts = name.split("/")
                 if len(parts) >= 2 and parts[1]:
-                    archs.add(parts[1])
-            if re.search(r"classes\d*\.dex", name):
-                dex_count += 1
+                    abi = parts[1]
+                    arch_files.setdefault(abi, []).append(parts[-1])
+            elif low_name.endswith(".xml"):
+                file_types_count["xml"] += 1
+            elif low_name.endswith((".png", ".jpg", ".webp", ".gif")):
+                file_types_count["png/jpg"] += 1
+            else:
+                file_types_count["other"] += 1
+
             for pattern, name_label in packers.items():
                 if re.search(pattern, name, re.IGNORECASE):
                     if name_label not in detected_protections:
@@ -332,23 +357,69 @@ async def inspect_apk_file_async(file_path: Path, progress_cb=None) -> str:
                     pass
 
     if progress_cb:
-        await progress_cb(98.0, "📊 <b>Generating Final Inspection Report...</b>")
+        await progress_cb(98.0, "📊 <b>Generating Deep Markdown Report...</b>")
 
-    arch_str = ", ".join(sorted(archs)) if archs else "None (Pure Java/Kotlin APK)"
+    arch_str = ", ".join(sorted(arch_files.keys())) if arch_files else "None (Pure Java/Kotlin APK)"
     prot_str = "\n".join([f"• {p}" for p in detected_protections]) if detected_protections else "✅ No Known Heavy Packer/Protection Detected (Clean)"
-    file_size_mb = file_path.stat().st_size / (1024 * 1024)
 
-    report = (
+    short_report = (
         "🔍 <b>APK Inspection & Security Report</b>\n\n"
         f"📦 <b>Package Name:</b> <code>{pkg_name}</code>\n"
         f"📏 <b>File Size:</b> <code>{file_size_mb:.2f} MB</code>\n"
-        f"📊 <b>DEX Count:</b> {dex_count} DEX file(s)\n"
+        f"📊 <b>DEX Count:</b> {file_types_count['dex']} DEX file(s)\n"
         f"🏛️ <b>Architectures (.so):</b> <code>{arch_str}</code>\n"
-        f"📁 <b>Total Files in APK:</b> {total_files}\n\n"
-        f"🛡️ <b>Security & Packer Status:</b>\n{prot_str}\n\n"
+        f"📁 <b>Total Files:</b> {total_files}\n\n"
+        f"🛡️ <b>Security Status:</b>\n{prot_str}\n\n"
+        "📄 <i>Full Deep Inspection Report attached below (.md)!</i>\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
-    return report
+
+    arch_md_section = ""
+    if arch_files:
+        for abi, libs in arch_files.items():
+            arch_md_section += f"### ABI: `{abi}` ({len(libs)} libraries)\n"
+            for lib in libs[:10]:
+                arch_md_section += f"- `{lib}`\n"
+            if len(libs) > 10:
+                arch_md_section += f"- *... and {len(libs)-10} more*\n"
+            arch_md_section += "\n"
+    else:
+        arch_md_section = "No native `.so` shared libraries found.\n"
+
+    prot_md_section = "\n".join([f"- {p}" for p in detected_protections]) if detected_protections else "- ✅ Clean (No Known Heavy Packer/Protection Detected)"
+
+    deep_md_report = f"""# 🔍 Deep Security Inspection Report
+
+## 📦 General Overview
+- **File Name:** `{filename_input}`
+- **Package Name:** `{pkg_name}`
+- **File Size:** `{file_size_mb:.2f} MB` ({file_size_bytes:,} bytes)
+- **SHA-256 Hash:** `{hash_str}`
+
+---
+
+## 🛡️ Security & Packer Analysis
+{prot_md_section}
+
+---
+
+## 🏛️ Native Architectures & Libraries (.so)
+{arch_md_section}
+
+---
+
+## 📊 File Breakdown
+- **Total Files:** `{total_files:,}`
+- **DEX Bytecode Files:** `{file_types_count['dex']}`
+- **Native `.so` Libraries:** `{file_types_count['so']}`
+- **XML Layouts & Configs:** `{file_types_count['xml']}`
+- **Images & Drawables:** `{file_types_count['png/jpg']}`
+- **Other Resources:** `{file_types_count['other']}`
+
+---
+*Report Generated By Ghidra Telegram Decompiler Bot*
+"""
+    return short_report, deep_md_report
 
 
 async def get_so_count_from_zip(job, context) -> int:
@@ -498,8 +569,20 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
 
             if dest.exists() and dest.stat().st_size > 0:
                 await update_inspect_progress(50.0, "🧠 <b>Scanning APK & Security Protection...</b>")
-                report_text = await inspect_apk_file_async(dest, update_inspect_progress)
-                await status_wrap.edit_text(report_text, parse_mode="HTML")
+                fname = job.get("filename", "app.apk")
+                short_report, deep_md = await inspect_apk_file_async(dest, fname, update_inspect_progress)
+                await status_wrap.edit_text(short_report, parse_mode="HTML")
+
+                md_path = temp_dir / "security_report.md"
+                md_path.write_text(deep_md, encoding="utf-8")
+                with open(md_path, "rb") as doc_f:
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=doc_f,
+                        filename="security_report.md",
+                        caption="📄 <b>Deep Security Inspection Report (.md)</b>",
+                        parse_mode="HTML"
+                    )
             else:
                 await status_wrap.edit_text("❌ Could not retrieve file for inspection.")
         except Exception as e:
