@@ -159,10 +159,13 @@ async def main():
 
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
-            if file_id and os.environ.get("API_ID", "").strip():
+            api_id = os.environ.get("API_ID", "").strip()
+            api_hash = os.environ.get("API_HASH", "").strip()
+            mtproto_success = False
+            
+            if file_id and api_id and api_hash:
                 filename = FILENAME or "download.bin"
                 await on_dl(0.0)
-                import sys
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "download_file.py", str(dest),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -176,9 +179,12 @@ async def main():
                         except ValueError:
                             pass
                 await proc.wait()
-                if proc.returncode != 0:
-                    raise ValueError(f"MTProto Download failed with code {proc.returncode}")
-            elif TG_FILE_PATH:
+                if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
+                    mtproto_success = True
+                else:
+                    print(f"MTProto Download Failed (code {proc.returncode}), trying fallback...")
+
+            if not mtproto_success and TG_FILE_PATH:
                 filename = FILENAME or "download.zip"
                 tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
                 async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
