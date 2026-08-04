@@ -41,20 +41,10 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "dac7c49f": {
+    "683acdb8": {
       "chat_id": 7251749429,
-      "status_message_id": 749,
-      "original_message_id": 748,
-      "filename": "libgojni.so",
-      "tg_file_path": "",
-      "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICr2px7A8p8hMgrT5KgzefhfrkosNEAAK7IgACIQRwV6GAq5VbeagVPQQ",
-      "user_id": 7251749429
-    },
-    "fd288287": {
-      "chat_id": 7251749429,
-      "status_message_id": 751,
-      "original_message_id": 750,
+      "status_message_id": 754,
+      "original_message_id": 753,
       "filename": "SnapTube VIP v7.69.1.79405200 Modded by Getmodpc.apk",
       "tg_file_path": "",
       "file_url": "",
