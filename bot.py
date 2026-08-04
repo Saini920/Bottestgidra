@@ -584,6 +584,7 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             try:
                 await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
                 ok = await download_file_for_bot(job, dest, update_inspect_progress)
+                file_id = job.get("file_id", "")
                 if not ok and file_id:
                     try:
                         file_obj = await context.bot.get_file(file_id)
