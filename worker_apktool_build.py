@@ -293,7 +293,6 @@ async def main():
             edit(f"✅ Compilation complete!\n📤 Sending ZIP...\n\n{progress_bar(pct)}")
 
         try:
-            import sys
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "upload_file.py", str(out_zip), caption,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT

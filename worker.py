@@ -243,7 +243,6 @@ async def main():
             if file_id:
                 filename = FILENAME or "download.bin"
                 await on_dl(0.0)
-                import sys
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "download_file.py", str(dest),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -385,7 +384,6 @@ async def main():
             edit(f"✅ Decompilation complete!\n📤 Sending ZIP...\n\n{progress_bar(pct)}")
 
         try:
-            import sys
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "upload_file.py", str(zip_path), caption,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
