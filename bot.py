@@ -267,7 +267,14 @@ async def reply_denied(msg, user_id: int = None) -> None:
 
 
 
-def inspect_apk_file(file_path: Path) -> str:
+def progress_bar(pct: float) -> str:
+    val = float(pct)
+    filled = max(0, min(16, int(val * 16 / 100)))
+    bar = "▰" * filled + "▱" * (16 - filled)
+    return f"{bar} {val:.2f} %"
+
+
+async def inspect_apk_file_async(file_path: Path, progress_cb=None) -> str:
     import zipfile
     import re
 
@@ -294,7 +301,11 @@ def inspect_apk_file(file_path: Path) -> str:
     with zipfile.ZipFile(file_path, "r") as zf:
         namelist = zf.namelist()
         total_files = len(namelist)
-        for name in namelist:
+        for i, name in enumerate(namelist):
+            if i % 100 == 0 and progress_cb:
+                scan_pct = min(95.0, 50.0 + (i / max(1, total_files)) * 45.0)
+                await progress_cb(scan_pct, "🔍 <b>Scanning APK & Security Protection...</b>")
+
             if name.startswith("lib/"):
                 parts = name.split("/")
                 if len(parts) >= 2 and parts[1]:
@@ -319,6 +330,9 @@ def inspect_apk_file(file_path: Path) -> str:
                                     break
                 except Exception:
                     pass
+
+    if progress_cb:
+        await progress_cb(98.0, "📊 <b>Generating Final Inspection Report...</b>")
 
     arch_str = ", ".join(sorted(archs)) if archs else "None (Pure Java/Kotlin APK)"
     prot_str = "\n".join([f"• {p}" for p in detected_protections]) if detected_protections else "✅ No Known Heavy Packer/Protection Detected (Clean)"
@@ -427,29 +441,64 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     dummy_msg = DummyMessage(chat_id, status_msg_id, user_id)
 
     if engine == "inspect":
-        await status_wrap.edit_text("🔍 <b>Analyzing APK Security & Packer Info...</b>", parse_mode="HTML")
         temp_dir = Path(tempfile.gettempdir()) / f"inspect_{os.urandom(6).hex()}"
         temp_dir.mkdir(parents=True, exist_ok=True)
         dest = temp_dir / "target.apk"
+        last_p = [-10.0]
+
+        async def update_inspect_progress(pct: float, label: str):
+            if pct < 100.0 and (pct - last_p[0] < 4.0):
+                return
+            last_p[0] = pct
+            try:
+                await status_wrap.edit_text(
+                    f"{label}\n\n{progress_bar(pct)}",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+
         try:
+            await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
             tg_file_path = job.get("tg_file_path", "")
             file_url = job.get("file_url", "")
             file_id = job.get("file_id", "")
             if tg_file_path:
                 tg_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
-                async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                    resp = await client.get(tg_url)
-                    dest.write_bytes(resp.content)
+                async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+                    async with client.stream("GET", tg_url) as resp:
+                        resp.raise_for_status()
+                        total = int(resp.headers.get("content-length") or 0)
+                        downloaded = 0
+                        with open(dest, "wb") as fh:
+                            async for chunk in resp.aiter_bytes(65536):
+                                fh.write(chunk)
+                                downloaded += len(chunk)
+                                if total:
+                                    dl_pct = min(45.0, (downloaded / total) * 45.0)
+                                    await update_inspect_progress(dl_pct, "📥 <b>Downloading APK for Security Scan...</b>")
             elif file_url:
-                async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                    resp = await client.get(file_url)
-                    dest.write_bytes(resp.content)
+                async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+                    async with client.stream("GET", file_url) as resp:
+                        resp.raise_for_status()
+                        total = int(resp.headers.get("content-length") or 0)
+                        downloaded = 0
+                        with open(dest, "wb") as fh:
+                            async for chunk in resp.aiter_bytes(65536):
+                                fh.write(chunk)
+                                downloaded += len(chunk)
+                                if total:
+                                    dl_pct = min(45.0, (downloaded / total) * 45.0)
+                                    await update_inspect_progress(dl_pct, "📥 <b>Downloading APK for Security Scan...</b>")
             elif file_id:
                 file_obj = await context.bot.get_file(file_id)
+                await update_inspect_progress(25.0, "📥 <b>Downloading APK for Security Scan...</b>")
                 await file_obj.download_to_drive(dest)
+                await update_inspect_progress(50.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
 
             if dest.exists() and dest.stat().st_size > 0:
-                report_text = inspect_apk_file(dest)
+                await update_inspect_progress(50.0, "🧠 <b>Scanning APK & Security Protection...</b>")
+                report_text = await inspect_apk_file_async(dest, update_inspect_progress)
                 await status_wrap.edit_text(report_text, parse_mode="HTML")
             else:
                 await status_wrap.edit_text("❌ Could not retrieve file for inspection.")
