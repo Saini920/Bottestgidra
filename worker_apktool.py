@@ -242,8 +242,10 @@ async def main():
                                 if total:
                                     pct = min(100, int(downloaded * 100 / total))
                                     await on_dl(pct)
-            else:
+            elif not mtproto_success and FILE_URL:
                 filename_dl = await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
+            elif not mtproto_success:
+                raise ValueError("No download method available or all failed.")
         except Exception as e:
             edit("❌ Download failed: " + str(e)[:300])
             return

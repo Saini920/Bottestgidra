@@ -431,7 +431,7 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
     file_url = job.get("file_url", "")
     file_id = job.get("file_id", "")
     chat_id = job.get("chat_id", 0)
-    msg_id = job.get("status_message_id", 0)
+    orig_msg_id = job.get("original_message_id", 0)
 
     api_id = os.environ.get("API_ID", "")
     api_hash = os.environ.get("API_HASH", "")
@@ -440,7 +440,7 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
             env = os.environ.copy()
             env["PAYLOAD_FILE_ID"] = str(file_id)
             env["PAYLOAD_CHAT_ID"] = str(chat_id)
-            env["PAYLOAD_ORIGINAL_MESSAGE_ID"] = str(msg_id)
+            env["PAYLOAD_ORIGINAL_MESSAGE_ID"] = str(orig_msg_id)
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, "download_file.py", str(dest),
                 env=env,
@@ -1096,6 +1096,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_data = {
             "chat_id": msg.chat_id,
             "status_message_id": status.message_id,
+            "original_message_id": msg.message_id,
             "filename": doc.file_name,
             "tg_file_path": tg_file_path,
             "file_url": "",
@@ -1226,6 +1227,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     job_data = {
         "chat_id": msg.chat_id,
         "status_message_id": status.message_id,
+        "original_message_id": msg.message_id,
         "filename": filename,
         "tg_file_path": "",
         "file_url": url,
