@@ -41,7 +41,10 @@ def notify_app(message: str, title: str = None):
 
 
 def upload_gofile(file_path: Path) -> str:
-    token = os.environ.get("GOFILE_TOKEN", "j7HmWBxOe5wamBhhg4gb9DOwCN5WzOKh")
+    token = os.environ.get("GOFILE_TOKEN")
+    if not token:
+        log.error("GOFILE_TOKEN is missing in environment variables.")
+        return ""
     try:
         with httpx.Client(timeout=180) as client:
             r = client.get("https://api.gofile.io/servers")
