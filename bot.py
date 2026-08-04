@@ -100,7 +100,7 @@ CANCELLED_JOBS = set()
 from datetime import date, timedelta
 
 
-def check_daily_limit(user_id: int) -> str | None:
+def check_daily_limit(user_id: int, cost: int = 1) -> str | None:
     uid = str(user_id)
     is_admin = uid in ADMIN_IDS
 
@@ -123,11 +123,15 @@ def check_daily_limit(user_id: int) -> str | None:
 
     record = db.data['daily_usage'].get(uid)
     if record and record["date"] == today_iso:
-        if not is_admin and record["count"] >= user_max_files:
-            return f"⚠️ <b>Daily Limit Reached!</b>\nYou have reached your daily quota of <b>{user_max_files} files</b>. Further uploads will be permitted tomorrow."
-        record["count"] += 1
+        current_count = record["count"]
+        if not is_admin and (current_count + cost) > user_max_files:
+            rem = max(0, user_max_files - current_count)
+            return f"⚠️ <b>Daily Limit Reached!</b>\nThis job requires <b>{cost} quota credits</b> (1 ZIP + {cost-1} .so files inside), but you only have <b>{rem} credits remaining</b> today out of your <b>{user_max_files} files/day</b> limit."
+        record["count"] += cost
     else:
-        db.data['daily_usage'][uid] = {"date": today_iso, "count": 1}
+        if not is_admin and cost > user_max_files:
+            return f"⚠️ <b>Daily Limit Exceeded!</b>\nThis job requires <b>{cost} quota credits</b>, which exceeds your daily limit of <b>{user_max_files} files/day</b>."
+        db.data['daily_usage'][uid] = {"date": today_iso, "count": cost}
     db.save()
     return None
 
@@ -333,6 +337,39 @@ def inspect_apk_file(file_path: Path) -> str:
     return report
 
 
+async def get_so_count_from_zip(job, context) -> int:
+    import zipfile
+    temp_dir = Path(tempfile.gettempdir()) / f"zip_cnt_{os.urandom(6).hex()}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    dest = temp_dir / "check.zip"
+    so_count = 0
+    try:
+        tg_file_path = job.get("tg_file_path", "")
+        file_url = job.get("file_url", "")
+        file_id = job.get("file_id", "")
+        if tg_file_path:
+            tg_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+                resp = await client.get(tg_url)
+                dest.write_bytes(resp.content)
+        elif file_url:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+                resp = await client.get(file_url)
+                dest.write_bytes(resp.content)
+        elif file_id:
+            file_obj = await context.bot.get_file(file_id)
+            await file_obj.download_to_drive(dest)
+
+        if dest.exists() and dest.stat().st_size > 0:
+            with zipfile.ZipFile(dest, "r") as zf:
+                so_count = sum(1 for name in zf.namelist() if name.lower().endswith(".so"))
+    except Exception as e:
+        log.warning("Failed to count .so in zip: %s", e)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+    return so_count
+
+
 async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -381,6 +418,34 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             await status.edit_text(f"❌ Inspection failed: {e}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+        return
+
+    # Check zip .so limits and deduct quota
+    user_id = update.effective_user.id
+    uid_str = str(user_id)
+    is_premium = uid_str in ADMIN_IDS or uid_str in db.data["subscriptions"]
+    cost = 1
+
+    if job["filename"].lower().endswith(".zip"):
+        so_count = await get_so_count_from_zip(job, context)
+        if not is_premium and so_count > 1:
+            await job["status"].edit_text(
+                f"⚠️ <b>ZIP Limit Exceeded!</b>\n\nFree users can process a maximum of <b>1 .so file</b> per ZIP (your ZIP contains <b>{so_count} .so files</b>).\n\n⭐ Upgrade to <b>Premium (₹99)</b> to process up to <b>5 .so files</b> per ZIP!",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]])
+            )
+            return
+        elif is_premium and uid_str not in ADMIN_IDS and so_count > 5:
+            await job["status"].edit_text(
+                f"⚠️ <b>ZIP Limit Exceeded!</b>\n\nMaximum <b>5 .so files</b> are allowed per ZIP archive (your ZIP contains <b>{so_count} .so files</b>).",
+                parse_mode="HTML"
+            )
+            return
+        cost = 1 + so_count
+
+    err = check_daily_limit(user_id, cost=cost)
+    if err:
+        await job["status"].edit_text(err, parse_mode="HTML")
         return
 
     await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
@@ -780,11 +845,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = msg.document
     if doc is None:
         await msg.reply_text("📄 Send a file (document) — EXE, DLL, SO, ELF, APK etc.")
-        return
-
-    err = check_daily_limit(update.effective_user.id)
-    if err:
-        await msg.reply_text(err, parse_mode=constants.ParseMode.HTML)
         return
 
     user_id = str(update.effective_user.id)
