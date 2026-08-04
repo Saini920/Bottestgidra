@@ -645,6 +645,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-apktool"
     elif engine == "apktool-build":
         event_type = "compile-apktool"
+    elif engine == "jadx":
+        event_type = "decompile-jadx"
     else:
         event_type = "decompile-job"
         
@@ -735,32 +737,51 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
             if is_premium:
                 btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
+                btn_jadx = InlineKeyboardButton("☕ JADX (Java Code)", callback_data=f"engine_jadx_{job_id}")
             else:
-                btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
+                btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium)", callback_data="buy_sub")
+                btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
                 
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
-                "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
-                "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)",
+                "• ☕ <b>JADX:</b> Decompile APK to Java Source Code (⭐ Premium)\n"
+                "• 📱 <b>Apktool:</b> Decompile XML & Smali (⭐ Premium)\n"
+                "• ⚙️ <b>Ghidra:</b> Decompile C binaries (Free)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_jadx],
                     [btn_apktool],
                     [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
                 ])
             )
+        elif doc.file_name and doc.file_name.lower().endswith((".dex", ".smali")):
+            if is_premium:
+                btn_jadx = InlineKeyboardButton("☕ JADX (Convert to Java)", callback_data=f"engine_jadx_{job_id}")
+            else:
+                btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
+            await status.edit_text(
+                "🤖 <b>DEX / Smali File Detected!</b>\nConvert file to Java source code:\n\n"
+                "• ☕ <b>JADX:</b> Convert DEX/Smali to Java Code (⭐ Premium)",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[btn_jadx]])
+            )
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
             if is_premium:
                 btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+                btn_jadx = InlineKeyboardButton("☕ JADX (Decompile DEX/Smali in ZIP)", callback_data=f"engine_jadx_{job_id}")
             else:
-                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium)", callback_data="buy_sub")
+                btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
                 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
+                "• ☕ <b>JADX:</b> Convert DEX/Smali inside ZIP to Java (⭐ Premium)\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                    [btn_jadx],
                     [btn_build]
                 ])
             )
@@ -826,19 +847,22 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if is_premium:
         btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
+        btn_jadx = InlineKeyboardButton("☕ JADX (Java Code)", callback_data=f"engine_jadx_{job_id}")
         btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
     else:
-        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
-        btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium)", callback_data="buy_sub")
+        btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
+        btn_build = InlineKeyboardButton("🔒 Compile APK (Premium)", callback_data="buy_sub")
 
     await status.edit_text(
         "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
-        "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
+        "• ☕ <b>JADX:</b> Decompile to Java Code (⭐ Premium)\n"
+        "• 📱 <b>Apktool:</b> Decompile XML & Smali (⭐ Premium)\n"
         "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
         "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
-            [btn_apktool],
+            [btn_jadx, btn_apktool],
             [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
             [btn_build]
         ])
