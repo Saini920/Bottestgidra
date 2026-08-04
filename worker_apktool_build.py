@@ -165,10 +165,22 @@ async def main():
             if file_id:
                 filename = FILENAME or "download.zip"
                 edit(f"📥 Downloading ZIP via MTProto (Pyrogram)...")
-                import subprocess, sys
-                res = subprocess.run([sys.executable, "download_file.py", str(dest)], capture_output=True, text=True)
-                if res.returncode != 0:
-                    raise ValueError(f"MTProto Download failed: {res.stderr}\n{res.stdout}")
+                import sys
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "download_file.py", str(dest),
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                )
+                async for raw in proc.stdout:
+                    line = raw.decode(errors="replace").strip()
+                    if line.startswith("PROGRESS:"):
+                        try:
+                            pct = int(float(line.split(":")[1]))
+                            await on_dl(pct)
+                        except ValueError:
+                            pass
+                await proc.wait()
+                if proc.returncode != 0:
+                    raise ValueError(f"MTProto Download failed with code {proc.returncode}")
             elif TG_FILE_PATH:
                 filename = FILENAME or "download.zip"
                 tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
@@ -275,23 +287,36 @@ async def main():
             if signed_apk.exists():
                 zf.write(signed_apk, f"{safe_name}_signed.apk")
 
-        if out_zip.stat().st_size > 49_000_000:
-            edit("📦 File is larger than 50MB. Uploading to GoFile Cloud...")
-            gofile_url = upload_gofile(out_zip)
-            if gofile_url:
-                edit(f"✅ <b>Compilation Complete!</b>\n\n📁 <b>File:</b> <code>{out_zip.name}</code>\n📦 <b>Size:</b> {out_zip.stat().st_size / (1024*1024):.2f} MB\n☁️ <b>Download:</b> {gofile_url}", parse_mode="HTML")
-            else:
-                edit("❌ Result ZIP is too large for Telegram, and GoFile upload failed.")
-        else:
-            resp = send_document(
-                out_zip,
-                f"✅ Compiled <b>{safe_name}</b> successfully!\nIncludes both Signed & Unsigned versions. — Powered By @Ghostofhackers & @R3V_X",
-                out_zip.name,
+        caption = f"✅ Compiled <b>{safe_name}</b> successfully!\\nIncludes both Signed & Unsigned versions. — Powered By @Ghostofhackers & @R3V_X"
+        up_last = [0]
+        async def on_up(pct: int):
+            if pct < up_last[0] or pct - up_last[0] < 2: return
+            up_last[0] = pct
+            edit(f"📤 Uploading ZIP...\\n{progress_bar(pct)}")
+
+        try:
+            import sys
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "upload_file.py", str(out_zip), caption,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
             )
-            if resp and resp.get("ok"):
-                edit("✅ Compilation complete! ZIP file delivered. 🔥")
-            else:
-                edit("❌ Result ZIP ready, but Telegram send failed.")
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").strip()
+                if line.startswith("PROGRESS:"):
+                    try:
+                        pct = int(float(line.split(":")[1]))
+                        await on_up(pct)
+                    except ValueError:
+                        pass
+            await proc.wait()
+            if proc.returncode != 0:
+                raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+            edit("✅ Compilation complete! ZIP file delivered via MTProto. 🔥")
+            
+            if JOB_ID:
+                notify_app("FINAL_ZIP_URL:telegram_direct_upload")
+        except Exception as e:
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}")
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

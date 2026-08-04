@@ -212,10 +212,22 @@ async def main():
             if file_id:
                 filename = FILENAME or "download.apk"
                 edit(f"📥 Downloading APK via MTProto (Pyrogram)...")
-                import subprocess, sys
-                res = subprocess.run([sys.executable, "download_file.py", str(dest)], capture_output=True, text=True)
-                if res.returncode != 0:
-                    raise ValueError(f"MTProto Download failed: {res.stderr}\n{res.stdout}")
+                import sys
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "download_file.py", str(dest),
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                )
+                async for raw in proc.stdout:
+                    line = raw.decode(errors="replace").strip()
+                    if line.startswith("PROGRESS:"):
+                        try:
+                            pct = int(float(line.split(":")[1]))
+                            await on_dl(pct)
+                        except ValueError:
+                            pass
+                await proc.wait()
+                if proc.returncode != 0:
+                    raise ValueError(f"MTProto Download failed with code {proc.returncode}")
             elif TG_FILE_PATH:
                 filename = FILENAME or "download.apk"
                 tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
@@ -279,30 +291,38 @@ async def main():
 
         edit("✅ Decompilation complete! Sending ZIP...")
         
-        if JOB_ID:
-            gofile_url = upload_gofile(zip_path)
-            if gofile_url:
-                notify_app(f"FINAL_ZIP_URL:{gofile_url}")
-            else:
-                notify_app("❌ GoFile upload failed for app.")
+        edit("✅ Decompilation complete! Sending ZIP...")
+        
+        caption = f"✅ Decompiled <b>{safe_name}</b> with Apktool — Powered By @Ghostofhackers & @R3V_X"
+        up_last = [0]
+        async def on_up(pct: int):
+            if pct < up_last[0] or pct - up_last[0] < 2: return
+            up_last[0] = pct
+            edit(f"📤 Uploading ZIP...\n{progress_bar(pct)}")
 
-        if zip_path.stat().st_size > 49_000_000:
-            edit("📦 File is larger than 50MB. Uploading to GoFile Cloud...")
-            gofile_url = upload_gofile(zip_path)
-            if gofile_url:
-                edit(f"✅ <b>Decompilation Complete!</b>\n\n📁 <b>File:</b> <code>{orig_stem}_apktool.zip</code>\n📦 <b>Size:</b> {zip_path.stat().st_size / (1024*1024):.2f} MB\n☁️ <b>Download:</b> {gofile_url}", parse_mode="HTML")
-            else:
-                edit("❌ Result ZIP is too large for Telegram, and GoFile upload failed.")
-        else:
-            resp = send_document(
-                zip_path,
-                f"✅ Decompiled <b>{safe_name}</b> with Apktool — Powered By @Ghostofhackers & @R3V_X",
-                f"{orig_stem}_apktool.zip",
+        try:
+            import sys
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "upload_file.py", str(zip_path), caption,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
             )
-            if resp and resp.get("ok"):
-                edit("✅ Decompilation complete! ZIP file delivered. 🔥")
-            else:
-                edit("❌ Result ZIP ready, but Telegram send failed. Try again.")
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").strip()
+                if line.startswith("PROGRESS:"):
+                    try:
+                        pct = int(float(line.split(":")[1]))
+                        await on_up(pct)
+                    except ValueError:
+                        pass
+            await proc.wait()
+            if proc.returncode != 0:
+                raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+            edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥")
+            
+            if JOB_ID:
+                notify_app("FINAL_ZIP_URL:telegram_direct_upload")
+        except Exception as e:
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}")
 
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
