@@ -422,6 +422,68 @@ async def inspect_apk_file_async(file_path: Path, filename_input: str = "app", p
     return short_report, deep_md_report
 
 
+async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool:
+    tg_file_path = job.get("tg_file_path", "")
+    file_url = job.get("file_url", "")
+    file_id = job.get("file_id", "")
+    chat_id = job.get("chat_id", 0)
+    msg_id = job.get("status_message_id", 0)
+
+    api_id = os.environ.get("API_ID", "")
+    api_hash = os.environ.get("API_HASH", "")
+    if file_id and api_id and api_hash:
+        try:
+            env = os.environ.copy()
+            env["PAYLOAD_FILE_ID"] = str(file_id)
+            env["PAYLOAD_CHAT_ID"] = str(chat_id)
+            env["PAYLOAD_ORIGINAL_MESSAGE_ID"] = str(msg_id)
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "download_file.py", str(dest),
+                env=env,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+            async for raw in proc.stdout:
+                line = raw.decode(errors="replace").strip()
+                if line.startswith("PROGRESS:") and progress_cb:
+                    try:
+                        pct = float(line.split(":")[1])
+                        await progress_cb(min(45.0, pct * 0.45), "📥 <b>Downloading file via MTProto...</b>")
+                    except ValueError:
+                        pass
+            await proc.wait()
+            if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
+                return True
+        except Exception as e:
+            log.warning("MTProto download failed in bot.py: %s", e)
+
+    target_url = ""
+    if tg_file_path:
+        target_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
+    elif file_url:
+        target_url = file_url
+
+    if target_url:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+                async with client.stream("GET", target_url) as resp:
+                    resp.raise_for_status()
+                    total = int(resp.headers.get("content-length") or 0)
+                    downloaded = 0
+                    with open(dest, "wb") as fh:
+                        async for chunk in resp.aiter_bytes(65536):
+                            fh.write(chunk)
+                            downloaded += len(chunk)
+                            if total and progress_cb:
+                                dl_pct = min(45.0, (downloaded / total) * 45.0)
+                                await progress_cb(dl_pct, "📥 <b>Downloading file...</b>")
+            if dest.exists() and dest.stat().st_size > 0:
+                return True
+        except Exception as e:
+            log.warning("HTTP download failed in bot.py: %s", e)
+
+    return False
+
+
 async def get_so_count_from_zip(job, context) -> int:
     import zipfile
     temp_dir = Path(tempfile.gettempdir()) / f"zip_cnt_{os.urandom(6).hex()}"
@@ -429,23 +491,8 @@ async def get_so_count_from_zip(job, context) -> int:
     dest = temp_dir / "check.zip"
     so_count = 0
     try:
-        tg_file_path = job.get("tg_file_path", "")
-        file_url = job.get("file_url", "")
-        file_id = job.get("file_id", "")
-        if tg_file_path:
-            tg_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                resp = await client.get(tg_url)
-                dest.write_bytes(resp.content)
-        elif file_url:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-                resp = await client.get(file_url)
-                dest.write_bytes(resp.content)
-        elif file_id:
-            file_obj = await context.bot.get_file(file_id)
-            await file_obj.download_to_drive(dest)
-
-        if dest.exists() and dest.stat().st_size > 0:
+        ok = await download_file_for_bot(job, dest)
+        if ok and dest.exists() and dest.stat().st_size > 0:
             with zipfile.ZipFile(dest, "r") as zf:
                 so_count = sum(1 for name in zf.namelist() if name.lower().endswith(".so"))
     except Exception as e:
@@ -531,43 +578,16 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
 
         try:
             await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
-            tg_file_path = job.get("tg_file_path", "")
-            file_url = job.get("file_url", "")
-            file_id = job.get("file_id", "")
-            if tg_file_path:
-                tg_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
-                async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-                    async with client.stream("GET", tg_url) as resp:
-                        resp.raise_for_status()
-                        total = int(resp.headers.get("content-length") or 0)
-                        downloaded = 0
-                        with open(dest, "wb") as fh:
-                            async for chunk in resp.aiter_bytes(65536):
-                                fh.write(chunk)
-                                downloaded += len(chunk)
-                                if total:
-                                    dl_pct = min(45.0, (downloaded / total) * 45.0)
-                                    await update_inspect_progress(dl_pct, "📥 <b>Downloading APK for Security Scan...</b>")
-            elif file_url:
-                async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-                    async with client.stream("GET", file_url) as resp:
-                        resp.raise_for_status()
-                        total = int(resp.headers.get("content-length") or 0)
-                        downloaded = 0
-                        with open(dest, "wb") as fh:
-                            async for chunk in resp.aiter_bytes(65536):
-                                fh.write(chunk)
-                                downloaded += len(chunk)
-                                if total:
-                                    dl_pct = min(45.0, (downloaded / total) * 45.0)
-                                    await update_inspect_progress(dl_pct, "📥 <b>Downloading APK for Security Scan...</b>")
-            elif file_id:
-                file_obj = await context.bot.get_file(file_id)
-                await update_inspect_progress(25.0, "📥 <b>Downloading APK for Security Scan...</b>")
-                await file_obj.download_to_drive(dest)
-                await update_inspect_progress(50.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
+            ok = await download_file_for_bot(job, dest, update_inspect_progress)
+            if not ok and file_id:
+                try:
+                    file_obj = await context.bot.get_file(file_id)
+                    await file_obj.download_to_drive(dest)
+                    ok = dest.exists() and dest.stat().st_size > 0
+                except Exception as ex:
+                    log.warning("Fallback get_file failed: %s", ex)
 
-            if dest.exists() and dest.stat().st_size > 0:
+            if ok and dest.exists() and dest.stat().st_size > 0:
                 await update_inspect_progress(50.0, "🧠 <b>Scanning APK & Security Protection...</b>")
                 fname = job.get("filename", "app.apk")
                 short_report, deep_md = await inspect_apk_file_async(dest, fname, update_inspect_progress)
