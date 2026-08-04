@@ -251,7 +251,15 @@ async def main():
             edit(f"📥 Downloading file...\n{progress_bar(pct)}")
 
         try:
-            if TG_FILE_PATH:
+            file_id = os.environ.get("PAYLOAD_FILE_ID", "")
+            if file_id:
+                filename = FILENAME or "download.bin"
+                edit(f"📥 Downloading large file via MTProto (Pyrogram)...\n(Bypassing Telegram 20MB limit)")
+                import subprocess
+                res = subprocess.run(["python3", "download_file.py", str(dest)], capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise ValueError(f"MTProto Download failed: {res.stderr}\n{res.stdout}")
+            elif TG_FILE_PATH:
                 filename = FILENAME or "download.bin"
                 tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
                 async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:

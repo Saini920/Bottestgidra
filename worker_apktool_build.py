@@ -161,11 +161,19 @@ async def main():
             edit(f"📥 Downloading ZIP...\n{progress_bar(pct)}")
 
         try:
-            if TG_FILE_PATH:
-                dl_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{TG_FILE_PATH}"
-                edit("📥 Downloading from Telegram...")
-                async with httpx.AsyncClient(timeout=300.0) as client:
-                    async with client.stream("GET", dl_url) as resp:
+            file_id = os.environ.get("PAYLOAD_FILE_ID", "")
+            if file_id:
+                filename = FILENAME or "download.zip"
+                edit(f"📥 Downloading ZIP via MTProto (Pyrogram)...")
+                import subprocess
+                res = subprocess.run(["python3", "download_file.py", str(dest)], capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise ValueError(f"MTProto Download failed: {res.stderr}\n{res.stdout}")
+            elif TG_FILE_PATH:
+                filename = FILENAME or "download.zip"
+                tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
+                async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
+                    async with client.stream("GET", tg_url) as resp:
                         resp.raise_for_status()
                         total = int(resp.headers.get("content-length") or 0)
                         downloaded = 0

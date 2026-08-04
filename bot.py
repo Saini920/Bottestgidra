@@ -131,7 +131,7 @@ def check_daily_limit(user_id: int) -> str | None:
     return None
 
 
-async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", engine: str = "ghidra"):
+async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", engine: str = "ghidra", file_id: str = ""):
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
     now = time.time()
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
@@ -141,7 +141,7 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
 
     if is_priority or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
         active_jobs_timestamps.append(now)
-        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine)
+        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id)
     else:
         pos = job_queue.qsize() + 1
         priority_label = "⚡ <b>Priority Fast-Lane Slot Granted!</b>\n" if is_priority else ""
@@ -152,31 +152,36 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
             "Decompilation will start automatically as soon as a slot opens.",
             parse_mode=constants.ParseMode.HTML,
         )
-        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin, engine))
+        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id))
 
 
 async def queue_worker_loop():
     while True:
         try:
             item = await job_queue.get()
-            if len(item) == 5:
+            if len(item) == 8:
+                msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id = item
+            elif len(item) == 7:
+                msg, status, file_url, filename, tg_file_path, is_admin, engine = item
+                file_id = ""
+            elif len(item) == 5:
                 msg, status, file_url, filename, tg_file_path = item
                 is_admin = False
                 engine = "ghidra"
-            elif len(item) == 6:
-                msg, status, file_url, filename, tg_file_path, is_admin = item
-                engine = "ghidra"
+                file_id = ""
             else:
-                msg, status, file_url, filename, tg_file_path, is_admin, engine = item
+                raise ValueError("Invalid item in job queue")
+            
             now = time.time()
             active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
+            
             while len(active_jobs_timestamps) >= MAX_CONCURRENT_JOBS:
                 await asyncio.sleep(5)
                 now = time.time()
                 active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
-
+            
             active_jobs_timestamps.append(now)
-            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine)
+            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id)
             job_queue.task_done()
         except Exception as e:
             log.exception("Queue worker error", exc_info=e)
@@ -268,7 +273,7 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
         
     job = PENDING_JOBS.pop(job_id)
     await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
-    await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine)
+    await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine, job.get("file_id", ""))
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -544,7 +549,7 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Your Telegram User ID:\n<code>{update.effective_user.id}</code>", parse_mode=constants.ParseMode.HTML)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT) -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "") -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
@@ -553,6 +558,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "filename": filename,
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
+        "file_id": file_id,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
@@ -573,7 +579,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     return resp.status_code in (204, 200)
 
 
-async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra"):
+async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra", file_id: str = ""):
     if not GITHUB_TOKEN:
         await status.edit_text(
             "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b> on Railway.\n"
@@ -589,7 +595,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
     else:
         event_type = "decompile-job"
         
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type):
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
@@ -624,7 +630,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
     is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
-    user_max_mb = 100 if is_premium else 20
+    user_max_mb = 2000 if is_premium else 20
 
     size_mb = (doc.file_size or 0) / (1024 * 1024)
     if size_mb > user_max_mb:
@@ -632,7 +638,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             limit_msg = (
                 "⚠️ <b>File Size Limit Exceeded!</b>\n\n"
                 f"Free users can upload files up to <b>20 MB</b> (your file is <b>{size_mb:.1f} MB</b>).\n\n"
-                "⭐ Upgrade to <b>Premium (₹99)</b> to upload files up to <b>100 MB</b> and unlock the <b>/link method</b>!"
+                "⭐ Upgrade to <b>Premium (₹99)</b> to upload files up to <b>2000 MB (2GB)</b> and unlock the <b>/link method</b>!"
             )
             await msg.reply_text(
                 limit_msg,
@@ -648,18 +654,24 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = await msg.reply_text("🚀 File received! Sending to server...")
 
     try:
-        tg_file = await doc.get_file()
-        tg_file_path = tg_file.file_path
-        if not tg_file_path:
-            await status.edit_text("❌ Could not get file path from Telegram. Try the /link method.")
-            return
+        file_id = doc.file_id
+        tg_file_path = ""
+        try:
+            tg_file = await doc.get_file()
+            tg_file_path = tg_file.file_path
+        except Exception as e:
+            if "too big" in str(e).lower():
+                log.info(f"File {file_id} is too big for HTTP API. Using MTProto fallback.")
+            else:
+                await status.edit_text("❌ Could not get file from Telegram.")
+                return
 
         user_id = str(update.effective_user.id)
         is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
 
         import uuid
         job_id = str(uuid.uuid4())[:8]
-        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": ""}
+        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id}
         
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
             if is_premium:
@@ -695,7 +707,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await status.edit_text("📥 <b>Downloading to Cloud Server...</b>\n⏳ Processing with Ghidra Engine...", parse_mode="HTML")
-            await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra")
+            await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra", file_id=file_id)
     except Exception as e:
         await status.edit_text("❌ File processing failed: " + str(e))
 
