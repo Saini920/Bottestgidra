@@ -63,7 +63,7 @@ jobs:
           PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
-          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+
           JAVA_MAX_MEM: "6G"
         run: |
           python3 -m venv /tmp/venv

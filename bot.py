@@ -468,7 +468,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of native files (Free)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
-        "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) auto-upload to GoFile Cloud\n"
+        "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
         "  • 🆓 <b>Free Quota:</b> 30 Files / Day (Max 20 MB Upload)\n"

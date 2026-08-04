@@ -38,25 +38,7 @@ def notify_app(message: str, title: str = None):
     except Exception:
         pass
 
-def upload_gofile(file_path: Path) -> str:
-    token = os.environ.get("GOFILE_TOKEN", "j7HmWBxOe5wamBhhg4gb9DOwCN5WzOKh")
-    try:
-        with httpx.Client(timeout=180) as client:
-            r = client.get("https://api.gofile.io/servers")
-            servers = r.json().get("data", {}).get("servers", [])
-            if not servers: return ""
-            server = servers[0]["name"]
-            
-            with open(file_path, "rb") as fh:
-                r = client.post(
-                    f"https://{server}.gofile.io/contents/uploadfile",
-                    data={"token": token},
-                    files={"file": (file_path.name, fh)}
-                )
-                return r.json().get("data", {}).get("downloadPage", "")
-    except Exception as e:
-        log.warning("GoFile upload failed: %s", e)
-    return ""
+
 
 def tg(method: str, **params):
     try:
