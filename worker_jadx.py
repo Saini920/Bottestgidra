@@ -144,11 +144,29 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
 
 async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
     out_dir = work_dir / "jadx_out"
+    
+    target_file = file_path
+    if file_path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(file_path, "r") as zf:
+            dex_files = [n for n in zf.namelist() if n.lower().endswith(".dex")]
+            if dex_files:
+                extract_dir = work_dir / "extracted_dex"
+                extract_dir.mkdir(exist_ok=True)
+                for df in dex_files:
+                    zf.extract(df, extract_dir)
+                target_file = extract_dir
+            elif any(n.lower().endswith(".apk") for n in zf.namelist()):
+                apk_files = [n for n in zf.namelist() if n.lower().endswith(".apk")]
+                extract_dir = work_dir / "extracted_apk"
+                extract_dir.mkdir(exist_ok=True)
+                zf.extract(apk_files[0], extract_dir)
+                target_file = extract_dir / apk_files[0]
+
     cmd = [
         "/opt/jadx/bin/jadx",
         "-d", str(out_dir),
         "--no-res",
-        str(file_path)
+        str(target_file)
     ]
     log.info("Running JADX: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
@@ -189,7 +207,8 @@ async def main():
     work_dir = Path(tempfile.gettempdir()) / ("jadx_" + os.urandom(8).hex())
     try:
         work_dir.mkdir(parents=True)
-        dest = work_dir / "input_file"
+        ext = Path(FILENAME).suffix or ".apk"
+        dest = work_dir / f"input_file{ext}"
         last = [-100.0]
 
         async def on_dl(pct: float):
