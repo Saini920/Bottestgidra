@@ -593,16 +593,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "and decompiled\n\n"
         "⚡ <b>Features & Engines:</b>\n"
         "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of native files (Free)\n"
+        "  • ☕ <b>JADX Engine:</b> Decompile APK/DEX/Smali to Java Source Code (⭐ Premium)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
-        "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
-        "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
-        "  • Live progress animation (0-100%)\n\n"
+        "  • 🔍 <b>APK Inspector:</b> Security Analysis & Packer Detector (⭐ Premium)\n"
+        "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) delivered via MTProto\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
-        "  • 🆓 <b>Free Quota:</b> 30 Files / Day (Max 20 MB Upload)\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 100 MB Upload + /link method)\n"
-        "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
-        "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
-        "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
+        "  • 🆓 <b>Free Quota:</b> 30 Files / Day (Max 20 MB for .so, 200 MB for APK/ZIP)\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 100 MB for .so, 700 MB for APK/ZIP + /link method)\n"
+        "  • 🚀 <b>Priority Fast-Lane Queue Slot</b>\n"
+        "  • ☕ <b>JADX Java Source Decompiler</b>\n"
+        "  • 📱 <b>Apktool Decompile & Compile Support</b>\n"
         "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
         "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
         "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
@@ -652,21 +652,19 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
         f"{admin_section}\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
-        "• 🆓 <b>Free Quota:</b> 30 files / day (Max 20 MB upload limit)\n"
-        "• ⭐ <b>Premium Quota:</b> 70 files / day (Max 100 MB upload limit)\n"
+        "• 🆓 <b>Free Quota:</b> 30 files / day (Max 20 MB for .so, 200 MB for APK/ZIP)\n"
+        "• ⭐ <b>Premium Quota:</b> 70 files / day (Max 100 MB for .so, 700 MB for APK/ZIP + /link method)\n"
         "• 🔗 <b>Direct Link Method (/link):</b> Exclusive Premium Feature\n"
-        "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
-        "• 📦 <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
-        "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
+        "• ☕ <b>JADX Engine:</b> Decompile to Java / Kotlin Code (⭐ Premium)\n"
+        "• 🔍 <b>APK Inspector:</b> Security & Protection Detector (⭐ Premium)\n"
+        "• 📱 <b>Apktool Engine:</b> Full APK Decompile & Build Support\n"
         "• 🔔 <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts\n\n"
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
-        "📤 <b>DIRECT UPLOAD:</b>\n"
-        "• Send any binary file directly in chat (Max <b>100 MB</b> for Premium, Unlimited for Admins).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
-        "• <b>Max Direct Upload:</b> 100 MB (Unlimited for Admins)\n"
-        "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
-        "• <b>Server Concurrency:</b> Max 10 active jobs at a time\n\n"
+        "• <b>Free Limit:</b> 20 MB (.so) / 200 MB (APK/ZIP)\n"
+        "• <b>Premium Limit:</b> 100 MB (.so) / 700 MB (APK/ZIP)\n"
+        "• <b>Daily Quota:</b> 30 (Free) / 70 (Premium) / Unlimited (Admin)\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML, reply_markup=InlineKeyboardMarkup([
@@ -840,17 +838,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id}
         
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
-            btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
             if is_premium:
+                btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
                 btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java Code)", callback_data=f"engine_jadx_{job_id}")
             else:
+                btn_inspect = InlineKeyboardButton("🔒 Analyze & Security (Premium)", callback_data="buy_sub")
                 btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium)", callback_data="buy_sub")
                 btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
                 
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
-                "• 🔍 <b>Analyze:</b> Instant Security & Packer Inspection (Free)\n"
+                "• 🔍 <b>Analyze:</b> Instant Security & Packer Inspection (⭐ Premium)\n"
                 "• ☕ <b>JADX:</b> Decompile APK to Java Source Code (⭐ Premium)\n"
                 "• 📱 <b>Apktool:</b> Decompile XML & Smali (⭐ Premium)\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile C binaries (Free)",
@@ -952,19 +951,20 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     job_id = str(uuid.uuid4())[:8]
     PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
     
-    btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
     if is_premium:
+        btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
         btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
         btn_jadx = InlineKeyboardButton("☕ JADX (Java Code)", callback_data=f"engine_jadx_{job_id}")
         btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
     else:
+        btn_inspect = InlineKeyboardButton("🔒 Analyze & Security (Premium)", callback_data="buy_sub")
         btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium)", callback_data="buy_sub")
         btn_jadx = InlineKeyboardButton("🔒 JADX Java (Premium)", callback_data="buy_sub")
         btn_build = InlineKeyboardButton("🔒 Compile APK (Premium)", callback_data="buy_sub")
 
     await status.edit_text(
         "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
-        "• 🔍 <b>Analyze:</b> Instant Security & Packer Inspection (Free)\n"
+        "• 🔍 <b>Analyze:</b> Security & Packer Inspection (⭐ Premium)\n"
         "• ☕ <b>JADX:</b> Decompile to Java Code (⭐ Premium)\n"
         "• 📱 <b>Apktool:</b> Decompile XML & Smali (⭐ Premium)\n"
         "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
