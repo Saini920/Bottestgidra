@@ -41,9 +41,9 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "4c32e63b": {
+    "31f86337": {
       "chat_id": 7251749429,
-      "status_message_id": 673,
+      "status_message_id": 676,
       "filename": "Spotify_1.3.apk",
       "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_21.apk",
       "file_url": "",
