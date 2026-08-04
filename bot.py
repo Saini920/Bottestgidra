@@ -559,56 +559,59 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     dummy_msg = DummyMessage(chat_id, status_msg_id, user_id)
 
     if engine == "inspect":
-        temp_dir = Path(tempfile.gettempdir()) / f"inspect_{os.urandom(6).hex()}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        dest = temp_dir / "target.apk"
-        last_p = [-10.0]
+        async def run_inspection_bg():
+            temp_dir = Path(tempfile.gettempdir()) / f"inspect_{os.urandom(6).hex()}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            dest = temp_dir / "target.apk"
+            last_p = [-10.0]
 
-        async def update_inspect_progress(pct: float, label: str):
-            if pct < 100.0 and (pct - last_p[0] < 4.0):
-                return
-            last_p[0] = pct
-            try:
-                await status_wrap.edit_text(
-                    f"{label}\n\n{progress_bar(pct)}",
-                    parse_mode="HTML"
-                )
-            except Exception:
-                pass
-
-        try:
-            await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
-            ok = await download_file_for_bot(job, dest, update_inspect_progress)
-            if not ok and file_id:
+            async def update_inspect_progress(pct: float, label: str):
+                if pct < 100.0 and (pct - last_p[0] < 4.0):
+                    return
+                last_p[0] = pct
                 try:
-                    file_obj = await context.bot.get_file(file_id)
-                    await file_obj.download_to_drive(dest)
-                    ok = dest.exists() and dest.stat().st_size > 0
-                except Exception as ex:
-                    log.warning("Fallback get_file failed: %s", ex)
-
-            if ok and dest.exists() and dest.stat().st_size > 0:
-                await update_inspect_progress(50.0, "🧠 <b>Scanning APK & Security Protection...</b>")
-                fname = job.get("filename", "app.apk")
-                short_report, deep_md = await inspect_apk_file_async(dest, fname, update_inspect_progress)
-                await status_wrap.edit_text(short_report, parse_mode="HTML")
-
-                md_path = temp_dir / "security_report.md"
-                md_path.write_text(deep_md, encoding="utf-8")
-                with open(md_path, "rb") as doc_f:
-                    await context.bot.send_document(
-                        chat_id=chat_id,
-                        document=doc_f,
-                        filename="security_report.md",
-                        caption="📄 <b>Deep Security Inspection Report (.md)</b>",
+                    await status_wrap.edit_text(
+                        f"{label}\n\n{progress_bar(pct)}",
                         parse_mode="HTML"
                     )
-            else:
-                await status_wrap.edit_text("❌ Could not retrieve file for inspection.")
-        except Exception as e:
-            await status_wrap.edit_text(f"❌ Inspection failed: {e}")
-        finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+
+            try:
+                await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
+                ok = await download_file_for_bot(job, dest, update_inspect_progress)
+                if not ok and file_id:
+                    try:
+                        file_obj = await context.bot.get_file(file_id)
+                        await file_obj.download_to_drive(dest)
+                        ok = dest.exists() and dest.stat().st_size > 0
+                    except Exception as ex:
+                        log.warning("Fallback get_file failed: %s", ex)
+
+                if ok and dest.exists() and dest.stat().st_size > 0:
+                    await update_inspect_progress(50.0, "🧠 <b>Scanning APK & Security Protection...</b>")
+                    fname = job.get("filename", "app.apk")
+                    short_report, deep_md = await inspect_apk_file_async(dest, fname, update_inspect_progress)
+                    await status_wrap.edit_text(short_report, parse_mode="HTML")
+
+                    md_path = temp_dir / "security_report.md"
+                    md_path.write_text(deep_md, encoding="utf-8")
+                    with open(md_path, "rb") as doc_f:
+                        await context.bot.send_document(
+                            chat_id=chat_id,
+                            document=doc_f,
+                            filename="security_report.md",
+                            caption="📄 <b>Deep Security Inspection Report (.md)</b>",
+                            parse_mode="HTML"
+                        )
+                else:
+                    await status_wrap.edit_text("❌ Could not retrieve file for inspection.")
+            except Exception as e:
+                await status_wrap.edit_text(f"❌ Inspection failed: {e}")
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        asyncio.create_task(run_inspection_bg())
         return
 
     # Check zip .so limits and deduct quota
