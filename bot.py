@@ -288,6 +288,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "• 🔗 <b>Direct Link Method (/link):</b> Unlimited size decompilation\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
             "• 📦 <b>Batch ZIP Decompiler:</b> Upload up to <b>5 binaries in 1 ZIP</b>\n"
+            "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
             "• 🔔 <b>Expiry Warnings:</b> Advance 5-day & 1-day renewal alerts\n"
             "• 🛠️ <b>Dedicated Priority Support</b>\n\n"
             "═══════════════════════════════════\n"
@@ -459,8 +460,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  ✅ ZIP / APK / JAR are auto-extracted, binaries inside are found "
         "and decompiled\n\n"
         "⚡ <b>Features & Engines:</b>\n"
-        "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of C/C++ native files (ELF, PE, Mach-O, .so)\n"
-        "  • 📱 <b>Apktool Engine:</b> Perfect XML, Layout, and Smali extraction for APKs\n"
+        "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of native files (Free)\n"
+        "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) auto-upload to GoFile Cloud\n"
         "  • Live progress animation (0-100%)\n\n"
@@ -653,30 +654,43 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status.edit_text("❌ Could not get file path from Telegram. Try the /link method.")
             return
 
+        user_id = str(update.effective_user.id)
+        is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
+
         import uuid
         job_id = str(uuid.uuid4())[:8]
         PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": ""}
         
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
+            if is_premium:
+                btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
+            else:
+                btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
+                
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
-                "• 📱 <b>Apktool:</b> Decompile APKs (Smali/XML)\n"
-                "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (C Code)",
+                "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
+                "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
+                    [btn_apktool],
                     [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
                 ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
+            if is_premium:
+                btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+            else:
+                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+                
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
-                "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP\n"
-                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP",
+                "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
+                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
-                    [InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")]
+                    [btn_build]
                 ])
             )
         else:
@@ -732,19 +746,30 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     status = await msg.reply_text("🔗 Link received! Processing...")
     filename = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "download"
+    user_id = str(update.effective_user.id)
+    is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
+    
     import uuid
     job_id = str(uuid.uuid4())[:8]
     PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
+    
+    if is_premium:
+        btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
+        btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+    else:
+        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
+        btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+
     await status.edit_text(
         "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
-        "• 📱 <b>Apktool:</b> Decompile APKs (Smali/XML)\n"
-        "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (C Code)\n"
-        "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP",
+        "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
+        "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
+        "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")],
+            [btn_apktool],
             [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
-            [InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")]
+            [btn_build]
         ])
     )
 
