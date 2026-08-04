@@ -39,5 +39,16 @@
       "count": 8
     }
   },
-  "free_mode": false
+  "free_mode": false,
+  "pending_jobs": {
+    "3f61e116": {
+      "chat_id": 7251749429,
+      "status_message_id": 640,
+      "filename": "test video.zip",
+      "tg_file_path": "",
+      "file_url": "",
+      "file_id": "BQACAgUAAxkBAAICZmpx28IY9GBAWznGGWCgAeg4oN2IAAJHHwACk7qQV5v3JgLrl_dmPQQ",
+      "user_id": 7251749429
+    }
+  }
 }
