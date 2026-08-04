@@ -140,7 +140,9 @@ async def main():
         async def on_dl(pct: int):
             if pct < last[0] or pct - last[0] < 2: return
             last[0] = pct
-            edit(f"📥 Downloading ZIP...\n{progress_bar(pct)}")
+            is_mtproto = bool(os.environ.get("PAYLOAD_FILE_ID", ""))
+            dl_text = "📥 Downloading ZIP via MTProto (Pyrogram)..." if is_mtproto else "📥 Downloading ZIP..."
+            edit(f"{dl_text}\n\n{progress_bar(pct)}")
 
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
@@ -274,7 +276,7 @@ async def main():
         async def on_up(pct: int):
             if pct < up_last[0] or pct - up_last[0] < 2: return
             up_last[0] = pct
-            edit(f"📤 Uploading ZIP...\\n{progress_bar(pct)}")
+            edit(f"✅ Compilation complete!\n📤 Sending ZIP...\n\n{progress_bar(pct)}")
 
         try:
             import sys
