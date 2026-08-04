@@ -41,14 +41,14 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "f57f15e6": {
-      "chat_id": 6684870256,
-      "status_message_id": 688,
-      "filename": "libgojni.so",
-      "tg_file_path": "",
+    "12c0e200": {
+      "chat_id": 7251749429,
+      "status_message_id": 692,
+      "filename": "smali_classes5.zip",
+      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_23.zip",
       "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICr2px7A8p8hMgrT5KgzefhfrkosNEAAK7IgACIQRwV6GAq5VbeagVPQQ",
-      "user_id": 6684870256
+      "file_id": "BQACAgUAAxkBAAICs2px7euIgdN3hCZxYJCZKtYfNqTTAAKqHwACk7qQV9oTgiGlzDz1PQQ",
+      "user_id": 7251749429
     }
   }
 }
