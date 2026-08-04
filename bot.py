@@ -263,6 +263,76 @@ async def reply_denied(msg, user_id: int = None) -> None:
 
 
 
+def inspect_apk_file(file_path: Path) -> str:
+    import zipfile
+    import re
+
+    packers = {
+        r"libjiagu.*\.so": "🛡️ 360 Qihoo Guard (360加固)",
+        r"libsecmain.*\.so|libSecShell.*\.so|libDexHelper.*\.so": "🛡️ SecNeo / DexHelper (bangcle)",
+        r"libtup\.so|libshell.*\.so|libtbs.*\.so": "🛡️ Tencent Protect (腾讯加固)",
+        r"libvmp.*\.so": "🛡️ VMP Protect",
+        r"libnqshield.*\.so": "🛡️ NQ Shield",
+        r"libbaiduprotect.*\.so": "🛡️ Baidu Protect (百度加固)",
+        r"libijm.*\.so": "🛡️ Ijiami Protect (爱加密)",
+        r"libNP.*\.so": "🛡️ NP Manager Protect",
+        r"libdexguard.*\.so": "🛡️ DexGuard Protection",
+        r"libPRGuard.*\.so": "🛡️ PRGuard Protection",
+        r"libAPSDK.*\.so": "🛡️ Alibaba Protect (阿里加固)",
+    }
+
+    detected_protections = []
+    archs = set()
+    dex_count = 0
+    total_files = 0
+    pkg_name = "Unknown"
+
+    with zipfile.ZipFile(file_path, "r") as zf:
+        namelist = zf.namelist()
+        total_files = len(namelist)
+        for name in namelist:
+            if name.startswith("lib/"):
+                parts = name.split("/")
+                if len(parts) >= 2 and parts[1]:
+                    archs.add(parts[1])
+            if re.search(r"classes\d*\.dex", name):
+                dex_count += 1
+            for pattern, name_label in packers.items():
+                if re.search(pattern, name, re.IGNORECASE):
+                    if name_label not in detected_protections:
+                        detected_protections.append(name_label)
+
+            if name == "AndroidManifest.xml":
+                try:
+                    data = zf.read(name)
+                    strings = re.findall(rb'[\x20-\x7e]{4,}', data)
+                    for s_bytes in strings:
+                        s = s_bytes.decode('ascii', errors='ignore')
+                        if "." in s and len(s) > 6 and not s.startswith("http") and not s.endswith(".xml") and not s.endswith(".png") and not s.endswith(".asset"):
+                            if re.match(r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$', s):
+                                if pkg_name == "Unknown":
+                                    pkg_name = s
+                                    break
+                except Exception:
+                    pass
+
+    arch_str = ", ".join(sorted(archs)) if archs else "None (Pure Java/Kotlin APK)"
+    prot_str = "\n".join([f"• {p}" for p in detected_protections]) if detected_protections else "✅ No Known Heavy Packer/Protection Detected (Clean)"
+    file_size_mb = file_path.stat().st_size / (1024 * 1024)
+
+    report = (
+        "🔍 <b>APK Inspection & Security Report</b>\n\n"
+        f"📦 <b>Package Name:</b> <code>{pkg_name}</code>\n"
+        f"📏 <b>File Size:</b> <code>{file_size_mb:.2f} MB</code>\n"
+        f"📊 <b>DEX Count:</b> {dex_count} DEX file(s)\n"
+        f"🏛️ <b>Architectures (.so):</b> <code>{arch_str}</code>\n"
+        f"📁 <b>Total Files in APK:</b> {total_files}\n\n"
+        f"🛡️ <b>Security & Packer Status:</b>\n{prot_str}\n\n"
+        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
+    )
+    return report
+
+
 async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -278,6 +348,41 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
         return
         
     job = PENDING_JOBS.pop(job_id)
+
+    if engine == "inspect":
+        status = job["status"]
+        await status.edit_text("🔍 <b>Analyzing APK Security & Packer Info...</b>", parse_mode="HTML")
+        temp_dir = Path(tempfile.gettempdir()) / f"inspect_{os.urandom(6).hex()}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        dest = temp_dir / "target.apk"
+        try:
+            tg_file_path = job.get("tg_file_path", "")
+            file_url = job.get("file_url", "")
+            file_id = job.get("file_id", "")
+            if tg_file_path:
+                tg_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
+                async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+                    resp = await client.get(tg_url)
+                    dest.write_bytes(resp.content)
+            elif file_url:
+                async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+                    resp = await client.get(file_url)
+                    dest.write_bytes(resp.content)
+            elif file_id:
+                file_obj = await context.bot.get_file(file_id)
+                await file_obj.download_to_drive(dest)
+
+            if dest.exists() and dest.stat().st_size > 0:
+                report_text = inspect_apk_file(dest)
+                await status.edit_text(report_text, parse_mode="HTML")
+            else:
+                await status.edit_text("❌ Could not retrieve file for inspection.")
+        except Exception as e:
+            await status.edit_text(f"❌ Inspection failed: {e}")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        return
+
     await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
     await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine, job.get("file_id", ""))
 
@@ -735,6 +840,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id}
         
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
+            btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
             if is_premium:
                 btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java Code)", callback_data=f"engine_jadx_{job_id}")
@@ -744,13 +850,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
+                "• 🔍 <b>Analyze:</b> Instant Security & Packer Inspection (Free)\n"
                 "• ☕ <b>JADX:</b> Decompile APK to Java Source Code (⭐ Premium)\n"
                 "• 📱 <b>Apktool:</b> Decompile XML & Smali (⭐ Premium)\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile C binaries (Free)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
-                    [btn_jadx],
-                    [btn_apktool],
+                    [btn_inspect],
+                    [btn_jadx, btn_apktool],
                     [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
                 ])
             )
@@ -845,6 +952,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     job_id = str(uuid.uuid4())[:8]
     PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
     
+    btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
     if is_premium:
         btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
         btn_jadx = InlineKeyboardButton("☕ JADX (Java Code)", callback_data=f"engine_jadx_{job_id}")
@@ -856,12 +964,14 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await status.edit_text(
         "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
+        "• 🔍 <b>Analyze:</b> Instant Security & Packer Inspection (Free)\n"
         "• ☕ <b>JADX:</b> Decompile to Java Code (⭐ Premium)\n"
         "• 📱 <b>Apktool:</b> Decompile XML & Smali (⭐ Premium)\n"
         "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
         "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
+            [btn_inspect],
             [btn_jadx, btn_apktool],
             [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
             [btn_build]
