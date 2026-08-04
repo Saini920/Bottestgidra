@@ -42,6 +42,7 @@ jobs:
         PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
         PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
         PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+        PAYLOAD_ORIGINAL_MESSAGE_ID: ${{ github.event.client_payload.original_message_id }}
         PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
         PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
         PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}

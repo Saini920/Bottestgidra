@@ -597,12 +597,13 @@ async def cancel_github_job(job_name: str):
                 log.warning("Failed to cancel github job %s: %s", job_name, e)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "") -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0) -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
         "chat_id": str(chat_id),
         "message_id": str(message_id),
+        "original_message_id": str(original_msg_id),
         "filename": filename,
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
@@ -647,7 +648,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
     else:
         event_type = "decompile-job"
         
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id):
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
