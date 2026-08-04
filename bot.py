@@ -375,20 +375,59 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     data = query.data
     
-    parts = data.split("_")
-    if len(parts) != 3: return
-    engine = parts[1]
-    job_id = parts[2]
+    if not data.startswith("engine_"): return
+    raw = data[len("engine_"):]
+    if "_" not in raw: return
+    engine, job_id = raw.rsplit("_", 1)
     
-    if job_id not in PENDING_JOBS:
-        await query.edit_message_text("❌ This request has expired or is invalid.")
+    job = PENDING_JOBS.pop(job_id, None)
+    if not job:
+        pending_db = db.data.get("pending_jobs", {})
+        job = pending_db.pop(job_id, None)
+        if job:
+            db.save()
+
+    if not job:
+        await query.edit_message_text(
+            "⚠️ <b>Session Expired / Bot Restarted!</b>\n\n"
+            "This button is no longer active. Please upload your file or send the link again!",
+            parse_mode=constants.ParseMode.HTML
+        )
         return
-        
-    job = PENDING_JOBS.pop(job_id)
+
+    chat_id = job["chat_id"]
+    status_msg_id = job["status_message_id"]
+    user_id = job.get("user_id", update.effective_user.id)
+    
+    class DummyMessage:
+        def __init__(self, cid, mid, uid):
+            self.chat_id = cid
+            self.message_id = mid
+            self.from_user = type('User', (), {'id': uid})()
+
+    class StatusWrapper:
+        def __init__(self, ctx, cid, mid):
+            self.ctx = ctx
+            self.chat_id = cid
+            self.message_id = mid
+
+        async def edit_text(self, text, parse_mode=None, reply_markup=None):
+            try:
+                await self.ctx.bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.message_id,
+                    text=text,
+                    parse_mode=parse_mode,
+                    reply_markup=reply_markup
+                )
+            except Exception as e:
+                log.warning("StatusWrapper edit_text error: %s", e)
+
+    status_wrap = StatusWrapper(context, chat_id, status_msg_id)
+    dummy_msg = DummyMessage(chat_id, status_msg_id, user_id)
 
     if engine == "inspect":
-        status = job["status"]
-        await status.edit_text("🔍 <b>Analyzing APK Security & Packer Info...</b>", parse_mode="HTML")
+        await status_wrap.edit_text("🔍 <b>Analyzing APK Security & Packer Info...</b>", parse_mode="HTML")
         temp_dir = Path(tempfile.gettempdir()) / f"inspect_{os.urandom(6).hex()}"
         temp_dir.mkdir(parents=True, exist_ok=True)
         dest = temp_dir / "target.apk"
@@ -411,32 +450,31 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
 
             if dest.exists() and dest.stat().st_size > 0:
                 report_text = inspect_apk_file(dest)
-                await status.edit_text(report_text, parse_mode="HTML")
+                await status_wrap.edit_text(report_text, parse_mode="HTML")
             else:
-                await status.edit_text("❌ Could not retrieve file for inspection.")
+                await status_wrap.edit_text("❌ Could not retrieve file for inspection.")
         except Exception as e:
-            await status.edit_text(f"❌ Inspection failed: {e}")
+            await status_wrap.edit_text(f"❌ Inspection failed: {e}")
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
         return
 
     # Check zip .so limits and deduct quota
-    user_id = update.effective_user.id
     uid_str = str(user_id)
     is_premium = uid_str in ADMIN_IDS or uid_str in db.data["subscriptions"]
     cost = 1
 
-    if job["filename"].lower().endswith(".zip"):
+    if job.get("filename", "").lower().endswith(".zip"):
         so_count = await get_so_count_from_zip(job, context)
         if not is_premium and so_count > 1:
-            await job["status"].edit_text(
+            await status_wrap.edit_text(
                 f"⚠️ <b>ZIP Limit Exceeded!</b>\n\nFree users can process a maximum of <b>1 .so file</b> per ZIP (your ZIP contains <b>{so_count} .so files</b>).\n\n⭐ Upgrade to <b>Premium (₹99)</b> to process up to <b>5 .so files</b> per ZIP!",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]])
             )
             return
         elif is_premium and uid_str not in ADMIN_IDS and so_count > 5:
-            await job["status"].edit_text(
+            await status_wrap.edit_text(
                 f"⚠️ <b>ZIP Limit Exceeded!</b>\n\nMaximum <b>5 .so files</b> are allowed per ZIP archive (your ZIP contains <b>{so_count} .so files</b>).",
                 parse_mode="HTML"
             )
@@ -445,11 +483,11 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
 
     err = check_daily_limit(user_id, cost=cost)
     if err:
-        await job["status"].edit_text(err, parse_mode="HTML")
+        await status_wrap.edit_text(err, parse_mode="HTML")
         return
 
     await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
-    await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine, job.get("file_id", ""))
+    await enqueue_or_dispatch(dummy_msg, status_wrap, job.get("file_url", ""), job.get("filename", ""), job.get("tg_file_path", ""), engine, job.get("file_id", ""))
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -895,7 +933,19 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         import uuid
         job_id = str(uuid.uuid4())[:8]
-        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id}
+        job_data = {
+            "chat_id": msg.chat_id,
+            "status_message_id": status.message_id,
+            "filename": doc.file_name,
+            "tg_file_path": tg_file_path,
+            "file_url": "",
+            "file_id": file_id,
+            "user_id": update.effective_user.id
+        }
+        PENDING_JOBS[job_id] = job_data
+        if "pending_jobs" not in db.data: db.data["pending_jobs"] = {}
+        db.data["pending_jobs"][job_id] = job_data
+        db.save()
         
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
             if is_premium:
@@ -1009,7 +1059,19 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     import uuid
     job_id = str(uuid.uuid4())[:8]
-    PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
+    job_data = {
+        "chat_id": msg.chat_id,
+        "status_message_id": status.message_id,
+        "filename": filename,
+        "tg_file_path": "",
+        "file_url": url,
+        "file_id": "",
+        "user_id": update.effective_user.id
+    }
+    PENDING_JOBS[job_id] = job_data
+    if "pending_jobs" not in db.data: db.data["pending_jobs"] = {}
+    db.data["pending_jobs"][job_id] = job_data
+    db.save()
     
     if is_premium:
         btn_inspect = InlineKeyboardButton("🔍 Analyze & Security Check", callback_data=f"engine_inspect_{job_id}")
