@@ -187,21 +187,20 @@ async def main():
     try:
         work_dir.mkdir(parents=True)
         dest = work_dir / "input.apk"
-        last = [0]
+        last = [-100.0]
 
-        async def on_dl(pct: int):
-            if pct < last[0] or pct - last[0] < 2: return
+        async def on_dl(pct: float):
+            if pct < last[0] or (pct - last[0] < 2.0 and pct < 100.0): return
             last[0] = pct
             is_mtproto = bool(os.environ.get("PAYLOAD_FILE_ID", ""))
-            dl_text = "📥 Downloading APK via MTProto (Pyrogram)..." if is_mtproto else "📥 Downloading file..."
+            dl_text = "📥 Downloading APK via MTProto (Pyrogram)..." if is_mtproto else "📥 Downloading APK..."
             edit(f"{dl_text}\n\n{progress_bar(pct)}")
 
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
             if file_id:
-                filename = FILENAME or "download.apk"
-                edit(f"📥 Downloading APK via MTProto (Pyrogram)...")
-                import sys
+                filename = FILENAME or "download.bin"
+                await on_dl(0.0)
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "download_file.py", str(dest),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -210,7 +209,7 @@ async def main():
                     line = raw.decode(errors="replace").strip()
                     if line.startswith("PROGRESS:"):
                         try:
-                            pct = int(float(line.split(":")[1]))
+                            pct = float(line.split(":")[1])
                             await on_dl(pct)
                         except ValueError:
                             pass
