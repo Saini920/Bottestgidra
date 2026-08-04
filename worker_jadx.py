@@ -192,6 +192,8 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
 
     if rc != 0 or not out_dir.exists():
         err_msg = "\n".join(out_lines[-20:])
+        if "No classes for decompile" in err_msg:
+            raise ValueError("No Java code found! This file contains no classes/DEX to decompile.")
         raise RuntimeError(f"JADX failed with exit code {rc}:\n{err_msg}")
 
     return out_dir
@@ -277,6 +279,9 @@ async def main():
             out_dir = await run_jadx(dest, work_dir, on_progress)
         except asyncio.TimeoutError:
             edit("⏰ Timeout! The file is too big for JADX.", keep_button=False)
+            return
+        except ValueError as e:
+            edit(f"❌ {e}", keep_button=False)
             return
         except Exception as e:
             await send_error_log(work_dir, e, "JADX Decompilation crashed")
