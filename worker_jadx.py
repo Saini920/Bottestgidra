@@ -233,8 +233,10 @@ async def main():
                     sys.executable, "download_file.py", str(dest),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
+                dl_logs = []
                 async for raw in proc.stdout:
                     line = raw.decode(errors="replace").strip()
+                    if line: dl_logs.append(line)
                     if line.startswith("PROGRESS:"):
                         try:
                             pct = float(line.split(":")[1])
@@ -245,7 +247,9 @@ async def main():
                 if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
                     mtproto_success = True
                 else:
-                    print(f"MTProto Download Failed (code {proc.returncode}), trying fallback...")
+                    err_msg = "\n".join(dl_logs[-10:])
+                    print(f"MTProto Download Failed (code {proc.returncode}). Logs:\n{err_msg}\nTrying fallback...")
+                    edit(f"⚠️ MTProto Download Failed! Check GitHub Actions logs.\n<code>{err_msg[-200:]}</code>", keep_button=False)
 
             if not mtproto_success and TG_FILE_PATH:
                 filename = FILENAME or "download.apk"
@@ -321,8 +325,10 @@ async def main():
                     sys.executable, "upload_file.py", str(zip_path), caption,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
+                ul_logs = []
                 async for raw in proc.stdout:
                     line = raw.decode(errors="replace").strip()
+                    if line: ul_logs.append(line)
                     if line.startswith("PROGRESS:"):
                         try:
                             pct = int(float(line.split(":")[1]))
@@ -331,7 +337,8 @@ async def main():
                             pass
                 await proc.wait()
                 if proc.returncode != 0:
-                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+                    err_msg = "\n".join(ul_logs[-10:])
+                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}:\n{err_msg}")
             else:
                 with open(zip_path, "rb") as doc_f:
                     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
