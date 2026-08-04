@@ -222,7 +222,7 @@ async def main():
 
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
-            if file_id:
+            if file_id and os.environ.get("API_ID", "").strip():
                 filename = FILENAME or "download.bin"
                 await on_dl(0.0)
                 proc = await asyncio.create_subprocess_exec(
@@ -309,21 +309,30 @@ async def main():
             edit(f"✅ Decompilation complete!\n📤 Sending ZIP...\n\n{progress_bar(pct)}")
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "upload_file.py", str(zip_path), caption,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-            )
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").strip()
-                if line.startswith("PROGRESS:"):
-                    try:
-                        pct = int(float(line.split(":")[1]))
-                        await on_up(pct)
-                    except ValueError:
-                        pass
-            await proc.wait()
-            if proc.returncode != 0:
-                raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+            if os.environ.get("API_ID", "").strip():
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "upload_file.py", str(zip_path), caption,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                )
+                async for raw in proc.stdout:
+                    line = raw.decode(errors="replace").strip()
+                    if line.startswith("PROGRESS:"):
+                        try:
+                            pct = int(float(line.split(":")[1]))
+                            await on_up(pct)
+                        except ValueError:
+                            pass
+                await proc.wait()
+                if proc.returncode != 0:
+                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+            else:
+                with open(zip_path, "rb") as doc_f:
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+                    data = {"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}
+                    files = {"document": doc_f}
+                    async with httpx.AsyncClient(timeout=300) as client:
+                        resp = await client.post(url, data=data, files=files)
+                        resp.raise_for_status()
             await on_up(100)
             edit("✅ Decompilation complete! Java ZIP file delivered via MTProto. 🔥", keep_button=False)
 
