@@ -195,7 +195,7 @@ async def queue_worker_loop():
 
 OVER_LIMIT_MSG = (
     "⚠️ <b>File size limit exceeded!</b>\n"
-    "Max Telegram upload for bot is <b>2000 MB (2GB)</b> (file is {size:.1f} MB).\n\n"
+    "Max Telegram upload for bot is <b>100 MB</b> (file is {size:.1f} MB).\n\n"
     "Use the <b>link method</b> for larger files:\n"
     "   /link <i>https://your-link.com/file.so</i>\n\n"
     "Powered By @Ghostofhackers"
@@ -310,8 +310,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "⚡ <b>PREMIUM BENEFITS & FEATURES:</b>\n"
             "• 📊 <b>Increased Daily Limit:</b> <b>70 Files / Day</b> (vs 30 Free)\n"
             "• ⭐ <b>Premium Features Included:</b>\n"
-            "• 📦 <b>Direct File Upload Limit:</b> <b>2000 MB (2GB)</b> (vs 20 MB Free)\n"
-            "• 🔗 <b>Link Decompilation (/link):</b> Decompile from Drive/GoFile links\n"
+            "• 📦 <b>Direct File Upload Limit:</b> <b>100 MB</b> (vs 20 MB Free)\n"
+            "• 🔗 <b>Link Decompilation (/link):</b> Decompile from Drive/Direct links\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
             "• 📦 <b>Batch ZIP Decompiler:</b> Upload up to <b>5 binaries in 1 ZIP</b>\n"
             "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
@@ -493,7 +493,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
         "  • 🆓 <b>Free Quota:</b> 30 Files / Day (Max 20 MB Upload)\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 2000 MB Upload + /link method)\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 100 MB Upload + /link method)\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
         "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
@@ -546,7 +546,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{admin_section}\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
         "• 🆓 <b>Free Quota:</b> 30 files / day (Max 20 MB upload limit)\n"
-        "• ⭐ <b>Premium Quota:</b> 70 files / day (Max 2000 MB upload limit)\n"
+        "• ⭐ <b>Premium Quota:</b> 70 files / day (Max 100 MB upload limit)\n"
         "• 🔗 <b>Direct Link Method (/link):</b> Exclusive Premium Feature\n"
         "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
         "• 📦 <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
@@ -554,9 +554,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
-        "• Send any binary file directly in chat (Max <b>2000 MB</b> for Premium, Unlimited for Admins).\n\n"
+        "• Send any binary file directly in chat (Max <b>100 MB</b> for Premium, Unlimited for Admins).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
-        "• <b>Max Direct Upload:</b> 2000 MB (Unlimited for Admins)\n"
+        "• <b>Max Direct Upload:</b> 100 MB (Unlimited for Admins)\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
         "• <b>Server Concurrency:</b> Max 10 active jobs at a time\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
@@ -680,7 +680,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.effective_user.id)
     is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
-    user_max_mb = 2000 if is_premium else 20
+    
+    user_max_mb = 20
+    if user_id in ADMIN_IDS:
+        user_max_mb = 2000
+    elif is_premium:
+        user_max_mb = 100
 
     size_mb = (doc.file_size or 0) / (1024 * 1024)
     if size_mb > user_max_mb:
@@ -688,7 +693,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             limit_msg = (
                 "⚠️ <b>File Size Limit Exceeded!</b>\n\n"
                 f"Free users can upload files up to <b>20 MB</b> (your file is <b>{size_mb:.1f} MB</b>).\n\n"
-                "⭐ Upgrade to <b>Premium (₹99)</b> to upload files up to <b>2000 MB (2GB)</b> and unlock the <b>/link method</b>!"
+                "⭐ Upgrade to <b>Premium (₹99)</b> to upload files up to <b>100 MB</b> and unlock the <b>/link method</b>!"
             )
             await msg.reply_text(
                 limit_msg,

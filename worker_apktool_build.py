@@ -23,7 +23,7 @@ MESSAGE_ID = os.environ.get("PAYLOAD_MESSAGE_ID", "")
 FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
 JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
-MAX_DOWNLOAD_MB = int(os.environ.get("MAX_DOWNLOAD_MB", "500"))
+MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 100
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
