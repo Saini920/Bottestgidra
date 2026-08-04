@@ -497,6 +497,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 100 MB Upload + /link method)\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
+        "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
         "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
         "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
@@ -551,6 +552,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🔗 <b>Direct Link Method (/link):</b> Exclusive Premium Feature\n"
         "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
         "• 📦 <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
+        "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "• 🔔 <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts\n\n"
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
