@@ -283,12 +283,12 @@ async def main():
         with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.write(unsigned_apk, f"{safe_name}_unsigned.apk")
             if signed_apk.exists():
-                zf.write(signed_apk, f"{safe_name}_signed.apk")
+                        zf.write(signed_apk, f"{safe_name}_signed.apk")
 
         caption = f"✅ Compiled <b>{safe_name}</b> successfully!\nIncludes both Signed & Unsigned versions. — Powered By @Ghostofhackers & @R3V_X"
         up_last = [0]
         async def on_up(pct: int):
-            if pct < up_last[0] or pct - up_last[0] < 2: return
+            if pct < 100 and (pct < up_last[0] or pct - up_last[0] < 2): return
             up_last[0] = pct
             edit(f"✅ Compilation complete!\n📤 Sending ZIP...\n\n{progress_bar(pct)}")
 
@@ -308,6 +308,7 @@ async def main():
             await proc.wait()
             if proc.returncode != 0:
                 raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+            await on_up(100)
             edit("✅ Compilation complete! ZIP file delivered via MTProto. 🔥", keep_button=False)
             
             if JOB_ID:
