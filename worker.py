@@ -67,23 +67,6 @@ def edit(text: str, parse_mode: str = None, keep_button: bool = True):
     notify_app(text)
 
 
-async def send_error_log(work_dir, exception_obj, title="Processing failed"):
-    import traceback
-    err_str = traceback.format_exc()
-    log.error("%s: %s", title, exception_obj)
-    try:
-        err_file = Path(work_dir) / "error.txt"
-        err_file.write_text(f"❌ {title}:\n\n{err_str}")
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, "upload_file.py", str(err_file), f"❌ Error Log:\n{str(exception_obj)[:100]}",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-        )
-        await proc.wait()
-    except Exception as e:
-        log.error("Failed to upload error log: %s", e)
-    edit(f"❌ {title}. Error log sent.", keep_button=False)
-
-
 def progress_bar(pct: float) -> str:
     val = float(pct)
     filled = max(0, min(16, int(val * 16 / 100)))
@@ -374,7 +357,8 @@ async def main():
                 edit("⏰ Timeout! The file is too big or complex.", keep_button=False)
                 return
             except Exception as e:
-                await send_error_log(work_dir, e, "Decompilation crashed")
+                log.exception("Ghidra crashed")
+                edit("❌ Decompilation failed: " + str(e)[:300], keep_button=False)
                 return
 
         if not out_files:
@@ -421,15 +405,9 @@ async def main():
                 # App integration needs a direct link which we no longer have. 
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
-            await send_error_log(work_dir, e, "MTProto upload failed")
-    except Exception as fatal_e:
-        if 'work_dir' in locals():
-            await send_error_log(work_dir, fatal_e, "Fatal Worker Crash")
-        else:
-            edit("❌ Fatal Crash before initialization.", keep_button=False)
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}", keep_button=False)
     finally:
-        if 'work_dir' in locals():
-            shutil.rmtree(work_dir, ignore_errors=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

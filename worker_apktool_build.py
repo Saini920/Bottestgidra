@@ -61,22 +61,6 @@ def edit(text: str, parse_mode: str = None, keep_button: bool = True):
     tg("editMessageText", **params)
     notify_app(text)
 
-async def send_error_log(work_dir, exception_obj, title="Processing failed"):
-    import traceback
-    err_str = traceback.format_exc()
-    log.error("%s: %s", title, exception_obj)
-    try:
-        err_file = Path(work_dir) / "error.txt"
-        err_file.write_text(f"❌ {title}:\n\n{err_str}")
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, "upload_file.py", str(err_file), f"❌ Error Log:\n{str(exception_obj)[:100]}",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-        )
-        await proc.wait()
-    except Exception as e:
-        log.error("Failed to upload error log: %s", e)
-    edit(f"❌ {title}. Error log sent.", keep_button=False)
-
 def progress_bar(pct: float) -> str:
     val = float(pct)
     filled = max(0, min(16, int(val * 16 / 100)))
@@ -212,7 +196,7 @@ async def main():
             else:
                 await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
         except Exception as e:
-            await send_error_log(work_dir, e, "Download failed")
+            edit("❌ Download failed: " + str(e)[:300])
             return
 
         edit("📦 Extracting project...")
@@ -265,15 +249,7 @@ async def main():
                     await on_progress(85, "📦 Packaging APK...")
             return await proc.wait()
 
-        try:
-            await asyncio.wait_for(read_stream(), timeout=600)
-        except asyncio.TimeoutError:
-            edit("⏰ Apktool build timeout.", keep_button=False)
-            return
-        except Exception as e:
-            await send_error_log(work_dir, e, "Apktool build crashed")
-            return
-        
+        await read_stream()
         out_text = "\\n".join(out_lines)
         
         if proc.returncode != 0 or not unsigned_apk.exists():
@@ -337,16 +313,10 @@ async def main():
             if JOB_ID:
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
-            await send_error_log(work_dir, e, "MTProto upload failed")
+            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}", keep_button=False)
 
-    except Exception as fatal_e:
-        if 'work_dir' in locals():
-            await send_error_log(work_dir, fatal_e, "Fatal Worker Crash")
-        else:
-            edit("❌ Fatal Crash before initialization.", keep_button=False)
     finally:
-        if 'work_dir' in locals():
-            shutil.rmtree(work_dir, ignore_errors=True)
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     try:
