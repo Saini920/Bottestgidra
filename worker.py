@@ -32,6 +32,13 @@ MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 100
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 
+def check_download_size(total_bytes: int):
+    if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
+        raise ValueError(
+            f"File is {total_bytes/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB."
+        )
+
+
 def notify_app(message: str, title: str = None):
     if not JOB_ID:
         return
@@ -145,6 +152,7 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
                         filename = path_part
 
                 total = int(resp.headers.get("content-length") or 0)
+                check_download_size(total)
                 downloaded = 0
                 with open(dest, "wb") as fh:
                     async for chunk in resp.aiter_bytes(65536):
@@ -201,7 +209,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=3600)
+        rc = await asyncio.wait_for(read_stream(), timeout=7200)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("Ghidra analysis timed out")
@@ -271,6 +279,7 @@ async def main():
                     async with client.stream("GET", tg_url) as resp:
                         resp.raise_for_status()
                         total = int(resp.headers.get("content-length") or 0)
+                        check_download_size(total)
                         downloaded = 0
                         with open(dest, "wb") as fh:
                             async for chunk in resp.aiter_bytes(65536):
@@ -339,7 +348,7 @@ async def main():
                     edit(f"⚙️ <b>Processing ({idx}/{len(candidates)}):</b> <code>{bin_path.name}</code>...", parse_mode="HTML")
                     try:
                         res = await asyncio.wait_for(
-                            run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress), timeout=1800
+                            run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress), timeout=3600
                         )
                         bname = bin_path.stem
                         if res["c"].exists() and res["c"].stat().st_size > 0:
@@ -352,7 +361,7 @@ async def main():
         if not out_files:
             try:
                 result = await asyncio.wait_for(
-                    run_ghidra(dest, work_dir / "analysis", on_progress), timeout=3900
+                    run_ghidra(dest, work_dir / "analysis", on_progress), timeout=7200
                 )
                 bname = Path(filename).stem or "decompiled"
                 if result["c"].exists() and result["c"].stat().st_size > 0:

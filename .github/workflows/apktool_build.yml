@@ -8,6 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     steps:
     - name: Checkout Code
       uses: actions/checkout@v3

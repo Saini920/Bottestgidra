@@ -8,6 +8,7 @@ import time
 from datetime import date
 import httpx
 from telegram import Update, constants, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import Conflict
 from telegram.ext import Application, ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -57,29 +58,6 @@ def record_user_name(user):
         db.save()
 
 
-
-FORCE_CHANNELS = ["-1002378157598", "-1003121382577"]
-
-async def check_force_join(update, context) -> bool:
-    uid = update.effective_user.id
-    record_user_name(update.effective_user)
-    if str(uid) in ADMIN_IDS: return True
-    for ch in FORCE_CHANNELS:
-        try:
-            member = await context.bot.get_chat_member(chat_id=ch, user_id=uid)
-            if member.status in ["left", "kicked"]:
-                raise Exception("Not member")
-        except Exception as e:
-            log.warning(f"Force join check failed for {ch}: {e}")
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Join Channel 1", url="https://t.me/allinformation0173")],
-                [InlineKeyboardButton("Join Channel 2", url="https://t.me/+gQawrH0MFs00M2Y1")]
-            ])
-            try:
-                await update.message.reply_text("❌ <b>You must join our channels to use this bot!</b>\nJoin the channels and try again.", reply_markup=keyboard, parse_mode="HTML")
-            except: pass
-            return False
-    return True
 
 def is_allowed(user_id: int) -> bool:
     uid = str(user_id)
@@ -1347,6 +1325,9 @@ async def weekly_analytics_loop(app: Application):
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    if isinstance(context.error, Conflict):
+        log.warning("Telegram 409 Conflict: %s", context.error)
+        return
     log.exception("Handler error", exc_info=context.error)
 
 
@@ -1417,19 +1398,19 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
 
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    webhook_url = WEBHOOK_URL
+    if not webhook_url:
+        rp = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        if rp:
+            webhook_url = "https://" + rp if not rp.startswith(("http://", "https://")) else rp
 
-    if WEBHOOK_URL:
-        log.info("Webhook mode: %s", WEBHOOK_URL)
+    if webhook_url:
+        log.info("Webhook mode: %s", webhook_url)
         app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             url_path=BOT_TOKEN,
-            webhook_url=WEBHOOK_URL + "/" + BOT_TOKEN,
+            webhook_url=webhook_url.rstrip("/") + "/" + BOT_TOKEN,
         )
     else:
         log.info("Polling mode")
@@ -1456,7 +1437,11 @@ def main():
                 
         threading.Thread(target=start_dummy_server, daemon=True).start()
         
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        try:
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
+        except Conflict:
+            log.error("409 Conflict — another instance is polling. Stopping to avoid duplicate polling.")
+            sys.exit(0)
 
 
 if __name__ == "__main__":

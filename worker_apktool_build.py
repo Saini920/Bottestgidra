@@ -27,6 +27,14 @@ MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 100
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+
+def check_download_size(total_bytes: int):
+    if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
+        raise ValueError(
+            f"File is {total_bytes/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB."
+        )
+
+
 def notify_app(message: str, title: str = None):
     if not JOB_ID:
         return
@@ -111,6 +119,7 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
                         filename = path_part
 
                 total = int(resp.headers.get("content-length") or 0)
+                check_download_size(total)
                 downloaded = 0
                 with open(dest, "wb") as fh:
                     async for chunk in resp.aiter_bytes(65536):
@@ -188,6 +197,7 @@ async def main():
                     async with client.stream("GET", tg_url) as resp:
                         resp.raise_for_status()
                         total = int(resp.headers.get("content-length") or 0)
+                        check_download_size(total)
                         downloaded = 0
                         with open(dest, "wb") as fh:
                             async for chunk in resp.aiter_bytes(65536):
