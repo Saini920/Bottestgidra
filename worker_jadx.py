@@ -261,17 +261,40 @@ async def main():
         dest = work_dir / f"input_file{ext}"
         last = [-100.0]
 
+        dl_method = ["📥 Downloading file..."]
         async def on_dl(pct: float):
             if pct < last[0] or (pct - last[0] < 2.0 and pct < 100.0): return
             last[0] = pct
-            is_mtproto = bool(os.environ.get("PAYLOAD_FILE_ID", ""))
-            dl_text = "📥 Downloading via MTProto (Pyrogram)..." if is_mtproto else "📥 Downloading file..."
-            edit(f"{dl_text}\n\n{progress_bar(pct)}")
+            edit(f"{dl_method[0]}\n\n{progress_bar(pct)}")
 
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
-            if file_id:
+            got_file = False
+            if TG_FILE_PATH:
+                try:
+                    filename = FILENAME or "download.apk"
+                    tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
+                    async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
+                        async with client.stream("GET", tg_url) as resp:
+                            resp.raise_for_status()
+                            total = int(resp.headers.get("content-length") or 0)
+                            check_download_size(total)
+                            done = 0
+                            with open(dest, "wb") as fh:
+                                async for chunk in resp.aiter_bytes(65536):
+                                    fh.write(chunk)
+                                    done += len(chunk)
+                                    if total:
+                                        pct = min(100, int(done * 100 / total))
+                                        await on_dl(pct)
+                    got_file = True
+                except Exception as http_err:
+                    if not file_id:
+                        raise
+                    log.warning("HTTP download failed, falling back to MTProto: %s", http_err)
+            if not got_file and file_id:
                 filename = FILENAME or "download.bin"
+                dl_method[0] = "📥 Downloading via MTProto (Pyrogram)..."
                 await on_dl(0.0)
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "download_file.py", str(dest),
@@ -295,23 +318,8 @@ async def main():
                 if proc.returncode != 0:
                     err_tail = "\n".join(dl_logs[-8:]) or "no output"
                     raise ValueError(f"MTProto Download failed with code {proc.returncode}: {err_tail}")
-            elif TG_FILE_PATH:
-                filename = FILENAME or "download.apk"
-                tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
-                async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
-                    async with client.stream("GET", tg_url) as resp:
-                        resp.raise_for_status()
-                        total = int(resp.headers.get("content-length") or 0)
-                        check_download_size(total)
-                        downloaded = 0
-                        with open(dest, "wb") as fh:
-                            async for chunk in resp.aiter_bytes(65536):
-                                fh.write(chunk)
-                                downloaded += len(chunk)
-                                if total:
-                                    pct = min(100, int(downloaded * 100 / total))
-                                    await on_dl(pct)
-            else:
+                got_file = True
+            if not got_file:
                 filename = await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
         except Exception as e:
             await send_error_log(work_dir, e, "Download failed")
