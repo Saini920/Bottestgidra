@@ -273,9 +273,9 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
                 idle = 0
             except asyncio.TimeoutError:
                 idle += 60
-                if idle >= 600:
+                if idle >= 1800:
                     proc.kill()
-                    raise RuntimeError("CFR stalled: no output for 10 minutes")
+                    raise RuntimeError("CFR stalled: no output for 30 minutes")
                 continue
             if not raw:
                 break
@@ -330,9 +330,9 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
                 idle = 0
             except asyncio.TimeoutError:
                 idle += 60
-                if idle >= 600:
+                if idle >= 1800:
                     proc.kill()
-                    raise RuntimeError("JADX fallback stalled: no output for 10 minutes")
+                    raise RuntimeError("JADX fallback stalled: no output for 30 minutes")
                 continue
             if not raw:
                 break
