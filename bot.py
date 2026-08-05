@@ -615,9 +615,9 @@ def get_report_url() -> str:
     return (base + "/internal/count") if base else ""
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, user_id: str = "") -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, user_id: str = ""):
     if not GITHUB_TOKEN:
-        return False
+        return False, 0, "GITHUB_TOKEN env missing"
     client_payload = {
         "chat_id": str(chat_id),
         "message_id": str(message_id),
@@ -636,18 +636,22 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     else:
         client_payload["file_url"] = file_url
     payload = {"event_type": event_type, "client_payload": client_payload}
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
-            headers={
-                "Authorization": f"Bearer {GITHUB_TOKEN}",
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "ghidra-bot",
-            },
-            json=payload,
-        )
-    log.info("dispatch status=%s body=%s", resp.status_code, resp.text[:200])
-    return resp.status_code in (204, 200)
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"https://api.github.com/repos/{GITHUB_REPO}/dispatches",
+                headers={
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "ghidra-bot",
+                },
+                json=payload,
+            )
+    except Exception as e:
+        log.error("dispatch network error: %s", e)
+        return False, 0, f"network error: {e}"
+    log.info("dispatch repo=%s event=%s status=%s body=%s", GITHUB_REPO, event_type, resp.status_code, resp.text[:300])
+    return resp.status_code in (204, 200), resp.status_code, resp.text[:300]
 
 
 async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra", file_id: str = "", is_premium: bool = False):
@@ -675,11 +679,16 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-job"
         
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, user_id):
+    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, user_id)
+    if not ok:
         await status.edit_text(
-            "❌ GitHub trigger failed: GitHub API rejected the dispatch request.\n"
-            "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
-            "<code>Toboisking/ghidra-telegram-bot</code>.",
+            "❌ GitHub trigger failed (HTTP <code>{code}</code>).\n"
+            "Repo: <code>{repo}</code>\n"
+            "Response: <code>{body}</code>\n\n"
+            "Fix: Railway → Variables → check <code>GITHUB_TOKEN</code> (repo scope) "
+            "and <code>GITHUB_REPO</code> (should be <code>Saini920/Bottestgidra</code>), then Redeploy.".format(
+                code=code, repo=GITHUB_REPO, body=body
+            ),
             parse_mode=constants.ParseMode.HTML,
         )
         return
