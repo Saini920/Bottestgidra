@@ -2,14 +2,27 @@ import os, sys, asyncio
 from pyrogram import Client
 
 async def robust_download(app, media, dest_path):
+    import time
+    last_progress_time = time.time()
+    
     async def progress(current, total):
+        nonlocal last_progress_time
+        last_progress_time = time.time()
         if total > 0:
             pct = current * 100.0 / total
             print(f"PROGRESS:{pct:.2f}", flush=True)
 
+    async def watchdog():
+        while True:
+            await asyncio.sleep(5)
+            if time.time() - last_progress_time > 45:
+                print("ERROR: Download connection stalled for 45 seconds! Exiting...", flush=True)
+                os._exit(1)
+
+    watchdog_task = asyncio.create_task(watchdog())
     task = asyncio.create_task(app.download_media(media, file_name=dest_path, progress=progress))
     try:
-        # Give it up to 60 minutes overall, or we can just await it
+        # Give it up to 60 minutes overall
         await asyncio.wait_for(task, timeout=3600)
     except asyncio.TimeoutError:
         print("ERROR: Download timed out after 60 minutes!", flush=True)
@@ -17,6 +30,8 @@ async def robust_download(app, media, dest_path):
     except Exception as e:
         print(f"ERROR: Pyrogram download failed: {e}", flush=True)
         sys.exit(1)
+    finally:
+        watchdog_task.cancel()
 
 async def main():
     raw_api = os.environ.get("API_ID", "").strip()
