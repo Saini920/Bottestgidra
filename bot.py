@@ -293,7 +293,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "• 🔗 <b>Link Decompilation (/link):</b> Decompile from Drive/Direct links\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
             "• 📦 <b>Batch ZIP Decompiler:</b> Upload up to <b>5 binaries in 1 ZIP</b>\n"
-            "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
+            "• 📱 <b>APK Engines:</b> JADX (Java Source), dex2jar (JAR+Java), Apktool (XML/Smali) & Compilation Support\n"
             "• 🔔 <b>Expiry Warnings:</b> Advance 5-day & 1-day renewal alerts\n"
             "• 🛠️ <b>Dedicated Priority Support</b>\n\n"
             "═══════════════════════════════════\n"
@@ -619,7 +619,11 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             parse_mode=constants.ParseMode.HTML,
         )
         return
-    if engine == "apktool":
+    if engine == "jadx":
+        event_type = "decompile-jadx"
+    elif engine == "dex2jar":
+        event_type = "decompile-dex2jar"
+    elif engine == "apktool":
         event_type = "decompile-apktool"
     elif engine == "apktool-build":
         event_type = "compile-apktool"
@@ -712,16 +716,23 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if doc.file_name and doc.file_name.lower().endswith(".apk"):
             if is_premium:
+                btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
+                btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
                 btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
             else:
+                btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
+                btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (Premium Only)", callback_data="buy_sub")
                 btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
-                
+
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
+                "• ☕ <b>JADX:</b> APK → Java Source (⭐ Premium)\n"
+                "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source (⭐ Premium)\n"
                 "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_jadx, btn_dex2jar],
                     [btn_apktool],
                     [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
                 ])
@@ -803,19 +814,26 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
     
     if is_premium:
+        btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
+        btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
         btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
         btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
     else:
+        btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
+        btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (Premium Only)", callback_data="buy_sub")
         btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
         btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
 
     await status.edit_text(
         "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
+        "• ☕ <b>JADX:</b> APK → Java Source (⭐ Premium)\n"
+        "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source (⭐ Premium)\n"
         "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
         "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
         "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([
+            [btn_jadx, btn_dex2jar],
             [btn_apktool],
             [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
             [btn_build]
