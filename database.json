@@ -41,35 +41,15 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "314f648e": {
+    "276e5940": {
       "chat_id": 7251749429,
-      "status_message_id": 776,
-      "original_message_id": 775,
-      "filename": "SnapTube VIP v7.69.1.79405200 Modded by Getmodpc.apk",
+      "status_message_id": 793,
+      "original_message_id": 791,
+      "filename": "main.21325.com.pubg.imobile.obb",
       "tg_file_path": "",
       "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICBmpxc6uTsc_9D8zwgZqXMy8Ol6iKAAJqHwACM0hxVwbL_Wv0Nn1_PQQ",
+      "file_id": "BQACAgQAAxkBAAIDF2pym_qfnD0Fm7RIVU_M1FLbzOYTAAK9GwACaZ7AUgwKmyakSr8cPQQ",
       "user_id": 7251749429
-    },
-    "1ef74e86": {
-      "chat_id": 7251749429,
-      "status_message_id": 779,
-      "original_message_id": 778,
-      "filename": "SnapTube VIP v7.69.1.79405200 Modded by Getmodpc.apk",
-      "tg_file_path": "",
-      "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICBmpxc6uTsc_9D8zwgZqXMy8Ol6iKAAJqHwACM0hxVwbL_Wv0Nn1_PQQ",
-      "user_id": 7251749429
-    },
-    "ace3b160": {
-      "chat_id": 6684870256,
-      "status_message_id": 781,
-      "original_message_id": 780,
-      "filename": "libgojni.so",
-      "tg_file_path": "",
-      "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICr2px7A8p8hMgrT5KgzefhfrkosNEAAK7IgACIQRwV6GAq5VbeagVPQQ",
-      "user_id": 6684870256
     }
   }
 }
