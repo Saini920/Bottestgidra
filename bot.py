@@ -465,49 +465,60 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
     api_id = os.environ.get("API_ID", "")
     api_hash = os.environ.get("API_HASH", "")
     if file_id and api_id and api_hash and not http_success:
-        try:
-            env = os.environ.copy()
-            env["PAYLOAD_FILE_ID"] = str(file_id)
-            env["PAYLOAD_CHAT_ID"] = str(chat_id)
-            env["PAYLOAD_ORIGINAL_MESSAGE_ID"] = str(orig_msg_id)
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "download_file.py", str(dest),
-                env=env,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-            )
-            dl_logs = []
-            async def read_stream():
-                async for raw in proc.stdout:
-                    line = raw.decode(errors="replace").strip()
-                    if line: dl_logs.append(line)
-                    if line.startswith("PROGRESS:") and progress_cb:
-                        try:
-                            pct = float(line.split(":")[1])
-                            await progress_cb(min(45.0, pct * 0.45), "📥 <b>Downloading file via MTProto...</b>")
-                        except ValueError:
-                            pass
+        for attempt in range(3):
             try:
-                await asyncio.wait_for(read_stream(), timeout=1800)
-                await asyncio.wait_for(proc.wait(), timeout=10)
-            except asyncio.TimeoutError:
-                try: proc.kill()
-                except: pass
-                raise ValueError("MTProto download timed out after 30 minutes")
+                env = os.environ.copy()
+                env["PAYLOAD_FILE_ID"] = str(file_id)
+                env["PAYLOAD_CHAT_ID"] = str(chat_id)
+                env["PAYLOAD_ORIGINAL_MESSAGE_ID"] = str(orig_msg_id)
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "download_file.py", str(dest),
+                    env=env,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                )
+                dl_logs = []
+                async def read_stream():
+                    async for raw in proc.stdout:
+                        line = raw.decode(errors="replace").strip()
+                        if line: dl_logs.append(line)
+                        if line.startswith("PROGRESS:") and progress_cb:
+                            try:
+                                pct = float(line.split(":")[1])
+                                await progress_cb(min(45.0, pct * 0.45), f"📥 <b>Downloading file via MTProto (Attempt {attempt+1}/3)...</b>")
+                            except ValueError:
+                                pass
+                try:
+                    await asyncio.wait_for(read_stream(), timeout=1800)
+                    await asyncio.wait_for(proc.wait(), timeout=10)
+                except asyncio.TimeoutError:
+                    try: proc.kill()
+                    except: pass
+                    raise ValueError("MTProto download timed out after 30 minutes")
+                except asyncio.CancelledError:
+                    try: proc.kill()
+                    except: pass
+                    raise
+                if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
+                    return True
+                else:
+                    err_msg = "\n".join(dl_logs[-10:])
+                    if attempt < 2:
+                        log.warning(f"MTProto Download failed (code {proc.returncode}), retrying... Logs:\n{err_msg}")
+                        await asyncio.sleep(2)
+                        continue
+                    else:
+                        log.error(f"bot.py MTProto Download Failed completely. Logs:\n{err_msg}")
+                        raise ValueError(f"MTProto Download Failed:\n{err_msg}")
             except asyncio.CancelledError:
-                try: proc.kill()
-                except: pass
                 raise
-            if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
-                return True
-            else:
-                err_msg = "\n".join(dl_logs[-10:])
-                log.error(f"bot.py MTProto Download Failed (code {proc.returncode}). Logs:\n{err_msg}")
-                raise ValueError(f"MTProto Download Failed:\n{err_msg}")
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            log.warning("MTProto download failed in bot.py: %s", e)
-            raise
+            except Exception as e:
+                if attempt < 2:
+                    log.warning(f"MTProto download exception: {e}, retrying...")
+                    await asyncio.sleep(2)
+                    continue
+                else:
+                    log.warning("MTProto download completely failed in bot.py: %s", e)
+                    raise
 
     raise ValueError("No valid URL or File ID found to download.")
 
