@@ -714,7 +714,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         job_id = str(uuid.uuid4())[:8]
         PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id}
         
-        if doc.file_name and doc.file_name.lower().endswith(".apk"):
+        if doc.file_name and doc.file_name.lower().endswith(".smali"):
+            if is_premium:
+                btn_jadx = InlineKeyboardButton("☕ Smali → Java", callback_data=f"engine_jadx_{job_id}")
+            else:
+                btn_jadx = InlineKeyboardButton("☕ Smali → Java (Premium Only)", callback_data="buy_sub")
+            await status.edit_text(
+                "☕ <b>Smali File Detected!</b>\nConvert Smali to readable Java source?\n\n"
+                "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java (⭐ Premium)",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[btn_jadx]])
+            )
+        elif doc.file_name and doc.file_name.lower().endswith(".apk"):
             if is_premium:
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
                 btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
@@ -740,16 +751,20 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
             if is_premium:
                 btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+                btn_jadx = InlineKeyboardButton("☕ JADX (Java/Smali)", callback_data=f"engine_jadx_{job_id}")
             else:
                 btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
-                
+                btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
+
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
+                "• ☕ <b>JADX:</b> Decompile Java/Smali to source (⭐ Premium)\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                    [btn_jadx],
                     [btn_build]
                 ])
             )

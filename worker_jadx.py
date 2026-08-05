@@ -155,29 +155,41 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
 async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
     out_dir = work_dir / "jadx_out"
 
-    target_file = file_path
+    inputs = []
     if file_path.suffix.lower() == ".zip":
         with zipfile.ZipFile(file_path, "r") as zf:
-            dex_files = [n for n in zf.namelist() if n.lower().endswith((".dex", ".smali", ".class", ".jar"))]
-            if dex_files:
+            names = zf.namelist()
+            smali_entries = [n for n in names if n.lower().endswith(".smali")]
+            dex_entries = [n for n in names if n.lower().endswith((".dex", ".class", ".jar"))]
+            if smali_entries:
+                extract_dir = work_dir / "extracted_smali"
+                extract_dir.mkdir(exist_ok=True)
+                for se in smali_entries:
+                    zf.extract(se, extract_dir)
+                inputs = [str(p) for p in sorted(extract_dir.rglob("*.smali"))]
+            elif dex_entries:
                 extract_dir = work_dir / "extracted_src"
                 extract_dir.mkdir(exist_ok=True)
-                for df in dex_files:
-                    zf.extract(df, extract_dir)
-                target_file = extract_dir
-            elif any(n.lower().endswith(".apk") for n in zf.namelist()):
-                apk_files = [n for n in zf.namelist() if n.lower().endswith(".apk")]
+                for de in dex_entries:
+                    zf.extract(de, extract_dir)
+                inputs = [str(p) for p in extract_dir.rglob("*") if p.is_file()]
+            elif any(n.lower().endswith(".apk") for n in names):
+                apk_files = [n for n in names if n.lower().endswith(".apk")]
                 extract_dir = work_dir / "extracted_apk"
                 extract_dir.mkdir(exist_ok=True)
                 zf.extract(apk_files[0], extract_dir)
-                target_file = extract_dir / apk_files[0]
+                inputs = [str(extract_dir / apk_files[0])]
+    else:
+        inputs = [str(file_path)]
+
+    if not inputs:
+        raise ValueError("No classes/DEX/Smali found in the input file.")
 
     cmd = [
         "/opt/jadx/bin/jadx",
         "-d", str(out_dir),
         "--no-res",
-        str(target_file)
-    ]
+    ] + inputs
     log.info("Running JADX: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
