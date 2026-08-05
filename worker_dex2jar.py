@@ -348,7 +348,7 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=1200)
+        rc = await asyncio.wait_for(read_stream(), timeout=3600)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("JADX fallback decompilation timed out")
