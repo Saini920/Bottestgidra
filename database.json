@@ -41,14 +41,14 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "14ae9a41": {
+    "b9b01262": {
       "chat_id": 7251749429,
-      "status_message_id": 866,
-      "original_message_id": 865,
-      "filename": "MainActivity.smali",
-      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_22.smali",
+      "status_message_id": 869,
+      "original_message_id": 868,
+      "filename": "CapCut_patched_v3.apk",
+      "tg_file_path": "",
       "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICgmpx5hFPI2sqGd2O1KPomY2AtnP4AAJiHwACk7qQVyK1OHkWio1XPQQ",
+      "file_id": "BQACAgUAAxkBAAIB9GpxXLXtRCGouO8wceEtUXXUg87_AAJVGwACY8_5Vuw4A7biiO-bPQQ",
       "user_id": 7251749429
     }
   }
