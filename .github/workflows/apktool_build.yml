@@ -40,7 +40,7 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /opt/tg_sessions
-        key: tg-session-v1
+        key: tg-session-v2
 
     - name: Prepare session dir
       run: |

@@ -200,18 +200,25 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
 
     out_lines = []
     async def read_stream():
+        count = 0
         while True:
-            raw = await proc.stdout.readline()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError("JADX stalled: no output for 4 minutes")
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
             out_lines.append(line)
             if "processing" in line.lower() or "progress" in line.lower():
-                await on_progress(50, "☕ Decompiling DEX to Java...")
+                count += 1
+                if count % 20 == 0:
+                    await on_progress(50, f"☕ Decompiling DEX to Java... ({count} classes)")
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=7200)
+        rc = await asyncio.wait_for(read_stream(), timeout=1800)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("JADX decompilation timed out")

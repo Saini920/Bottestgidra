@@ -1490,11 +1490,13 @@ def main():
                 
         threading.Thread(target=start_dummy_server, daemon=True).start()
         
-        try:
-            app.run_polling(allowed_updates=Update.ALL_TYPES)
-        except Conflict:
-            log.error("409 Conflict — another instance is polling. Stopping to avoid duplicate polling.")
-            sys.exit(0)
+        while True:
+            try:
+                app.run_polling(allowed_updates=Update.ALL_TYPES)
+                break
+            except Conflict:
+                log.error("409 Conflict — another instance is polling. Retrying in 60s...")
+                time.sleep(60)
 
 
 if __name__ == "__main__":
