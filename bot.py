@@ -346,7 +346,8 @@ async def inspect_apk_file_async(file_path: Path, filename_input: str = "app", p
 
             if name == "AndroidManifest.xml":
                 try:
-                    data = zf.read(name)
+                    with zf.open(name) as f:
+                        data = f.read(2 * 1024 * 1024)  # read max 2MB to prevent Zip Bombs
                     strings = re.findall(rb'[\x20-\x7e]{4,}', data)
                     for s_bytes in strings:
                         s = s_bytes.decode('ascii', errors='ignore')
@@ -359,16 +360,17 @@ async def inspect_apk_file_async(file_path: Path, filename_input: str = "app", p
                     pass
 
     if progress_cb:
-        await progress_cb(98.0, "📊 <b>Generating Deep Markdown Report...</b>")
+        await progress_cb(98.0, "📊 <b>Generating Deep Markdown Report...</b>", True)
 
-    arch_str = ", ".join(sorted(arch_files.keys())) if arch_files else "None (Pure Java/Kotlin APK)"
-    prot_str = "\n".join([f"• {p}" for p in detected_protections]) if detected_protections else "✅ No Known Heavy Packer/Protection Detected (Clean)"
+    from html import escape
+    arch_str = escape(", ".join(sorted(arch_files.keys())) if arch_files else "None (Pure Java/Kotlin APK)")
+    prot_str = escape("\n".join([f"• {p}" for p in detected_protections]) if detected_protections else "✅ No Known Heavy Packer/Protection Detected (Clean)")
 
     bot_mention = f" (@{bot_username})" if bot_username else ""
     
     short_report = (
         "🔍 <b>APK Inspection & Security Report</b>\n\n"
-        f"📦 <b>Package Name:</b> <code>{pkg_name}</code>\n"
+        f"📦 <b>Package Name:</b> <code>{escape(pkg_name)}</code>\n"
         f"📏 <b>File Size:</b> <code>{file_size_mb:.2f} MB</code>\n"
         f"📊 <b>DEX Count:</b> {file_types_count['dex']} DEX file(s)\n"
         f"🏛️ <b>Architectures (.so):</b> <code>{arch_str}</code>\n"
@@ -607,20 +609,20 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             last_p = [-10.0]
             last_t = [0.0]
 
-            async def update_inspect_progress(pct: float, label: str):
+            async def update_inspect_progress(pct: float, label: str, force: bool = False):
                 import time
                 if status_wrap.message_id in CANCELLED_JOBS:
                     raise asyncio.CancelledError("Job cancelled by user")
                 
                 now = time.time()
-                # Update if: at 100%, OR (progress increased by 4% AND 1.5 seconds passed)
-                if pct < 100.0 and (pct - last_p[0] < 4.0 or now - last_t[0] < 1.5):
+                # Update if: forced, at 100%, OR (progress increased by 4% AND 1.5 seconds passed)
+                if not force and pct < 100.0 and (pct - last_p[0] < 4.0 or now - last_t[0] < 1.5):
                     return
                 last_p[0] = pct
                 last_t[0] = now
                 try:
                     await status_wrap.edit_text(
-                        f"{label}\n\n{progress_bar(pct)}",
+                        f"{label}\n\n{progress_bar(pct)} {pct:.2f} %",
                         parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status_wrap.message_id}")]])
                     )
