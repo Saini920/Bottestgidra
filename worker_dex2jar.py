@@ -235,7 +235,7 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
         "-jar", CFR_JAR,
         str(jar_path),
         "--outputdir", str(out_dir),
-        "--silent", "true",
+        "--silent", "false",
     ]
     log.info("Running CFR: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
@@ -247,17 +247,23 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
     out_lines = []
     async def read_stream():
         while True:
-            raw = await proc.stdout.readline()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError("CFR stalled: no output for 4 minutes")
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
             if line:
                 out_lines.append(line)
+                if len(out_lines) > 100:
+                    del out_lines[:-100]
             await on_progress(80, "☕ Decompiling JAR to Java...")
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=3600)
+        rc = await asyncio.wait_for(read_stream(), timeout=1800)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("CFR decompilation timed out")
@@ -290,17 +296,23 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
     out_lines = []
     async def read_stream():
         while True:
-            raw = await proc.stdout.readline()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
+            except asyncio.TimeoutError:
+                proc.kill()
+                raise RuntimeError("JADX fallback stalled: no output for 4 minutes")
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
             if line:
                 out_lines.append(line)
+                if len(out_lines) > 100:
+                    del out_lines[:-100]
             await on_progress(85, "☕ Decompiling with JADX...")
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=3600)
+        rc = await asyncio.wait_for(read_stream(), timeout=1800)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("JADX fallback decompilation timed out")
