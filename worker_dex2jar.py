@@ -96,17 +96,32 @@ async def send_error_log(work_dir, exception_obj, title="dex2jar Decompilation f
     import traceback
     err_str = traceback.format_exc()
     log.error("%s: %s", title, exception_obj)
+    sent = False
     try:
         err_file = Path(work_dir) / "error.txt"
         err_file.write_text(f"❌ {title}:\n\n{err_str}")
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable, "upload_file.py", str(err_file), f"❌ Error Log:\n{str(exception_obj)[:100]}",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-        )
-        await proc.wait()
+        caption = f"❌ Error Log:\n{str(exception_obj)[:100]}"
+        try:
+            with open(err_file, "rb") as ef:
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+                async with httpx.AsyncClient(timeout=120) as client:
+                    resp = await client.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"document": ef})
+                    resp.raise_for_status()
+            sent = True
+        except Exception as e:
+            log.warning("HTTP error log upload failed, falling back to MTProto: %s", e)
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "upload_file.py", str(err_file), caption,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+            await proc.wait()
+            sent = (proc.returncode == 0)
     except Exception as e:
         log.error("Failed to upload error log: %s", e)
-    edit(f"❌ {title}. Error log sent.", keep_button=False)
+    if sent:
+        edit(f"❌ {title}. Error log sent.", keep_button=False)
+    else:
+        edit(f"❌ {title}. Could not send error log. Try again later.", keep_button=False)
 
 
 async def download_url(url: str, dest: Path, on_progress) -> str:
