@@ -594,7 +594,7 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             async def update_inspect_progress(pct: float, label: str):
                 if status_wrap.message_id in CANCELLED_JOBS:
                     raise asyncio.CancelledError("Job cancelled by user")
-                if pct < 100.0 and (pct - last_p[0] < 10.0):
+                if pct < 100.0 and (pct - last_p[0] < 4.0):
                     return
                 last_p[0] = pct
                 try:

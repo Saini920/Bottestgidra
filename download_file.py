@@ -43,8 +43,8 @@ async def main():
         print("Missing credentials or file_id for MTProto download.")
         sys.exit(1)
         
-    print(f"Downloading file_id {file_id} via MTProto (Pyrogram stream)...", flush=True)
-    app = Client("worker_session", api_id=api_id, api_hash=api_hash, bot_token=bot_token, in_memory=True)
+    session_name = f"worker_session_{os.urandom(4).hex()}"
+    app = Client(session_name, api_id=api_id, api_hash=api_hash, bot_token=bot_token, workdir="/tmp")
     
     async with app:
         if chat_id and orig_msg_id:
@@ -60,4 +60,12 @@ async def main():
     print("Download complete.", flush=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    finally:
+        for f in os.listdir("/tmp"):
+            if f.startswith("worker_session_") and (f.endswith(".session") or f.endswith(".session-journal")):
+                try:
+                    os.remove(f"/tmp/{f}")
+                except:
+                    pass
