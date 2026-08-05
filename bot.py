@@ -447,7 +447,6 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
             )
             dl_logs = []
-            import asyncio
             async def read_stream():
                 async for raw in proc.stdout:
                     line = raw.decode(errors="replace").strip()
