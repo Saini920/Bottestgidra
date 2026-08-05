@@ -252,7 +252,10 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
         err_msg = "\n".join(out_lines[-20:])
         if "No classes for decompile" in err_msg:
             raise ValueError("No Java code found! This file contains no classes/DEX to decompile.")
-        raise RuntimeError(f"JADX failed with exit code {rc}:\n{err_msg}")
+        java_files = [p for p in out_dir.rglob("*.java")] if out_dir.exists() else []
+        if not java_files:
+            raise RuntimeError(f"JADX failed with exit code {rc}:\n{err_msg}")
+        log.warning("JADX finished with errors (rc=%s) but generated %d java files", rc, len(java_files))
 
     return out_dir
 

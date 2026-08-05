@@ -290,7 +290,7 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=1200)
+        rc = await asyncio.wait_for(read_stream(), timeout=2700)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("CFR decompilation timed out")
@@ -354,7 +354,10 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
         raise TimeoutError("JADX fallback decompilation timed out")
 
     if rc != 0:
-        raise RuntimeError("JADX fallback failed:\n" + "\n".join(out_lines[-20:]))
+        java_files = [p for p in out_dir.rglob("*.java")] if out_dir.exists() else []
+        if not java_files:
+            raise RuntimeError("JADX fallback failed:\n" + "\n".join(out_lines[-20:]))
+        log.warning("JADX fallback finished with errors (rc=%s) but generated %d java files", rc, len(java_files))
 
     java_files = [p for p in out_dir.rglob("*.java")] if out_dir.exists() else []
     if not java_files:
