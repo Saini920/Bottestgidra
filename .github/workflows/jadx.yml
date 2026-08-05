@@ -51,6 +51,20 @@ jobs:
           sudo mkdir -p /opt/tg_sessions
           sudo chown -R $(whoami) /opt/tg_sessions
 
+      - name: Restore TG sessions from secret
+        env:
+          TG_SESSIONS_B64: ${{ secrets.TG_SESSIONS_B64 }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, base64, tarfile, io
+          raw = os.environ.get("TG_SESSIONS_B64", "")
+          if not raw:
+              print("No TG_SESSIONS_B64 secret set; session will be created on first run")
+          else:
+              tarfile.open(fileobj=io.BytesIO(base64.b64decode(raw))).extractall("/opt/tg_sessions")
+              print("Restored sessions:", sorted(os.listdir("/opt/tg_sessions")))
+          PYEOF
+
       - name: Run JADX worker
         env:
           TELEGRAM_BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}

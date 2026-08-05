@@ -8,6 +8,10 @@ __pycache__/
 .env.*
 *.env
 
+# Local TG session bootstrap (sessions live in GitHub secret TG_SESSIONS_B64)
+sessions/
+make_sessions.py
+
 # Persistent runtime data & logs
 approved_users.json
 *.log
