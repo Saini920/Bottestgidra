@@ -41,24 +41,14 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "e78b46d4": {
+    "ff8ec100": {
       "chat_id": 7251749429,
-      "status_message_id": 835,
-      "original_message_id": 834,
-      "filename": "SnapTube VIP v7.69.1.79405200 Modded by Getmodpc.apk",
+      "status_message_id": 843,
+      "original_message_id": 842,
+      "filename": "CapCut_patched_v3.apk",
       "tg_file_path": "",
       "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICBmpxc6uTsc_9D8zwgZqXMy8Ol6iKAAJqHwACM0hxVwbL_Wv0Nn1_PQQ",
-      "user_id": 7251749429
-    },
-    "ae031b47": {
-      "chat_id": 7251749429,
-      "status_message_id": 837,
-      "original_message_id": 836,
-      "filename": "MainActivity.smali",
-      "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_22.smali",
-      "file_url": "",
-      "file_id": "BQACAgUAAxkBAAICgmpx5hFPI2sqGd2O1KPomY2AtnP4AAJiHwACk7qQVyK1OHkWio1XPQQ",
+      "file_id": "BQACAgUAAxkBAAIB9GpxXLXtRCGouO8wceEtUXXUg87_AAJVGwACY8_5Vuw4A7biiO-bPQQ",
       "user_id": 7251749429
     }
   }
