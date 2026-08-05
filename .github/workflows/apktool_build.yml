@@ -42,13 +42,12 @@ jobs:
         PAYLOAD_TG_FILE_PATH: ${{ github.event.client_payload.tg_file_path }}
         PAYLOAD_CHAT_ID: ${{ github.event.client_payload.chat_id }}
         PAYLOAD_MESSAGE_ID: ${{ github.event.client_payload.message_id }}
-        PAYLOAD_ORIGINAL_MESSAGE_ID: ${{ github.event.client_payload.original_message_id }}
         PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
         PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
         PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
         PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
-        PAYLOAD_ORIGINAL_MESSAGE_ID: ${{ github.event.client_payload.original_message_id }}
         API_ID: ${{ secrets.API_ID }}
         API_HASH: ${{ secrets.API_HASH }}
+          PAYLOAD_ORIGINAL_MESSAGE_ID: ${{ github.event.client_payload.original_message_id }}
 
       run: python worker_apktool_build.py
