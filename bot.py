@@ -1520,11 +1520,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
 
-    webhook_url = WEBHOOK_URL
-    if not webhook_url:
-        rp = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
-        if rp:
-            webhook_url = "https://" + rp if not rp.startswith(("http://", "https://")) else rp
+    webhook_url = WEBHOOK_URL.strip()
 
     if webhook_url:
         log.info("Webhook mode: %s", webhook_url)
