@@ -187,7 +187,7 @@ OVER_LIMIT_MSG = (
     "  • APK/ZIP — Free 200 MB | Premium 500 MB\n\n"
     "Use the <b>link method</b> for larger files:\n"
     "   /link <i>https://your-link.com/file.so</i>\n\n"
-    "Powered By @Ghostofhackers"
+    "Powered By @R3V_X"
 )
 
 
@@ -195,7 +195,7 @@ ACCESS_DENIED_MSG = (
     "🔒 <b>Access Denied</b>\n\n"
     "This bot is private and restricted to approved users only.\n"
     "Contact an Admin or click the button below to request access.\n\n"
-    "👥 <b>Admins:</b> @R3V_X | @Ghostofhackers"
+    "👥 <b>Admins:</b> @R3V_X"
 )
 
 
@@ -233,18 +233,18 @@ async def reply_denied(msg, user_id: int = None) -> None:
     if uid and uid in PENDING_REQUESTS:
         text = (
             "⏳ <b>Access Request Pending</b>\n\n"
-            "Your access request has been submitted to the Admins (@Ghostofhackers & @R3V_X).\n"
+            "Your access request has been submitted to the Admins (@R3V_X).\n"
             "Please wait for an Admin to review and approve your request."
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers")]
+            [InlineKeyboardButton("👤 Contact Admin", url="https://t.me/R3V_X")]
         ])
     else:
         text = ACCESS_DENIED_MSG
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("📩 Request Access", callback_data="req_access"),
-                InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers"),
+                InlineKeyboardButton("👤 Contact Admin", url="https://t.me/R3V_X"),
             ]
         ])
     await msg.reply_text(text, parse_mode=constants.ParseMode.HTML, reply_markup=keyboard)
@@ -319,12 +319,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "═══════════════════════════════════\n"
             "💳 <b>BUY / RENEW SUBSCRIPTION (₹99):</b>\n"
             "Contact Admins to upgrade your account:\n"
-            "👤 <b>Admin 1:</b> @Ghostofhackers\n"
-            "👤 <b>Admin 2:</b> @R3V_X"
+            "👤 <b>Admin:</b> @R3V_X"
         )
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("💬 Contact @Ghostofhackers (₹99)", url="https://t.me/Ghostofhackers"),
                 InlineKeyboardButton("💬 Contact @R3V_X (₹99)", url="https://t.me/R3V_X"),
             ]
         ])
@@ -349,11 +347,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             await query.edit_message_text(
                 "⏳ <b>Access Request Pending</b>\n\n"
-                "Your access request has been submitted to the Admins (@Ghostofhackers & @R3V_X).\n"
+                "Your access request has been submitted to the Admins (@R3V_X).\n"
                 "You will receive a notification as soon as an Admin approves your request.",
                 parse_mode=constants.ParseMode.HTML,
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("👤 Contact Admin", url="https://t.me/Ghostofhackers")]
+                    [InlineKeyboardButton("👤 Contact Admin", url="https://t.me/R3V_X")]
                 ])
             )
         except Exception:
@@ -498,8 +496,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Premium: max 5 .so/.dex + 2 .apk per ZIP)\n"
         "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
-        "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
-        "🚀 Send a file or a link now! Powered By @Ghostofhackers & @R3V_X",
+        "  • 💬 <b>To Buy/Renew:</b> Contact @R3V_X\n\n"
+        "🚀 Send a file or a link now! Powered By @R3V_X",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("⭐ Buy Premium Plan (₹99)", callback_data="buy_sub")]
@@ -526,6 +524,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• <code>/setlimit</code> — Set custom limit & days (interactive or <code>/setlimit &lt;id&gt; &lt;limit&gt; &lt;days&gt;</code>)\n"
             "• <code>/broadcast</code> — Broadcast message to all users (interactive or <code>/broadcast &lt;msg&gt;</code>)\n"
             "• <code>/stats</code> — View complete admin system statistics\n"
+            "• <code>/active</code> — View active cloud jobs (user details + stop button)\n"
             "\n👥 <b>USER LISTS:</b>\n"
             "• <code>/approved_users</code> — List all approved users\n"
             "• <code>/unapproved_users</code> — List pending approval requests\n"
@@ -554,7 +553,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "• 🔔 <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts\n\n"
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
-        "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
+        "Contact Admins: <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
         "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
@@ -562,7 +561,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & no .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
         "• <b>Server Concurrency:</b> Max 4 active jobs at a time\n\n"
-        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
+        "⚡ <i>Powered By @R3V_X</i>"
     )
     await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML, reply_markup=InlineKeyboardMarkup([
         [InlineKeyboardButton("⭐ Buy / Upgrade Subscription", callback_data="buy_sub")]
@@ -674,7 +673,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         await status.edit_text(
             "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b> on Railway.\n"
             "Set it in Railway Dashboard → Variables, then Redeploy.\n"
-            "Powered By @Ghostofhackers",
+            "Powered By @R3V_X",
             parse_mode=constants.ParseMode.HTML,
         )
         return
@@ -884,7 +883,7 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Free users are restricted to direct file uploads (Max 20 MB).\n"
             "Upgrade your account to decompile large files via direct link without limits!\n\n"
             "💳 <b>Price:</b> <b>₹99</b>\n"
-            "👥 Contact Admins to Upgrade: <b>@Ghostofhackers</b> | <b>@R3V_X</b>",
+            "👥 Contact Admins to Upgrade: <b>@R3V_X</b>",
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
@@ -1019,7 +1018,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚡ <b>Max Direct Upload:</b> {upload_display}\n"
         f"⚙️ <b>Server Active Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
-        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
+        "⚡ <i>Powered By @R3V_X</i>"
     )
     await update.message.reply_text(
         profile_text,
@@ -1142,7 +1141,7 @@ async def handle_admin_text_message(update: Update, context: ContextTypes.DEFAUL
                         f"📅 <b>Validity Duration:</b> <b>{days_val} Days</b>\n"
                         f"⏳ <b>Expires On:</b> <b>{exp_date}</b>\n\n"
                         "🚀 Enjoy full access to Ghidra Reverse Engineering Engine!\n"
-                        "👥 <b>Support Admins:</b> @Ghostofhackers | @R3V_X"
+                        "👥 <b>Support Admins:</b> @R3V_X"
                     ),
                     parse_mode=constants.ParseMode.HTML,
                 )
@@ -1307,7 +1306,7 @@ async def cmd_setlimit(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"📅 <b>Validity Duration:</b> <b>{days_val} Days</b>\n"
                         f"⏳ <b>Expires On:</b> <b>{exp_date}</b>\n\n"
                         "🚀 Enjoy full access to Ghidra Reverse Engineering Engine!\n"
-                        "👥 <b>Support Admins:</b> @Ghostofhackers | @R3V_X"
+                        "👥 <b>Support Admins:</b> @R3V_X"
                     ),
                     parse_mode=constants.ParseMode.HTML,
                 )
@@ -1349,7 +1348,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 <b>Total Files Processed Today:</b> {today_files}\n"
         f"⚙️ <b>Active Cloud Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
-        "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
+        "⚡ <i>Powered By @R3V_X</i>"
     )
     await update.message.reply_text(stats_text, parse_mode=constants.ParseMode.HTML)
 
@@ -1363,6 +1362,13 @@ def parse_run_name(run_name: str):
 
 
 ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build"}
+TASK_LABELS = {
+    "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
+    "jadx": "Decompile to Java Source (JADX)",
+    "dex2jar": "Decompile to JAR + Java (dex2jar + CFR)",
+    "apktool": "APK Decompile - XML/Smali (Apktool)",
+    "apktool-build": "APK Compile / Build (Apktool)",
+}
 
 
 async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1413,10 +1419,12 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_line += f" | {name}"
         if not job:
             user_line += " | <i>(unknown - bot restart ke baad)</i>"
+        task_label = TASK_LABELS.get((job or {}).get("engine", ""), "") if job else ""
+        task_line = f"\n   🛠️ <b>Task:</b> {task_label}" if task_label else ""
         lines.append(
-            f"\n{idx}. {engine_label} — {status_icon}\n"
+            f"\n{idx}. {status_icon} — {engine_label}\n"
             f"   {user_line}\n"
-            f"   📄 <code>{filename}</code>"
+            f"   📄 <code>{filename}</code>{task_line}"
         )
         buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({engine_label.split()[1]})", callback_data=f"stoprun_{run_id}")])
 
@@ -1447,7 +1455,7 @@ async def subscription_checker_loop(app: Application):
                             "═══════════════════════════════════\n"
                             f"Your bot subscription will expire in <b>{days_left} days</b> (Expires: <code>{exp_date}</code>).\n\n"
                             "⚠️ Please contact an Admin to renew your subscription so you don't lose access!\n"
-                            "👥 <b>Admins:</b> @Ghostofhackers | @R3V_X"
+                            "👥 <b>Admins:</b> @R3V_X"
                         )
                         try:
                             await app.bot.send_message(
@@ -1455,7 +1463,7 @@ async def subscription_checker_loop(app: Application):
                                 text=msg_text,
                                 parse_mode=constants.ParseMode.HTML,
                                 reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton("👤 Contact Admin to Renew", url="https://t.me/Ghostofhackers")]
+                                    [InlineKeyboardButton("👤 Contact Admin to Renew", url="https://t.me/R3V_X")]
                                 ])
                             )
                         except Exception as e:
@@ -1470,7 +1478,7 @@ async def subscription_checker_loop(app: Application):
                             "═══════════════════════════════════\n"
                             f"Your bot subscription will expire in <b>{max(1, days_left)} day</b> (Expires: <code>{exp_date}</code>).\n\n"
                             "⚠️ Contact Admin to renew immediately so you don't lose access!\n"
-                            "👥 <b>Admins:</b> @Ghostofhackers | @R3V_X"
+                            "👥 <b>Admins:</b> @R3V_X"
                         )
                         try:
                             await app.bot.send_message(
@@ -1478,7 +1486,7 @@ async def subscription_checker_loop(app: Application):
                                 text=msg_text,
                                 parse_mode=constants.ParseMode.HTML,
                                 reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton("🔄 Renew Subscription", url="https://t.me/Ghostofhackers")]
+                                    [InlineKeyboardButton("🔄 Renew Subscription", url="https://t.me/R3V_X")]
                                 ])
                             )
                         except Exception as e:
@@ -1511,7 +1519,7 @@ async def weekly_analytics_loop(app: Application):
                 f"🚫 <b>Banned Users:</b> {len(db.data['banned'])}\n"
                 f"📅 <b>Today's Files Processed:</b> {today_files}\n"
                 "⚙️ <b>Server Health:</b> 100% Operational 🔥\n\n"
-                "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
+                "⚡ <i>Powered By @R3V_X</i>"
             )
             for admin_id in ADMIN_IDS:
                 try:

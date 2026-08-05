@@ -548,7 +548,7 @@ async def main():
 
         edit("✅ dex2jar + CFR complete! Sending ZIP...")
 
-        caption = f"✅ Decompiled <b>{safe_name}</b> to JAR + Java Source — Powered By @Ghostofhackers & @R3V_X"
+        caption = f"✅ Decompiled <b>{safe_name}</b> to JAR + Java Source — Powered By @R3V_X"
         up_last = [0]
         async def on_up(pct: int):
             if pct < up_last[0] or pct - up_last[0] < 2: return
