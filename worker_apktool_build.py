@@ -221,12 +221,9 @@ async def main():
                 if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
                     mtproto_success = True
                 else:
-                    err_msg = "
-".join(dl_logs[-10:])
-                    print(f"MTProto Download Failed (code {proc.returncode}). Logs:
-{err_msg}")
-                    edit(f"⚠️ MTProto Download Failed! Check GitHub Actions logs.
-<code>{err_msg[-200:]}</code>", keep_button=False)
+                    err_msg = "\n".join(dl_logs[-10:])
+                    print(f"MTProto Download Failed (code {proc.returncode}). Logs:\n{err_msg}")
+                    edit(f"⚠️ MTProto Download Failed! Check GitHub Actions logs.\n<code>{err_msg[-200:]}</code>", keep_button=False)
 
             if not http_success and not mtproto_success:
                 raise ValueError("No MTProto, no TG_FILE_PATH, and no FILE_URL succeeded.")

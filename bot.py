@@ -31,6 +31,9 @@ if env_file.exists():
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+RAILWAY_PUBLIC_DOMAIN = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
+if not WEBHOOK_URL and RAILWAY_PUBLIC_DOMAIN:
+    WEBHOOK_URL = f"https://{RAILWAY_PUBLIC_DOMAIN}"
 PORT = int(os.environ.get("PORT", "8080"))
 MAX_FILE_MB = int(os.environ.get("MAX_FILE_MB", "100"))
 MAX_CONCURRENT_JOBS = 10
@@ -58,30 +61,6 @@ def record_user_name(user):
         db.data["names"][uid] = name
         db.save()
 
-
-
-FORCE_CHANNELS = ["-1002378157598", "-1003121382577"]
-
-async def check_force_join(update, context) -> bool:
-    uid = update.effective_user.id
-    record_user_name(update.effective_user)
-    if str(uid) in ADMIN_IDS: return True
-    for ch in FORCE_CHANNELS:
-        try:
-            member = await context.bot.get_chat_member(chat_id=ch, user_id=uid)
-            if member.status in ["left", "kicked"]:
-                raise Exception("Not member")
-        except Exception as e:
-            log.warning(f"Force join check failed for {ch}: {e}")
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Join Channel 1", url="https://t.me/allinformation0173")],
-                [InlineKeyboardButton("Join Channel 2", url="https://t.me/+gQawrH0MFs00M2Y1")]
-            ])
-            try:
-                await update.message.reply_text("❌ <b>You must join our channels to use this bot!</b>\nJoin the channels and try again.", reply_markup=keyboard, parse_mode="HTML")
-            except: pass
-            return False
-    return True
 
 def is_allowed(user_id: int) -> bool:
     uid = str(user_id)
@@ -1831,6 +1810,12 @@ async def weekly_analytics_loop(app: Application):
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    from telegram.error import Conflict
+    if isinstance(context.error, Conflict):
+        log.warning("409 Conflict: another bot instance is polling this token. "
+                    "Ensure only ONE bot instance/replica is running (Railway replicas = 1), "
+                    "or enable a Railway public domain so webhook mode is used.")
+        return
     log.exception("Handler error", exc_info=context.error)
 
 
@@ -1900,12 +1885,6 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_engine_choice, pattern="^engine_"))
     app.add_handler(CallbackQueryHandler(handle_callback_query))
     app.add_error_handler(error_handler)
-
-    try:
-        asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
 
     if WEBHOOK_URL:
         log.info("Webhook mode: %s", WEBHOOK_URL)

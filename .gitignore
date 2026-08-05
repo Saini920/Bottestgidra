@@ -7,6 +7,8 @@ __pycache__/
 .env
 .env.*
 *.env
+fetch_railway_logs.py
+schema.json
 
 # Persistent runtime data & logs
 approved_users.json
