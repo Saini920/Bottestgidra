@@ -183,7 +183,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
     await on_progress(5, "📥 Importing file into Ghidra...")
 
     async def read_stream():
-        async for raw in proc.stdout:
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
             line = raw.decode(errors="replace").strip()
             tail.append(line)
             del tail[:-60]
@@ -247,7 +250,10 @@ async def main():
                     sys.executable, "download_file.py", str(dest),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
-                async for raw in proc.stdout:
+                while True:
+                    raw = await proc.stdout.readline()
+                    if not raw:
+                        break
                     line = raw.decode(errors="replace").strip()
                     if line.startswith("PROGRESS:"):
                         try:
@@ -384,28 +390,48 @@ async def main():
             edit(f"✅ Decompilation complete!\n📤 Sending ZIP...\n\n{progress_bar(pct)}")
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "upload_file.py", str(zip_path), caption,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-            )
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").strip()
-                if line.startswith("PROGRESS:"):
-                    try:
-                        pct = int(float(line.split(":")[1]))
-                        await on_up(pct)
-                    except ValueError:
-                        pass
-            await proc.wait()
-            if proc.returncode != 0:
-                raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
-            edit("✅ Decompilation complete! ZIP file delivered via MTProto. 🔥", keep_button=False)
+            http_ok = False
+            MAX_HTTP_UPLOAD = 50 * 1024 * 1024
+            if zip_path.stat().st_size <= MAX_HTTP_UPLOAD:
+                try:
+                    with open(zip_path, "rb") as doc_f:
+                        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+                        data = {"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}
+                        files = {"document": doc_f}
+                        async with httpx.AsyncClient(timeout=300) as client:
+                            resp = await client.post(url, data=data, files=files)
+                            resp.raise_for_status()
+                    http_ok = True
+                except Exception as e:
+                    log.warning("HTTP upload failed, falling back to MTProto: %s", e)
+            if not http_ok:
+                if not os.environ.get("API_ID", "").strip():
+                    raise ValueError("File too large for Bot API (50MB) and no API_ID/API_HASH configured.")
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, "upload_file.py", str(zip_path), caption,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                )
+                while True:
+                    raw = await proc.stdout.readline()
+                    if not raw:
+                        break
+                    line = raw.decode(errors="replace").strip()
+                    if line.startswith("PROGRESS:"):
+                        try:
+                            pct = int(float(line.split(":")[1]))
+                            await on_up(pct)
+                        except ValueError:
+                            pass
+                await proc.wait()
+                if proc.returncode != 0:
+                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+            edit("✅ Decompilation complete! ZIP file delivered. 🔥", keep_button=False)
             
             if JOB_ID:
                 # App integration needs a direct link which we no longer have. 
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
-            edit(f"❌ Result ZIP ready, but MTProto upload failed: {e}", keep_button=False)
+            edit(f"❌ Result ZIP ready, but upload failed: {e}", keep_button=False)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 

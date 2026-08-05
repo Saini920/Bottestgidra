@@ -50,6 +50,17 @@ jobs:
           echo "Ghidra ready"
           rm /tmp/ghidra.zip
 
+      - name: Cache TG Session
+        uses: actions/cache@v4
+        with:
+          path: /opt/tg_sessions
+          key: tg-session-v1
+
+      - name: Prepare session dir
+        run: |
+          sudo mkdir -p /opt/tg_sessions
+          sudo chown -R $(whoami) /opt/tg_sessions
+
       - name: Run decompile worker
         env:
           TELEGRAM_BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
