@@ -210,7 +210,7 @@ async def run_dex2jar(file_path: Path, work_dir: Path, on_progress) -> Path:
         raise ValueError("No DEX files found in the input.")
 
     cmd = [
-        "java", "-Xmx6G",
+        "java", "-Xmx10G",
         "-cp", DEX2JAR_CP,
         "com.googlecode.dex2jar.tools.Dex2jarCmd",
         "-f", "-o", str(out_jar),
@@ -250,7 +250,7 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
     out_dir = work_dir / "java_src"
     out_dir.mkdir(exist_ok=True)
     cmd = [
-        "java", "-Xmx6G",
+        "java", "-Xmx10G",
         "-jar", CFR_JAR,
         str(jar_path),
         "--outputdir", str(out_dir),
@@ -314,7 +314,7 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
         str(jar_path),
     ]
     log.info("Running JADX fallback: %s", " ".join(cmd))
-    env = dict(os.environ, JADX_OPTS="-Xmx6G")
+    env = dict(os.environ, JADX_OPTS="-Xmx12G")
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env
     )

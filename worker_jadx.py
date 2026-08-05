@@ -211,7 +211,7 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
         "--no-res",
     ] + inputs
     log.info("Running JADX: %s", " ".join(cmd))
-    env = dict(os.environ, JADX_OPTS="-Xmx6G")
+    env = dict(os.environ, JADX_OPTS="-Xmx12G")
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env
     )
