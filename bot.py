@@ -35,6 +35,8 @@ MAX_FILE_MB = int(os.environ.get("MAX_FILE_MB", "100"))
 MAX_CONCURRENT_JOBS = 4
 MAX_DAILY_FILES = 30
 ADMIN_IDS = ["6684870256", "7251749429"]
+JADX_DEX2JAR_LIMIT_FREE_MB = 30
+JADX_DEX2JAR_LIMIT_PREMIUM_MB = 100
 ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split(",") if u.strip()]
 
 PENDING_REQUESTS = set()
@@ -184,7 +186,8 @@ OVER_LIMIT_MSG = (
     "File is {size:.1f} MB — this exceeds the current limit.\n\n"
     "Limits:\n"
     "  • .so/.dex — Free 30 MB | Premium 100 MB\n"
-    "  • APK/ZIP — Free 200 MB | Premium 500 MB\n\n"
+    "  • APK/ZIP — Free 200 MB | Premium 500 MB\n"
+    "  • ☕ JADX / 🧬 dex2jar (APK/ZIP) — Free up to 30 MB | Premium up to 100 MB\n\n"
     "Powered By @R3V_X"
 )
 
@@ -298,6 +301,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             log.warning("Cancel failed: %s", e)
         return
 
+    if data.startswith("limit_"):
+        parts = data.split("_")
+        if len(parts) == 3:
+            tool, job_id = parts[1], parts[2]
+            job = PENDING_JOBS.get(job_id)
+            if job:
+                uid = str(user.id)
+                is_premium = uid in ADMIN_IDS or uid in db.data["subscriptions"]
+                jd_limit = JADX_DEX2JAR_LIMIT_PREMIUM_MB if is_premium else JADX_DEX2JAR_LIMIT_FREE_MB
+                size_mb = (job.get("file_size") or 0) / (1024 * 1024)
+                tool_label = "JADX" if tool == "jadx" else "dex2jar"
+                await query.answer("Size limit reached!", show_alert=False)
+                await query.edit_message_text(
+                    f"⚠️ <b>{tool_label} Size Limit Reached!</b>\n\n"
+                    f"Your file is <b>{size_mb:.1f} MB</b> but {tool_label} supports files up to "
+                    f"<b>{jd_limit} MB</b> for {'Premium' if is_premium else 'Free'} users.\n\n"
+                    f"• ⚙️ <b>Ghidra (C Code)</b> is always Free — use it for larger files.\n"
+                    f"• ⭐ Upgrade to <b>Premium (₹99)</b> to unlock {tool_label} up to <b>{JADX_DEX2JAR_LIMIT_PREMIUM_MB} MB</b>.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
+                        [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
+                    ])
+                )
+                return
+
     if data == "buy_sub":
         await query.answer("⭐ Ghidra Decompiler Premium Plan (₹99)", show_alert=False)
         sub_details = (
@@ -308,6 +337,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "• 📊 <b>Increased Daily Limit:</b> <b>70 Files / Day</b> (vs 30 Free)\n"
             "• ⭐ <b>Premium Features Included:</b>\n"
             "• 📦 <b>File Upload Limits:</b> .so/.dex up to <b>100 MB</b> & APK/ZIP up to <b>500 MB</b> (Free: 30 MB / 200 MB)\n"
+            "• ☕ <b>JADX / 🧬 dex2jar (APK/ZIP):</b> Premium up to <b>100 MB</b> (Free: up to <b>30 MB</b>)\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
             "• 📦 <b>Batch ZIP Decompiler:</b> Premium ZIP — max <b>5 .so/.dex</b> & <b>2 .apk</b> inside\n"
             "• 📱 <b>APK Engines:</b> JADX (Java Source), dex2jar (JAR+Java), Apktool (XML/Smali) & Compilation Support\n"
@@ -470,16 +500,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Just send the file directly:\n"
         "  • .exe / .dll / .so / .elf / .apk / .zip\n"
         "  ⚠️ Upload Limits — Free: .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
-        "  ⭐ Premium: .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n\n"
+        "  ⭐ Premium: .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
+        "  ☕ JADX / 🧬 dex2jar (APK/ZIP): Free ≤30 MB | Premium ≤100 MB\n\n"
         "⚡ <b>Features & Engines:</b>\n"
         "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of native files (Free)\n"
+        "  • ☕ <b>JADX Engine:</b> APK/DEX/Smali → Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
+        "  • 🧬 <b>dex2jar Engine:</b> APK/DEX → JAR + Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
-        "  • 🆓 <b>Free Quota:</b> 30 Files / Day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
+        "  • 🆓 <b>Free Quota:</b> 30 Files / Day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB, JADX/dex2jar ≤30 MB\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB, JADX/dex2jar ≤100 MB\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Premium: max 5 .so/.dex + 2 .apk per ZIP)\n"
         "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
@@ -534,6 +567,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
         "• 🆓 <b>Free Quota:</b> 30 files / day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
         "• ⭐ <b>Premium Quota:</b> 70 files / day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
+        "• ☕ <b>JADX / 🧬 dex2jar (APK/ZIP):</b> Free up to <b>30 MB</b> | Premium up to <b>100 MB</b>\n"
         "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
         "• 📦 <b>Batch Decompiler:</b> Premium — max 5 .so/.dex + 2 .apk per ZIP\n"
         "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
@@ -541,10 +575,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
-        "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n\n"
+        "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n"
+        "• ☕ <b>JADX / 🧬 dex2jar:</b> APK/ZIP — Free up to 30 MB | Premium up to 100 MB\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
-        "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & no .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
+        "• <b>JADX/dex2jar Limits:</b> APK/ZIP — Free up to 30 MB, Premium up to 100 MB\n"
+        "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & 1 .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
         "• <b>Server Concurrency:</b> Max 4 active jobs at a time\n\n"
         "⚡ <i>Powered By @R3V_X</i>"
@@ -778,30 +814,25 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         import uuid
         job_id = str(uuid.uuid4())[:8]
-        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id}
+        PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": doc.file_name, "tg_file_path": tg_file_path, "file_url": "", "file_id": file_id, "file_size": doc.file_size}
+        jd_limit_mb = JADX_DEX2JAR_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else JADX_DEX2JAR_LIMIT_FREE_MB
+        jd_allowed = user_id in ADMIN_IDS or (doc.file_size or 0) <= jd_limit_mb * 1024 * 1024
         
         if doc.file_name and doc.file_name.lower().endswith(".smali"):
-            if is_premium:
-                btn_jadx = InlineKeyboardButton("☕ Smali → Java", callback_data=f"engine_jadx_{job_id}")
-            else:
-                btn_jadx = InlineKeyboardButton("☕ Smali → Java (Premium Only)", callback_data="buy_sub")
+            btn_jadx = InlineKeyboardButton("☕ Smali → Java", callback_data=f"engine_jadx_{job_id}")
             await status.edit_text(
                 "☕ <b>Smali File Detected!</b>\nConvert Smali to readable Java source?\n\n"
-                "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java (⭐ Premium)",
+                "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[btn_jadx]])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".dex"):
-            if is_premium:
-                btn_jadx = InlineKeyboardButton("☕ Decompile (Java)", callback_data=f"engine_jadx_{job_id}")
-                btn_d2j = InlineKeyboardButton("🧬 Decompile + Java", callback_data=f"engine_dex2jar_{job_id}")
-            else:
-                btn_jadx = InlineKeyboardButton("☕ Decompile (Premium Only)", callback_data="buy_sub")
-                btn_d2j = InlineKeyboardButton("🧬 Decompile + Java (Premium Only)", callback_data="buy_sub")
+            btn_jadx = InlineKeyboardButton("☕ Decompile (Java)", callback_data=f"engine_jadx_{job_id}")
+            btn_d2j = InlineKeyboardButton("🧬 Decompile + Java", callback_data=f"engine_dex2jar_{job_id}")
             await status.edit_text(
                 "🧬 <b>DEX File Detected!</b>\nChoose how to process:\n\n"
-                "• ☕ <b>Decompile:</b> classes.dex → Java Source (JADX) (⭐ Premium)\n"
-                "• 🧬 <b>Decompile + Java:</b> classes.dex → JAR + Java Source (dex2jar + CFR) (⭐ Premium)",
+                "• ☕ <b>Decompile:</b> classes.dex → Java Source (JADX)\n"
+                "• 🧬 <b>Decompile + Java:</b> classes.dex → JAR + Java Source (dex2jar + CFR)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [btn_jadx],
@@ -809,19 +840,21 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".apk"):
-            if is_premium:
+            if jd_allowed:
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
                 btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
+            else:
+                btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
+                btn_dex2jar = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
                 btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
             else:
-                btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
-                btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (Premium Only)", callback_data="buy_sub")
                 btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
 
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
-                "• ☕ <b>JADX:</b> APK → Java Source (⭐ Premium)\n"
-                "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source (⭐ Premium)\n"
+                "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+                "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)",
                 parse_mode="HTML",
@@ -832,20 +865,22 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
-            if is_premium:
+            if is_premium or user_id in ADMIN_IDS:
                 btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+            else:
+                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+            if jd_allowed:
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java/Smali)", callback_data=f"engine_jadx_{job_id}")
                 btn_d2j = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
             else:
-                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
-                btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
-                btn_d2j = InlineKeyboardButton("🧬 dex2jar (Premium Only)", callback_data="buy_sub")
+                btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
+                btn_d2j = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
-                "• ☕ <b>JADX:</b> Decompile Java/Smali to source (⭐ Premium)\n"
-                "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source (⭐ Premium)\n"
+                "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+                "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([

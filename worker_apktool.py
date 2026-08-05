@@ -223,7 +223,7 @@ def check_zip_limits(file_path: Path):
     so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
     apks = sum(1 for n in names if n.lower().endswith(".apk"))
     max_so_dex = 5 if IS_PREMIUM else 1
-    max_apk = 2 if IS_PREMIUM else 0
+    max_apk = 2 if IS_PREMIUM else 1
     if so_dex > max_so_dex:
         raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
     if apks > max_apk:

@@ -283,11 +283,32 @@ def check_zip_limits(file_path: Path):
     so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
     apks = sum(1 for n in names if n.lower().endswith(".apk"))
     max_so_dex = 5 if IS_PREMIUM else 1
-    max_apk = 2 if IS_PREMIUM else 0
+    max_apk = 2 if IS_PREMIUM else 1
     if so_dex > max_so_dex:
         raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
     if apks > max_apk:
         raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+
+
+def check_jd_apk_limits(file_path: Path):
+    if IS_ADMIN:
+        return
+    jd_limit_mb = 100 if IS_PREMIUM else 30
+    limit = jd_limit_mb * 1024 * 1024
+    ext = Path(FILENAME).suffix.lower()
+    if ext == ".apk":
+        if file_path.stat().st_size > limit:
+            raise ValueError(
+                f"APK is {file_path.stat().st_size/1024/1024:.1f} MB — JADX is limited to {jd_limit_mb} MB for {'Premium' if IS_PREMIUM else 'Free'} users."
+            )
+    elif ext == ".zip":
+        import zipfile
+        with zipfile.ZipFile(file_path) as zf:
+            for info in zf.infolist():
+                if info.filename.lower().endswith(".apk") and info.file_size > limit:
+                    raise ValueError(
+                        f"ZIP contains an APK of {info.file_size/1024/1024:.1f} MB — JADX is limited to {jd_limit_mb} MB for {'Premium' if IS_PREMIUM else 'Free'} users."
+                    )
 
 
 def count_zip_so_dex(file_path: Path) -> int:
@@ -410,6 +431,12 @@ async def main():
 
         try:
             check_zip_limits(dest)
+        except ValueError as e:
+            edit(f"❌ {e}", keep_button=False)
+            return
+
+        try:
+            check_jd_apk_limits(dest)
         except ValueError as e:
             edit(f"❌ {e}", keep_button=False)
             return
