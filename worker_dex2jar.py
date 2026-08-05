@@ -451,6 +451,7 @@ async def main():
                 await send_error_log(work_dir, e2, "Java decompilation failed")
                 return
 
+        await on_progress(100, "✅ Decompilation complete!")
         edit("📦 Packaging JAR + Java Source...")
         safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", filename)[:60] or "file"
         orig_stem = Path(safe_name).stem or "dex2jar"
