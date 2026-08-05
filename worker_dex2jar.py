@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import logging
 import os
 import re
@@ -25,8 +26,19 @@ JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 100
 
-DEX2JAR_CP = "/opt/dex2jar/lib/*"
+
+def _dex2jar_cp() -> str:
+    if glob.glob("/opt/dex2jar/lib/*.jar"):
+        return "/opt/dex2jar/lib/*"
+    libs = sorted(glob.glob("/opt/dex2jar/**/lib", recursive=True))
+    if libs:
+        return libs[0] + "/*"
+    return "/opt/dex2jar/lib/*"
+
+
+DEX2JAR_CP = _dex2jar_cp()
 CFR_JAR = "/opt/cfr.jar"
+log.info("DEX2JAR_CP=%s", DEX2JAR_CP)
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 

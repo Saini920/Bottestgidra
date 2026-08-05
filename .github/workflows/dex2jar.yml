@@ -29,15 +29,20 @@ jobs:
           path: |
             /opt/dex2jar
             /opt/cfr.jar
-          key: dex2jar-cfr-v1
+          key: dex2jar-cfr-v2
 
       - name: Get dex2jar
         if: steps.dx-cache.outputs.cache-hit != 'true'
         run: |
+          sudo rm -rf /opt/dex2jar
           sudo mkdir -p /opt/dex2jar
           curl -L -o /tmp/dex2jar.zip https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip
-          sudo unzip -q -o /tmp/dex2jar.zip -d /opt/dex2jar
-          find /opt/dex2jar -name '*.sh' -exec sudo chmod +x {} \;
+          sudo unzip -q -o /tmp/dex2jar.zip -d /tmp/dx
+          libdir=$(sudo bash -c 'find /tmp/dx -maxdepth 3 -type d -name lib | head -n1')
+          echo "libdir: $libdir"
+          sudo cp -r "$libdir" /opt/dex2jar/lib
+          ls /opt/dex2jar/lib
+          test -f /opt/dex2jar/lib/dex-tools-v2.4.jar
           echo "dex2jar ready"
 
       - name: Get CFR
