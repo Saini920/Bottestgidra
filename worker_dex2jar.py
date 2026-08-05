@@ -246,6 +246,7 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
 
     out_lines = []
     async def read_stream():
+        count = 0
         while True:
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
@@ -259,11 +260,13 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
                 out_lines.append(line)
                 if len(out_lines) > 100:
                     del out_lines[:-100]
-            await on_progress(80, "☕ Decompiling JAR to Java...")
+                count += 1
+                if count % 20 == 0:
+                    await on_progress(80, f"☕ Decompiling JAR to Java... ({count} classes)")
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=1800)
+        rc = await asyncio.wait_for(read_stream(), timeout=1200)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("CFR decompilation timed out")
@@ -295,6 +298,7 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
 
     out_lines = []
     async def read_stream():
+        count = 0
         while True:
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
@@ -308,11 +312,13 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
                 out_lines.append(line)
                 if len(out_lines) > 100:
                     del out_lines[:-100]
-            await on_progress(85, "☕ Decompiling with JADX...")
+                count += 1
+                if count % 20 == 0:
+                    await on_progress(85, f"☕ Decompiling with JADX... ({count} classes)")
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=1800)
+        rc = await asyncio.wait_for(read_stream(), timeout=1200)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("JADX fallback decompilation timed out")
@@ -425,9 +431,14 @@ async def main():
 
         try:
             src_dir = await run_cfr(out_jar, work_dir, on_progress)
-        except asyncio.TimeoutError:
-            edit("⏰ Timeout! The JAR is too big for CFR.", keep_button=False)
-            return
+        except asyncio.TimeoutError as e:
+            log.warning("CFR timed out, falling back to JADX: %s", e)
+            try:
+                edit("⏰ CFR too slow — falling back to JADX for Java source...")
+                src_dir = await run_jadx_fallback(out_jar, work_dir, on_progress)
+            except Exception as e2:
+                await send_error_log(work_dir, e2, "Java decompilation failed")
+                return
         except ValueError as e:
             edit(f"❌ {e}", keep_button=False)
             return
