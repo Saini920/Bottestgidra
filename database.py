@@ -15,7 +15,7 @@ class RepoDB:
         self.token = token
         self.repo = repo
         self.headers = {"Authorization": f"token {self.token}", "Accept": "application/vnd.github.v3+json"}
-        self.data = {"approved": [], "banned": [], "subscriptions": {}, "names": {}, "daily_usage": {}, "free_mode": False}
+        self.data = {"approved": [], "banned": [], "subscriptions": {}, "names": {}, "daily_usage": {}, "free_mode": False, "total_files": 0}
         self.file_sha = None
         if self.token and self.repo:
             self._ensure_data_branch()
@@ -51,6 +51,7 @@ class RepoDB:
                 self.data["names"] = loaded.get("names", {})
                 self.data["daily_usage"] = loaded.get("daily_usage", {})
                 self.data["free_mode"] = loaded.get("free_mode", False)
+                self.data["total_files"] = loaded.get("total_files", 0)
         except Exception as e:
             log.error(f"RepoDB load error: {e}")
 

@@ -72,6 +72,7 @@ def is_allowed(user_id: int) -> bool:
 
 job_queue = asyncio.Queue()
 PENDING_JOBS = {}
+ACTIVE_JOBS = {}
 active_jobs_timestamps = []
 CANCELLED_JOBS = set()
 
@@ -106,6 +107,7 @@ def check_daily_limit(user_id: int) -> str | None:
         record["count"] += 1
     else:
         db.data['daily_usage'][uid] = {"date": today_iso, "count": 1}
+    db.data["total_files"] = db.data.get("total_files", 0) + 1
     db.save()
     return None
 
@@ -272,6 +274,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     user = query.from_user
     record_user_name(user)
     data = query.data
+
+    if data.startswith("stoprun_"):
+        await query.answer("🛑 Stopping cloud job...", show_alert=False)
+        try:
+            run_id = int(data.split("_")[1])
+            asyncio.create_task(cancel_github_run(run_id))
+            await query.edit_message_text("❌ <b>Cloud job stopped.</b>", parse_mode=constants.ParseMode.HTML)
+        except Exception as e:
+            log.warning("stoprun failed: %s", e)
+        return
 
     if data.startswith("stop_"):
         await query.answer("🛑 Stopping job...", show_alert=False)
@@ -568,6 +580,13 @@ async def cancel_github_job(job_name: str):
         "Accept": "application/vnd.github+json",
         "User-Agent": "ghidra-bot"
     }
+    # Run names: job-/jadx-/dex2jar-/apktool-/build-{chat_id}-{message_id}
+    chat_msg = job_name.rsplit("-", 2)
+    if len(chat_msg) == 3:
+        chat_id, msg_id = chat_msg[1], chat_msg[2]
+        prefixes = ["job", "jadx", "dex2jar", "apktool", "build"]
+    else:
+        prefixes = [job_name]
     async with httpx.AsyncClient(timeout=30.0) as client:
         for status in ["in_progress", "queued"]:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}"
@@ -576,13 +595,30 @@ async def cancel_github_job(job_name: str):
                 if resp.status_code == 200:
                     runs = resp.json().get("workflow_runs", [])
                     for run in runs:
-                        if run.get("name") == job_name:
-                            run_id = run["id"]
-                            await client.post(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/cancel", headers=headers)
-                            log.info("Cancelled Github run %s for %s", run_id, job_name)
-                            return
+                        rname = run.get("name", "")
+                        for p in prefixes:
+                            if rname.startswith(p + "-" + chat_id + "-") or rname == p + "-" + chat_id + "-" + msg_id:
+                                run_id = run["id"]
+                                await client.post(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/cancel", headers=headers)
+                                log.info("Cancelled Github run %s for %s", run_id, job_name)
+                                return
             except Exception as e:
                 log.warning("Failed to cancel github job %s: %s", job_name, e)
+
+
+async def cancel_github_run(run_id: int):
+    if not GITHUB_TOKEN: return
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ghidra-bot"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await client.post(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/cancel", headers=headers)
+        log.info("Cancelled Github run %s", run_id)
+    except Exception as e:
+        log.warning("Failed to cancel run %s: %s", run_id, e)
 
 
 def get_report_url() -> str:
@@ -662,6 +698,17 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             parse_mode=constants.ParseMode.HTML,
         )
         return
+    u = msg.from_user if msg and msg.from_user else None
+    ACTIVE_JOBS[status.message_id] = {
+        "user_id": user_id,
+        "username": (u.username or "") if u else "",
+        "name": (u.full_name or "") if u else "",
+        "chat_id": str(msg.chat_id) if msg else "",
+        "message_id": status.message_id,
+        "filename": filename,
+        "engine": engine,
+        "started": time.time(),
+    }
     await status.edit_text(
         "Job sent to server!\n"
         "⏱️ Expected: 2-10 minutes.\n"
@@ -1298,12 +1345,87 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 <b>Approved Users:</b> {len(db.data['approved'])}\n"
         f"🚫 <b>Banned Users:</b> {len(db.data['banned'])}\n"
         f"⭐ <b>Custom Subscriptions:</b> {len(db.data['subscriptions'])}\n"
+        f"📅 <b>Total Files Processed:</b> {db.data.get('total_files', 0)}\n"
         f"📅 <b>Total Files Processed Today:</b> {today_files}\n"
         f"⚙️ <b>Active Cloud Jobs:</b> {active_now} / {MAX_CONCURRENT_JOBS}\n"
         f"⏳ <b>Queued Jobs:</b> {job_queue.qsize()}\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(stats_text, parse_mode=constants.ParseMode.HTML)
+
+
+def parse_run_name(run_name: str):
+    import re as _re
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build)-(\d+)-(\d+)$", run_name or "")
+    if not m:
+        return None
+    return m.group(1), m.group(2), m.group(3)
+
+
+ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build"}
+
+
+async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_user.id) not in ADMIN_IDS:
+        await update.message.reply_text("❌ Only Admins can use this command.")
+        return
+
+    now = time.time()
+    for mid in list(ACTIVE_JOBS.keys()):
+        if now - ACTIVE_JOBS[mid].get("started", 0) > 3600:
+            del ACTIVE_JOBS[mid]
+
+    runs = []
+    if GITHUB_TOKEN and GITHUB_REPO:
+        try:
+            headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+            async with httpx.AsyncClient(timeout=10) as client:
+                for status in ["in_progress", "queued"]:
+                    r = await client.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}", headers=headers)
+                    if r.status_code == 200:
+                        for run in r.json().get("workflow_runs", []):
+                            runs.append((run["id"], run.get("name", ""), status))
+        except Exception as e:
+            log.warning("cmd_active github query failed: %s", e)
+
+    if not runs:
+        await update.message.reply_text("⚙️ <b>Active Cloud Jobs</b>\n══════════════\n\n✅ Koi bhi active job nahi hai.", parse_mode=constants.ParseMode.HTML)
+        return
+
+    lines = ["⚙️ <b>ACTIVE CLOUD JOBS</b>", "═══════════════════════════"]
+    buttons = []
+    for idx, (run_id, run_name, status) in enumerate(runs, 1):
+        parsed = parse_run_name(run_name)
+        job = ACTIVE_JOBS.get(int(parsed[2])) if parsed else None
+        if job:
+            engine_label = {"ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "apktool-build": "⚒️ Apktool Build"}.get(job.get("engine", ""), "🔧 Unknown")
+        else:
+            engine_label = ENGINE_LABELS.get(parsed[0], "🔧 Unknown") if parsed else "🔧 Unknown"
+        user_id = (job or {}).get("user_id", "?")
+        username = (job or {}).get("username", "")
+        name = (job or {}).get("name", "")
+        filename = (job or {}).get("filename", "?")
+        status_icon = "🟢 Running" if status == "in_progress" else "⏳ Queued"
+        user_line = f"🆔 <code>{user_id}</code>"
+        if username:
+            user_line += f" | <b>@{username}</b>"
+        if name:
+            user_line += f" | {name}"
+        if not job:
+            user_line += " | <i>(unknown - bot restart ke baad)</i>"
+        lines.append(
+            f"\n{idx}. {engine_label} — {status_icon}\n"
+            f"   {user_line}\n"
+            f"   📄 <code>{filename}</code>"
+        )
+        buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({engine_label.split()[1]})", callback_data=f"stoprun_{run_id}")])
+
+    text = "\n".join(lines)
+    await update.message.reply_text(
+        text,
+        parse_mode=constants.ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(buttons) if buttons else None,
+    )
 
 
 async def subscription_checker_loop(app: Application):
@@ -1471,6 +1593,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("setlimit", cmd_setlimit))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("active", cmd_active))
     app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_file))
@@ -1526,6 +1649,7 @@ def main():
                             rec["count"] += count
                         else:
                             db.data['daily_usage'][uid] = {"date": today_iso, "count": count}
+                        db.data["total_files"] = db.data.get("total_files", 0) + count
                         db.save()
                         log.info("Count report: user=%s +%d (now %d)", uid, count, db.data['daily_usage'][uid]["count"])
                     self.send_response(200)
