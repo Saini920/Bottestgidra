@@ -27,7 +27,7 @@ IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
 IS_PREMIUM = os.environ.get("PAYLOAD_IS_PREMIUM", "False").lower() == "true"
 USER_ID = os.environ.get("PAYLOAD_USER_ID", CHAT_ID)
 REPORT_URL = os.environ.get("PAYLOAD_REPORT_URL", "")
-REPORT_TOKEN = os.environ.get("PAYLOAD_REPORT_TOKEN", "")
+REPORT_TOKEN = BOT_TOKEN
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra"))
 ANALYZE_HEADLESS = GHIDRA_HOME / "support" / "analyzeHeadless"
 SCRIPT_DIR = Path(__file__).resolve().parent / "ghidra_scripts"

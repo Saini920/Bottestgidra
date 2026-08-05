@@ -615,7 +615,7 @@ def get_report_url() -> str:
     return (base + "/internal/count") if base else ""
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, user_id: str = ""):
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False):
     if not GITHUB_TOKEN:
         return False, 0, "GITHUB_TOKEN env missing"
     client_payload = {
@@ -627,9 +627,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "is_admin": str(is_admin),
         "is_premium": str(is_premium),
         "file_id": file_id,
-        "user_id": str(user_id),
         "report_url": get_report_url(),
-        "report_token": BOT_TOKEN,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
@@ -679,7 +677,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-job"
         
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
-    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, user_id)
+    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium)
     if not ok:
         await status.edit_text(
             "❌ GitHub trigger failed (HTTP <code>{code}</code>).\n"

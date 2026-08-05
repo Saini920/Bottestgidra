@@ -27,7 +27,7 @@ IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
 IS_PREMIUM = os.environ.get("PAYLOAD_IS_PREMIUM", "False").lower() == "true"
 USER_ID = os.environ.get("PAYLOAD_USER_ID", CHAT_ID)
 REPORT_URL = os.environ.get("PAYLOAD_REPORT_URL", "")
-REPORT_TOKEN = os.environ.get("PAYLOAD_REPORT_TOKEN", "")
+REPORT_TOKEN = BOT_TOKEN
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 
