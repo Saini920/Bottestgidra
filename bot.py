@@ -615,22 +615,22 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
                     raise asyncio.CancelledError("Job cancelled by user")
                 
                 now = time.time()
-                # Update if: forced, at 100%, OR (progress increased by 4% AND 3.0 seconds passed)
-                if not force and pct < 100.0 and (pct - last_p[0] < 4.0 or now - last_t[0] < 3.0):
+                # Update if: forced, at 100%, OR (progress increased by 4% AND 1.5 seconds passed)
+                if not force and pct < 100.0 and (pct - last_p[0] < 4.0 or now - last_t[0] < 1.5):
                     return
                 last_p[0] = pct
                 last_t[0] = now
                 try:
-                    asyncio.create_task(status_wrap.edit_text(
+                    await status_wrap.edit_text(
                         f"{label}\n\n{progress_bar(pct)}",
                         parse_mode="HTML",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status_wrap.message_id}")]])
-                    ))
+                    )
                 except Exception:
                     pass
 
             try:
-                await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>")
+                await update_inspect_progress(0.0, "🔍 <b>Analyzing APK Security & Packer Info...</b>", force=True)
                 ok = await download_file_for_bot(job, dest, update_inspect_progress)
                 file_id = job.get("file_id", "")
                 if not ok and file_id:
