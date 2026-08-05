@@ -457,7 +457,10 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
                 )
                 dl_logs = []
                 async def read_stream():
-                    async for raw in proc.stdout:
+                    while True:
+                        raw = await proc.stdout.readline()
+                        if not raw:
+                            break
                         line = raw.decode(errors="replace").strip()
                         if line: dl_logs.append(line)
                         if line.startswith("PROGRESS:") and progress_cb:
@@ -605,8 +608,8 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
                     raise asyncio.CancelledError("Job cancelled by user")
                 
                 now = time.time()
-                # Update if: forced, at 100%, OR (progress increased by 4% AND 1.5 seconds passed)
-                if not force and pct < 100.0 and (pct - last_p[0] < 4.0 or now - last_t[0] < 1.5):
+                # Update if: forced, at 100%, OR (progress increased by >= 2% OR >= 2s elapsed)
+                if not force and pct < 100.0 and (pct - last_p[0] < 2.0 and now - last_t[0] < 2.0):
                     return
                 last_p[0] = pct
                 last_t[0] = now

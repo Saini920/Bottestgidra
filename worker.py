@@ -183,7 +183,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
     await on_progress(5, "📥 Importing file into Ghidra...")
 
     async def read_stream():
-        async for raw in proc.stdout:
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
             line = raw.decode(errors="replace").strip()
             tail.append(line)
             del tail[:-60]
@@ -283,7 +286,10 @@ async def main():
                 )
                 dl_logs = []
                 async def read_stream():
-                    async for raw in proc.stdout:
+                    while True:
+                        raw = await proc.stdout.readline()
+                        if not raw:
+                            break
                         line = raw.decode(errors="replace").strip()
                         if line: dl_logs.append(line)
                         if line.startswith("PROGRESS:"):
@@ -423,7 +429,10 @@ async def main():
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
                 ul_logs = []
-                async for raw in proc.stdout:
+                while True:
+                    raw = await proc.stdout.readline()
+                    if not raw:
+                        break
                     line = raw.decode(errors="replace").strip()
                     if line: ul_logs.append(line)
                     if line.startswith("PROGRESS:"):

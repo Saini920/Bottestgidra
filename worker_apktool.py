@@ -144,7 +144,10 @@ async def run_apktool(file_path: Path, work_dir: Path, on_progress) -> Path:
     await on_progress(10, "📱 Decompiling APK with Apktool...")
     
     async def read_stream():
-        async for raw in proc.stdout:
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
             line = raw.decode(errors="replace").strip()
             low = line.lower()
             if "baksmali" in low or "smali" in low:
@@ -211,7 +214,10 @@ async def main():
                 )
                 dl_logs = []
                 async def read_stream():
-                    async for raw in proc.stdout:
+                    while True:
+                        raw = await proc.stdout.readline()
+                        if not raw:
+                            break
                         line = raw.decode(errors="replace").strip()
                         if line: dl_logs.append(line)
                         if line.startswith("PROGRESS:"):
@@ -315,7 +321,10 @@ async def main():
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
                 ul_logs = []
-                async for raw in proc.stdout:
+                while True:
+                    raw = await proc.stdout.readline()
+                    if not raw:
+                        break
                     line = raw.decode(errors="replace").strip()
                     if line: ul_logs.append(line)
                     if line.startswith("PROGRESS:"):
