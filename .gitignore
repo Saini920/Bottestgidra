@@ -11,6 +11,7 @@ __pycache__/
 # Local TG session bootstrap (sessions live in GitHub secret TG_SESSIONS_B64)
 sessions/
 make_sessions.py
+value.txt
 
 # Persistent runtime data & logs
 approved_users.json

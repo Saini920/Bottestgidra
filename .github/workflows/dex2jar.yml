@@ -106,6 +106,7 @@ jobs:
           PAYLOAD_FILENAME: ${{ github.event.client_payload.filename }}
           PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
           PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
+          PAYLOAD_IS_PREMIUM: ${{ github.event.client_payload.is_premium }}
           PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}

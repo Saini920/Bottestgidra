@@ -24,10 +24,11 @@ MESSAGE_ID = os.environ.get("PAYLOAD_MESSAGE_ID", "")
 FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
 JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
+IS_PREMIUM = os.environ.get("PAYLOAD_IS_PREMIUM", "False").lower() == "true"
 GHIDRA_HOME = Path(os.environ.get("GHIDRA_HOME", "/opt/ghidra"))
 ANALYZE_HEADLESS = GHIDRA_HOME / "support" / "analyzeHeadless"
 SCRIPT_DIR = Path(__file__).resolve().parent / "ghidra_scripts"
-MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 100
+MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -228,6 +229,22 @@ def send_document(file_path: Path, caption: str, filename: str):
     return resp.json()
 
 
+def check_zip_limits(file_path: Path):
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return
+    import zipfile
+    with zipfile.ZipFile(file_path) as zf:
+        names = zf.namelist()
+    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+    apks = sum(1 for n in names if n.lower().endswith(".apk"))
+    max_so_dex = 5 if IS_PREMIUM else 1
+    max_apk = 2 if IS_PREMIUM else 0
+    if so_dex > max_so_dex:
+        raise ValueError(f"ZIP mein {so_dex} .so/.dex files hain — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    if apks > max_apk:
+        raise ValueError(f"ZIP mein {apks} .apk files hain — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+
+
 async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
@@ -312,6 +329,12 @@ async def main():
             return
         if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
+            return
+
+        try:
+            check_zip_limits(dest)
+        except ValueError as e:
+            edit(f"❌ {e}", keep_button=False)
             return
 
         edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Ghidra analysis...")

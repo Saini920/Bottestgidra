@@ -110,17 +110,18 @@ def check_daily_limit(user_id: int) -> str | None:
     return None
 
 
-async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", engine: str = "ghidra", file_id: str = ""):
+async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", engine: str = "ghidra", file_id: str = "", is_premium: bool = False):
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
     now = time.time()
     active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
 
     is_admin = user_id in ADMIN_IDS
     is_priority = is_admin or user_id in db.data["subscriptions"]
+    is_premium = is_admin or user_id in db.data["subscriptions"]
 
     if is_priority or len(active_jobs_timestamps) < MAX_CONCURRENT_JOBS:
         active_jobs_timestamps.append(now)
-        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id)
+        await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id, is_premium)
     else:
         pos = job_queue.qsize() + 1
         priority_label = "⚡ <b>Priority Fast-Lane Slot Granted!</b>\n" if is_priority else ""
@@ -132,19 +133,18 @@ async def enqueue_or_dispatch(msg, status, file_url: str = "", filename: str = "
             parse_mode=constants.ParseMode.HTML,
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status.message_id}")]])
         )
-        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id))
+        await job_queue.put((msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id, is_premium))
 
 
 async def queue_worker_loop():
     while True:
         try:
             item = await job_queue.get()
-            msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id = item
-            
-            if status.message_id in CANCELLED_JOBS:
-                CANCELLED_JOBS.remove(status.message_id)
-                job_queue.task_done()
-                continue
+            is_premium = False
+            if len(item) == 9:
+                msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id, is_premium = item
+            elif len(item) == 8:
+                msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id = item
             elif len(item) == 7:
                 msg, status, file_url, filename, tg_file_path, is_admin, engine = item
                 file_id = ""
@@ -155,6 +155,11 @@ async def queue_worker_loop():
                 file_id = ""
             else:
                 raise ValueError("Invalid item in job queue")
+
+            if status.message_id in CANCELLED_JOBS:
+                CANCELLED_JOBS.remove(status.message_id)
+                job_queue.task_done()
+                continue
             
             now = time.time()
             active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
@@ -165,7 +170,7 @@ async def queue_worker_loop():
                 active_jobs_timestamps[:] = [t for t in active_jobs_timestamps if now - t < 600]
             
             active_jobs_timestamps.append(now)
-            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id)
+            await send_to_job(msg, status, file_url, filename, tg_file_path, is_admin, engine, file_id, is_premium)
             job_queue.task_done()
         except Exception as e:
             log.exception("Queue worker error", exc_info=e)
@@ -174,7 +179,10 @@ async def queue_worker_loop():
 
 OVER_LIMIT_MSG = (
     "⚠️ <b>File size limit exceeded!</b>\n"
-    "Max Telegram upload for bot is <b>100 MB</b> (file is {size:.1f} MB).\n\n"
+    "File is {size:.1f} MB — isko abhi ke limit se zyada hai.\n\n"
+    "Limits:\n"
+    "  • .so/.dex — Free 30 MB | Premium 100 MB\n"
+    "  • APK/ZIP — Free 200 MB | Premium 500 MB\n\n"
     "Use the <b>link method</b> for larger files:\n"
     "   /link <i>https://your-link.com/file.so</i>\n\n"
     "Powered By @Ghostofhackers"
@@ -289,10 +297,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "⚡ <b>PREMIUM BENEFITS & FEATURES:</b>\n"
             "• 📊 <b>Increased Daily Limit:</b> <b>70 Files / Day</b> (vs 30 Free)\n"
             "• ⭐ <b>Premium Features Included:</b>\n"
-            "• 📦 <b>Direct File Upload Limit:</b> <b>100 MB</b> (vs 20 MB Free)\n"
+            "• 📦 <b>File Upload Limits:</b> .so/.dex up to <b>100 MB</b> & APK/ZIP up to <b>500 MB</b> (Free: 30 MB / 200 MB)\n"
             "• 🔗 <b>Link Decompilation (/link):</b> Decompile from Drive/Direct links\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
-            "• 📦 <b>Batch ZIP Decompiler:</b> Upload up to <b>5 binaries in 1 ZIP</b>\n"
+            "• 📦 <b>Batch ZIP Decompiler:</b> Premium ZIP — max <b>5 .so/.dex</b> & <b>2 .apk</b> inside\n"
             "• 📱 <b>APK Engines:</b> JADX (Java Source), dex2jar (JAR+Java), Apktool (XML/Smali) & Compilation Support\n"
             "• 🔔 <b>Expiry Warnings:</b> Advance 5-day & 1-day renewal alerts\n"
             "• 🛠️ <b>Dedicated Priority Support</b>\n\n"
@@ -454,7 +462,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📤 <b>Method 1: Direct upload</b>\n"
         "Just send the file directly:\n"
         "  • .exe / .dll / .so / .elf / .apk / .zip\n"
-        "  ⚠️ Max <b>" + str(MAX_FILE_MB) + " MB</b> (Telegram bot limit)\n\n"
+        "  ⚠️ Upload Limits — Free: .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
+        "  ⭐ Premium: .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n\n"
         "═══════════════════════\n"
         "🔗 <b>Method 2: Link method (no size limit!)</b>\n"
         "For bigger files:\n"
@@ -471,10 +480,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
-        "  • 🆓 <b>Free Quota:</b> 30 Files / Day (Max 20 MB Upload)\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day (Max 100 MB Upload + /link method)\n"
+        "  • 🆓 <b>Free Quota:</b> 30 Files / Day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day + /link method — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
-        "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Up to 5 files/ZIP)\n"
+        "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Premium: max 5 .so/.dex + 2 .apk per ZIP)\n"
         "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
         "  • 💬 <b>To Buy/Renew:</b> Contact @Ghostofhackers | @R3V_X\n\n"
@@ -525,21 +534,22 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
         f"{admin_section}\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
-        "• 🆓 <b>Free Quota:</b> 30 files / day (Max 20 MB upload limit)\n"
-        "• ⭐ <b>Premium Quota:</b> 70 files / day (Max 100 MB upload limit)\n"
+        "• 🆓 <b>Free Quota:</b> 30 files / day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
+        "• ⭐ <b>Premium Quota:</b> 70 files / day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
         "• 🔗 <b>Direct Link Method (/link):</b> Exclusive Premium Feature\n"
         "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
-        "• 📦 <b>Batch Decompiler:</b> Upload & decompile up to 5 binaries per ZIP\n"
+        "• 📦 <b>Batch Decompiler:</b> Premium — max 5 .so/.dex + 2 .apk per ZIP\n"
         "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "• 🔔 <b>Expiry Alerts:</b> Automated 5-day & 1-day warning alerts\n\n"
         "💳 <b>BUY SUBSCRIPTION (₹99):</b>\n"
         "Contact Admins: <b>@Ghostofhackers</b> | <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
-        "• Send any binary file directly in chat (Max <b>100 MB</b> for Premium, Unlimited for Admins).\n\n"
+        "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
-        "• <b>Max Direct Upload:</b> 100 MB (Unlimited for Admins)\n"
+        "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
+        "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & no .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
-        "• <b>Server Concurrency:</b> Max 10 active jobs at a time\n\n"
+        "• <b>Server Concurrency:</b> Max 4 active jobs at a time\n\n"
         "⚡ <i>Powered By @Ghostofhackers & @R3V_X</i>"
     )
     await update.message.reply_text(help_text, parse_mode=constants.ParseMode.HTML, reply_markup=InlineKeyboardMarkup([
@@ -575,7 +585,7 @@ async def cancel_github_job(job_name: str):
                 log.warning("Failed to cancel github job %s: %s", job_name, e)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0) -> bool:
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False) -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
@@ -585,6 +595,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "filename": filename,
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
+        "is_premium": str(is_premium),
         "file_id": file_id,
     }
     if tg_file_path:
@@ -606,7 +617,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     return resp.status_code in (204, 200)
 
 
-async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra", file_id: str = ""):
+async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra", file_id: str = "", is_premium: bool = False):
     if status.message_id in CANCELLED_JOBS:
         CANCELLED_JOBS.remove(status.message_id)
         return
@@ -630,7 +641,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
     else:
         event_type = "decompile-job"
         
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id):
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
@@ -667,19 +678,22 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
     
-    user_max_mb = 20
+    fname_l = (doc.file_name or "").lower()
+    is_small_type = fname_l.endswith((".so", ".dex"))
     if user_id in ADMIN_IDS:
         user_max_mb = 2000
     elif is_premium:
-        user_max_mb = 100
+        user_max_mb = 100 if is_small_type else 500
+    else:
+        user_max_mb = 30 if is_small_type else 200
 
     size_mb = (doc.file_size or 0) / (1024 * 1024)
     if size_mb > user_max_mb:
         if not is_premium:
             limit_msg = (
                 "⚠️ <b>File Size Limit Exceeded!</b>\n\n"
-                f"Free users can upload files up to <b>20 MB</b> (your file is <b>{size_mb:.1f} MB</b>).\n\n"
-                "⭐ Upgrade to <b>Premium (₹99)</b> to upload files up to <b>100 MB</b> and unlock the <b>/link method</b>!"
+                f"Free users can upload files up to <b>{user_max_mb} MB</b> (your file is <b>{size_mb:.1f} MB</b>).\n\n"
+                "⭐ Upgrade to <b>Premium (₹99)</b> to upload larger files and unlock the <b>/link method</b>!"
             )
             await msg.reply_text(
                 limit_msg,
