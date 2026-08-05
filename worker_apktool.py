@@ -156,8 +156,17 @@ async def run_apktool(file_path: Path, work_dir: Path, on_progress) -> Path:
     await on_progress(10, "📱 Decompiling APK with Apktool...")
     
     async def read_stream():
+        idle = 0
         while True:
-            raw = await proc.stdout.readline()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
+                idle = 0
+            except asyncio.TimeoutError:
+                idle += 60
+                if idle >= 1800:
+                    proc.kill()
+                    raise RuntimeError("Apktool stalled: no output for 30 minutes")
+                continue
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
