@@ -312,16 +312,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 jd_limit = JADX_DEX2JAR_LIMIT_PREMIUM_MB if is_premium else JADX_DEX2JAR_LIMIT_FREE_MB
                 size_mb = (job.get("file_size") or 0) / (1024 * 1024)
                 tool_label = "JADX" if tool == "jadx" else "dex2jar"
+                fname = (job.get("filename") or "").lower()
+                is_apk = fname.endswith(".apk")
+                extra_buttons = []
+                if not is_apk:
+                    extra_buttons = [[InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]]
                 await query.answer("Size limit reached!", show_alert=False)
                 await query.edit_message_text(
                     f"⚠️ <b>{tool_label} Size Limit Reached!</b>\n\n"
                     f"Your file is <b>{size_mb:.1f} MB</b> but {tool_label} supports files up to "
                     f"<b>{jd_limit} MB</b> for {'Premium' if is_premium else 'Free'} users.\n\n"
-                    f"• ⚙️ <b>Ghidra (C Code)</b> is always Free — use it for larger files.\n"
                     f"• ⭐ Upgrade to <b>Premium (₹99)</b> to unlock {tool_label} up to <b>{JADX_DEX2JAR_LIMIT_PREMIUM_MB} MB</b>.",
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup([
-                        [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
+                    reply_markup=InlineKeyboardMarkup(extra_buttons + [
                         [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
                     ])
                 )
@@ -855,13 +858,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
                 "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
-                "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
-                "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)",
+                "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [btn_jadx, btn_dex2jar],
                     [btn_apktool],
-                    [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]
                 ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
