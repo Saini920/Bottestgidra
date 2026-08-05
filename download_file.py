@@ -52,7 +52,10 @@ async def main():
         print("Missing credentials or file_id for MTProto download.")
         sys.exit(1)
         
-    session_name = f"worker_session_{os.urandom(4).hex()}"
+    # Use a small pool of session files to avoid Telegram's 'auth.ImportBotAuthorization' FloodWait limits
+    # Generating a random hex creates a NEW session every time, which exhausts the login rate limit quickly.
+    pool_id = hash(file_id) % 5
+    session_name = f"worker_session_pool_{pool_id}"
     app = Client(session_name, api_id=api_id, api_hash=api_hash, bot_token=bot_token, workdir="/tmp")
     
     async with app:
