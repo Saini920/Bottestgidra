@@ -216,11 +216,14 @@ async def main():
                     sys.executable, "download_file.py", str(dest),
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
+                dl_logs = []
                 while True:
                     raw = await proc.stdout.readline()
                     if not raw:
                         break
                     line = raw.decode(errors="replace").strip()
+                    if line:
+                        dl_logs.append(line)
                     if line.startswith("PROGRESS:"):
                         try:
                             pct = float(line.split(":")[1])
@@ -229,7 +232,8 @@ async def main():
                             pass
                 await proc.wait()
                 if proc.returncode != 0:
-                    raise ValueError(f"MTProto Download failed with code {proc.returncode}")
+                    err_tail = "\n".join(dl_logs[-8:]) or "no output"
+                    raise ValueError(f"MTProto Download failed with code {proc.returncode}: {err_tail}")
             elif TG_FILE_PATH:
                 filename = FILENAME or "download.apk"
                 tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"

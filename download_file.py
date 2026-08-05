@@ -9,6 +9,10 @@ SESSION_DIR = os.environ.get("TG_SESSION_DIR", "/opt/tg_sessions")
 os.makedirs(SESSION_DIR, exist_ok=True)
 
 
+class DownloadStallError(Exception):
+    pass
+
+
 async def robust_download(app, media, dest_path):
     import time
     last_progress_time = time.time()
@@ -24,22 +28,30 @@ async def robust_download(app, media, dest_path):
         while True:
             await asyncio.sleep(5)
             if time.time() - last_progress_time > 45:
-                print("ERROR: Download connection stalled for 45 seconds! Exiting...", flush=True)
-                os._exit(1)
+                print("ERROR: Download connection stalled for 45 seconds!", flush=True)
+                return  # signals a stall
 
     watchdog_task = asyncio.create_task(watchdog())
-    task = asyncio.create_task(app.download_media(media, file_name=dest_path, progress=progress_cb))
+    main_task = asyncio.create_task(app.download_media(media, file_name=dest_path, progress=progress_cb))
     try:
-        # Give it up to 60 minutes overall
-        await asyncio.wait_for(task, timeout=3600)
-    except asyncio.TimeoutError:
-        print("ERROR: Download timed out after 60 minutes!", flush=True)
-        sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: Pyrogram download failed: {e}", flush=True)
-        sys.exit(1)
+        done, _ = await asyncio.wait(
+            {main_task, watchdog_task},
+            timeout=3600,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if watchdog_task in done:
+            main_task.cancel()
+            raise DownloadStallError("Download connection stalled for 45 seconds")
+        if main_task not in done:
+            main_task.cancel()
+            raise TimeoutError("Download timed out after 60 minutes")
+        exc = main_task.exception()
+        if exc:
+            raise exc
     finally:
         watchdog_task.cancel()
+        if not main_task.done():
+            main_task.cancel()
 
 
 async def main():
@@ -71,7 +83,7 @@ async def main():
     print(f"Downloading file_id {file_id} via MTProto (Pyrogram)...", flush=True)
 
     last_error = None
-    for attempt in range(3):
+    for attempt in range(4):
         try:
             async with app:
                 if chat_id and orig_msg_id:
@@ -87,19 +99,19 @@ async def main():
             return
         except FloodWait as e:
             last_error = e
-            wait = min(e.retry_after, 90)
-            print(f"WARN: FloodWait {e.retry_after}s (auth), attempt {attempt+1}/3. Sleeping {wait}s...", flush=True)
+            wait = min(e.retry_after, 120)
+            print(f"WARN: FloodWait {e.retry_after}s (auth), attempt {attempt+1}/4. Sleeping {wait}s...", flush=True)
             await asyncio.sleep(wait)
         except Unauthorized as e:
             last_error = e
-            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/3. Sleeping 30s...", flush=True)
+            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/4. Sleeping 30s...", flush=True)
             await asyncio.sleep(30)
         except Exception as e:
             last_error = e
-            print(f"WARN: MTProto download error, attempt {attempt+1}/3: {e}", flush=True)
+            print(f"WARN: MTProto download error, attempt {attempt+1}/4: {e}", flush=True)
             await asyncio.sleep(5)
 
-    print(f"ERROR: MTProto download failed after 3 attempts: {last_error}", flush=True)
+    print(f"ERROR: MTProto download failed after 4 attempts: {last_error}", flush=True)
     sys.exit(1)
 
 
