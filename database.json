@@ -41,10 +41,10 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "c2b89c2d": {
+    "967857c4": {
       "chat_id": 7251749429,
-      "status_message_id": 817,
-      "original_message_id": 816,
+      "status_message_id": 819,
+      "original_message_id": 818,
       "filename": "MainActivity.smali",
       "tg_file_path": "https://api.telegram.org/file/bot8820211559:AAFnF4Xf-RmF54AGsWhjqJIqWuv3z9lPUbg/documents/file_22.smali",
       "file_url": "",
