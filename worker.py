@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from html import unescape
 from pathlib import Path
@@ -83,6 +84,15 @@ def progress_bar(pct: float) -> str:
     filled = max(0, min(16, int(val * 16 / 100)))
     bar = "▰" * filled + "▱" * (16 - filled)
     return f"{bar} {val:.2f} %"
+
+
+def proc_cpu_usage(pid: int) -> int:
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            parts = f.read().split()
+        return int(parts[13]) + int(parts[14])
+    except Exception:
+        return -1
 
 
 def apply_memory_settings():
@@ -195,16 +205,20 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
     await on_progress(5, "📥 Importing file into Ghidra...")
 
     async def read_stream():
-        idle = 0
+        last_activity = time.monotonic()
+        last_cpu = proc_cpu_usage(proc.pid)
         while True:
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
-                idle = 0
+                last_activity = time.monotonic()
             except asyncio.TimeoutError:
-                idle += 60
-                if idle >= 1800:
+                cpu = proc_cpu_usage(proc.pid)
+                if cpu > last_cpu:
+                    last_cpu = cpu
+                    last_activity = time.monotonic()
+                elif time.monotonic() - last_activity >= 1800:
                     proc.kill()
-                    raise RuntimeError("Ghidra stalled: no output for 30 minutes")
+                    raise RuntimeError("Ghidra stalled: no CPU activity for 30 minutes")
                 continue
             if not raw:
                 break

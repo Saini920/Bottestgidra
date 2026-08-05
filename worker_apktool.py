@@ -6,6 +6,7 @@ import shutil
 import zipfile
 import sys
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import unquote
 from html import unescape
@@ -84,6 +85,15 @@ def progress_bar(pct: float) -> str:
     return f"{bar} {val:.2f} %"
 
 
+def proc_cpu_usage(pid: int) -> int:
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            parts = f.read().split()
+        return int(parts[13]) + int(parts[14])
+    except Exception:
+        return -1
+
+
 async def download_url(url: str, dest: Path, on_progress) -> str:
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     fid = None
@@ -156,16 +166,20 @@ async def run_apktool(file_path: Path, work_dir: Path, on_progress) -> Path:
     await on_progress(10, "📱 Decompiling APK with Apktool...")
     
     async def read_stream():
-        idle = 0
+        last_activity = time.monotonic()
+        last_cpu = proc_cpu_usage(proc.pid)
         while True:
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
-                idle = 0
+                last_activity = time.monotonic()
             except asyncio.TimeoutError:
-                idle += 60
-                if idle >= 1800:
+                cpu = proc_cpu_usage(proc.pid)
+                if cpu > last_cpu:
+                    last_cpu = cpu
+                    last_activity = time.monotonic()
+                elif time.monotonic() - last_activity >= 1800:
                     proc.kill()
-                    raise RuntimeError("Apktool stalled: no output for 30 minutes")
+                    raise RuntimeError("Apktool stalled: no CPU activity for 30 minutes")
                 continue
             if not raw:
                 break
