@@ -172,7 +172,8 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
                 extract_dir.mkdir(exist_ok=True)
                 for de in dex_entries:
                     zf.extract(de, extract_dir)
-                inputs = [str(p) for p in extract_dir.rglob("*") if p.is_file()]
+                inputs = [str(p) for p in extract_dir.rglob("*")
+                          if p.is_file() and p.suffix.lower() in (".dex", ".class", ".jar", ".smali")]
             elif any(n.lower().endswith(".apk") for n in names):
                 apk_files = [n for n in names if n.lower().endswith(".apk")]
                 extract_dir = work_dir / "extracted_apk"

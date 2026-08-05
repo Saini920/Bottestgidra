@@ -168,13 +168,34 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
 
 async def run_dex2jar(file_path: Path, work_dir: Path, on_progress) -> Path:
     out_jar = work_dir / "output.jar"
+
+    inputs = [str(file_path)]
+    if file_path.suffix.lower() == ".zip":
+        with zipfile.ZipFile(file_path, "r") as zf:
+            names = zf.namelist()
+            dex_entries = [n for n in names if n.lower().endswith(".dex")]
+            if dex_entries:
+                extract_dir = work_dir / "dex_input"
+                extract_dir.mkdir(exist_ok=True)
+                for de in dex_entries:
+                    zf.extract(de, extract_dir)
+                inputs = [str(p) for p in sorted(extract_dir.rglob("*.dex"))]
+            elif any(n.lower().endswith(".apk") for n in names):
+                apk_files = [n for n in names if n.lower().endswith(".apk")]
+                extract_dir = work_dir / "apk_input"
+                extract_dir.mkdir(exist_ok=True)
+                zf.extract(apk_files[0], extract_dir)
+                inputs = [str(extract_dir / apk_files[0])]
+
+    if not inputs:
+        raise ValueError("No DEX files found in the input.")
+
     cmd = [
         "java", "-Xmx2G",
         "-cp", DEX2JAR_CP,
         "com.googlecode.dex2jar.tools.Dex2jarCmd",
         "-f", "-o", str(out_jar),
-        str(file_path),
-    ]
+    ] + inputs
     log.info("Running dex2jar: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT

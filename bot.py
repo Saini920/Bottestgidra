@@ -725,6 +725,23 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[btn_jadx]])
             )
+        elif doc.file_name and doc.file_name.lower().endswith(".dex"):
+            if is_premium:
+                btn_jadx = InlineKeyboardButton("☕ Decompile (Java)", callback_data=f"engine_jadx_{job_id}")
+                btn_d2j = InlineKeyboardButton("🧬 Decompile + Java", callback_data=f"engine_dex2jar_{job_id}")
+            else:
+                btn_jadx = InlineKeyboardButton("☕ Decompile (Premium Only)", callback_data="buy_sub")
+                btn_d2j = InlineKeyboardButton("🧬 Decompile + Java (Premium Only)", callback_data="buy_sub")
+            await status.edit_text(
+                "🧬 <b>DEX File Detected!</b>\nChoose how to process:\n\n"
+                "• ☕ <b>Decompile:</b> classes.dex → Java Source (JADX) (⭐ Premium)\n"
+                "• 🧬 <b>Decompile + Java:</b> classes.dex → JAR + Java Source (dex2jar + CFR) (⭐ Premium)",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_jadx],
+                    [btn_d2j]
+                ])
+            )
         elif doc.file_name and doc.file_name.lower().endswith(".apk"):
             if is_premium:
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
@@ -752,19 +769,22 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if is_premium:
                 btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java/Smali)", callback_data=f"engine_jadx_{job_id}")
+                btn_d2j = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
             else:
                 btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
                 btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
+                btn_d2j = InlineKeyboardButton("🧬 dex2jar (Premium Only)", callback_data="buy_sub")
 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
                 "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
                 "• ☕ <b>JADX:</b> Decompile Java/Smali to source (⭐ Premium)\n"
+                "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source (⭐ Premium)\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
-                    [btn_jadx],
+                    [btn_jadx, btn_d2j],
                     [btn_build]
                 ])
             )
