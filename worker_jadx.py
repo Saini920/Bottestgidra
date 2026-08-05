@@ -220,12 +220,17 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
     out_lines = []
     async def read_stream():
         count = 0
+        idle = 0
         while True:
             try:
-                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=240)
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
+                idle = 0
             except asyncio.TimeoutError:
-                proc.kill()
-                raise RuntimeError("JADX stalled: no output for 4 minutes")
+                idle += 60
+                if idle >= 600:
+                    proc.kill()
+                    raise RuntimeError("JADX stalled: no output for 10 minutes")
+                continue
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
