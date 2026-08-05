@@ -181,7 +181,7 @@ async def queue_worker_loop():
 
 OVER_LIMIT_MSG = (
     "⚠️ <b>File size limit exceeded!</b>\n"
-    "File is {size:.1f} MB — isko abhi ke limit se zyada hai.\n\n"
+    "File is {size:.1f} MB — this exceeds the current limit.\n\n"
     "Limits:\n"
     "  • .so/.dex — Free 30 MB | Premium 100 MB\n"
     "  • APK/ZIP — Free 200 MB | Premium 500 MB\n\n"
@@ -691,7 +691,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
     if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, user_id):
         await status.edit_text(
-            "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
+            "❌ GitHub trigger failed: GitHub API rejected the dispatch request.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
             "<code>Toboisking/ghidra-telegram-bot</code>.",
             parse_mode=constants.ParseMode.HTML,
@@ -1395,7 +1395,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.warning("cmd_active github query failed: %s", e)
 
     if not runs:
-        await update.message.reply_text("⚙️ <b>Active Cloud Jobs</b>\n══════════════\n\n✅ Koi bhi active job nahi hai.", parse_mode=constants.ParseMode.HTML)
+        await update.message.reply_text("⚙️ <b>Active Cloud Jobs</b>\n══════════════\n\n✅ No active jobs right now.", parse_mode=constants.ParseMode.HTML)
         return
 
     lines = ["⚙️ <b>ACTIVE CLOUD JOBS</b>", "═══════════════════════════"]
@@ -1418,7 +1418,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if name:
             user_line += f" | {name}"
         if not job:
-            user_line += " | <i>(unknown - bot restart ke baad)</i>"
+            user_line += " | <i>(unknown - bot restarted)</i>"
         task_label = TASK_LABELS.get((job or {}).get("engine", ""), "") if job else ""
         task_line = f"\n   🛠️ <b>Task:</b> {task_label}" if task_label else ""
         lines.append(
@@ -1577,7 +1577,7 @@ async def post_init(app: Application):
 
 def main():
     if not BOT_TOKEN:
-        log.error("TELEGRAM_BOT_TOKEN env set nahi hai!")
+        log.error("TELEGRAM_BOT_TOKEN env is not set!")
         sys.exit(1)
 
     app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()

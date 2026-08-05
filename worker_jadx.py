@@ -262,9 +262,9 @@ def check_zip_limits(file_path: Path):
     max_so_dex = 5 if IS_PREMIUM else 1
     max_apk = 2 if IS_PREMIUM else 0
     if so_dex > max_so_dex:
-        raise ValueError(f"ZIP mein {so_dex} .so/.dex files hain — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
     if apks > max_apk:
-        raise ValueError(f"ZIP mein {apks} .apk files hain — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
 
 
 def count_zip_so_dex(file_path: Path) -> int:
