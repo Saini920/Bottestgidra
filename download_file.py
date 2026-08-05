@@ -82,9 +82,9 @@ async def main():
 
     print(f"Downloading file_id {file_id} via MTProto (Pyrogram)...", flush=True)
 
-    def reset_pool_sessions():
+    def remove_session_file():
         import glob
-        for f in glob.glob(os.path.join(SESSION_DIR, "worker_session_pool_*.session")):
+        for f in glob.glob(os.path.join(SESSION_DIR, session_name + ".*")):
             try:
                 os.remove(f)
                 print(f"Removed stale session: {f}", flush=True)
@@ -92,7 +92,7 @@ async def main():
                 pass
 
     last_error = None
-    for attempt in range(4):
+    for attempt in range(5):
         try:
             async with app:
                 if chat_id and orig_msg_id:
@@ -108,22 +108,20 @@ async def main():
             return
         except FloodWait as e:
             last_error = e
-            wait = min(e.value, 120)
-            print(f"WARN: FloodWait {e.value}s (auth), attempt {attempt+1}/4. Sleeping {wait}s...", flush=True)
+            wait = min(int(e.value) + 5, 900)
+            print(f"WARN: FloodWait {e.value}s, attempt {attempt+1}/5. Waiting {wait}s...", flush=True)
             await asyncio.sleep(wait)
         except Unauthorized as e:
             last_error = e
-            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/4. Resetting sessions...", flush=True)
-            reset_pool_sessions()
+            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/5. Resetting this session...", flush=True)
+            remove_session_file()
             await asyncio.sleep(30)
         except Exception as e:
             last_error = e
-            print(f"WARN: MTProto download error, attempt {attempt+1}/4: {e}", flush=True)
+            print(f"WARN: MTProto download error, attempt {attempt+1}/5: {e}", flush=True)
             await asyncio.sleep(5)
 
-    if last_error is not None:
-        reset_pool_sessions()
-    print(f"ERROR: MTProto download failed after 4 attempts: {last_error}", flush=True)
+    print(f"ERROR: MTProto download failed after 5 attempts: {last_error}", flush=True)
     sys.exit(1)
 
 

@@ -42,6 +42,7 @@ jobs:
         with:
           path: /opt/tg_sessions
           key: tg-session-v2
+          save-always: true
 
       - name: Prepare session dir
         run: |
