@@ -590,13 +590,19 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             temp_dir.mkdir(parents=True, exist_ok=True)
             dest = temp_dir / "target.apk"
             last_p = [-10.0]
+            last_t = [0.0]
 
             async def update_inspect_progress(pct: float, label: str):
+                import time
                 if status_wrap.message_id in CANCELLED_JOBS:
                     raise asyncio.CancelledError("Job cancelled by user")
-                if pct < 100.0 and (pct - last_p[0] < 4.0):
+                
+                now = time.time()
+                # Update if: at 100%, OR (progress increased by 4% AND 1.5 seconds passed)
+                if pct < 100.0 and (pct - last_p[0] < 4.0 or now - last_t[0] < 1.5):
                     return
                 last_p[0] = pct
+                last_t[0] = now
                 try:
                     await status_wrap.edit_text(
                         f"{label}\n\n{progress_bar(pct)}",
