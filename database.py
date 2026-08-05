@@ -5,6 +5,11 @@ import base64
 
 log = logging.getLogger(__name__)
 
+# Store database.json on a dedicated branch so the bot's own frequent
+# 'Update database [skip ci]' commits never trigger a Railway redeploy
+# (Railway watches only the default 'main' branch).
+DB_BRANCH = "data"
+
 class RepoDB:
     def __init__(self, token, repo):
         self.token = token
@@ -13,11 +18,29 @@ class RepoDB:
         self.data = {"approved": [], "banned": [], "subscriptions": {}, "names": {}, "daily_usage": {}, "free_mode": False}
         self.file_sha = None
         if self.token and self.repo:
+            self._ensure_data_branch()
             self._load()
+
+    def _ensure_data_branch(self):
+        try:
+            r = httpx.get(f"https://api.github.com/repos/{self.repo}/git/ref/heads/{DB_BRANCH}", headers=self.headers, timeout=10)
+            if r.status_code == 200:
+                return
+            r = httpx.get(f"https://api.github.com/repos/{self.repo}/git/ref/heads/main", headers=self.headers, timeout=10)
+            if r.status_code == 200:
+                sha = r.json()["object"]["sha"]
+                httpx.post(
+                    f"https://api.github.com/repos/{self.repo}/git/refs",
+                    headers=self.headers,
+                    json={"ref": f"refs/heads/{DB_BRANCH}", "sha": sha},
+                    timeout=10,
+                )
+        except Exception as e:
+            log.error(f"RepoDB ensure data branch error: {e}")
 
     def _load(self):
         try:
-            r = httpx.get(f"https://api.github.com/repos/{self.repo}/contents/database.json", headers=self.headers, timeout=10)
+            r = httpx.get(f"https://api.github.com/repos/{self.repo}/contents/database.json?ref={DB_BRANCH}", headers=self.headers, timeout=10)
             if r.status_code == 200:
                 self.file_sha = r.json()["sha"]
                 content = base64.b64decode(r.json()["content"]).decode("utf-8")
@@ -38,7 +61,8 @@ class RepoDB:
             content_b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
             payload = {
                 "message": "Update database [skip ci]",
-                "content": content_b64
+                "content": content_b64,
+                "branch": DB_BRANCH
             }
             if self.file_sha:
                 payload["sha"] = self.file_sha
