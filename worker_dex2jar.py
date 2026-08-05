@@ -272,6 +272,49 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
     return out_dir
 
 
+async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path:
+    out_dir = work_dir / "java_src_fallback"
+    cmd = [
+        "/opt/jadx/bin/jadx",
+        "-d", str(out_dir),
+        "--no-res",
+        str(jar_path),
+    ]
+    log.info("Running JADX fallback: %s", " ".join(cmd))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+
+    await on_progress(70, "☕ Decompiling with JADX fallback...")
+
+    out_lines = []
+    async def read_stream():
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
+            line = raw.decode(errors="replace").strip()
+            if line:
+                out_lines.append(line)
+            await on_progress(85, "☕ Decompiling with JADX...")
+        return await proc.wait()
+
+    try:
+        rc = await asyncio.wait_for(read_stream(), timeout=3600)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise TimeoutError("JADX fallback decompilation timed out")
+
+    if rc != 0:
+        raise RuntimeError("JADX fallback failed:\n" + "\n".join(out_lines[-20:]))
+
+    java_files = [p for p in out_dir.rglob("*.java")] if out_dir.exists() else []
+    if not java_files:
+        raise ValueError("No Java source generated (CFR and JADX both failed).")
+
+    return out_dir
+
+
 async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
@@ -373,8 +416,13 @@ async def main():
             edit(f"❌ {e}", keep_button=False)
             return
         except Exception as e:
-            await send_error_log(work_dir, e, "CFR decompilation crashed")
-            return
+            log.warning("CFR crashed, falling back to JADX: %s", e)
+            try:
+                edit("⚠️ CFR crashed — falling back to JADX for Java source...")
+                src_dir = await run_jadx_fallback(out_jar, work_dir, on_progress)
+            except Exception as e2:
+                await send_error_log(work_dir, e2, "Java decompilation failed")
+                return
 
         edit("📦 Packaging JAR + Java Source...")
         safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", filename)[:60] or "file"

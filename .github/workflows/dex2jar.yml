@@ -52,6 +52,22 @@ jobs:
           test -f /opt/cfr.jar
           echo "CFR ready"
 
+      - name: Cache JADX (fallback)
+        id: jadx-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/jadx
+          key: jadx-1.5.0
+
+      - name: Get JADX (fallback)
+        if: steps.jadx-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo mkdir -p /opt/jadx
+          curl -L -o /tmp/jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip
+          sudo unzip -q -o /tmp/jadx.zip -d /opt/jadx
+          sudo chmod +x /opt/jadx/bin/jadx
+          echo "JADX ready"
+
       - name: Cache TG Session
         uses: actions/cache@v4
         with:
