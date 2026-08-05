@@ -46,8 +46,8 @@ async def main():
             return
         except FloodWait as e:
             last_error = e
-            wait = min(e.retry_after, 90)
-            print(f"WARN: FloodWait {e.retry_after}s (auth), attempt {attempt+1}/3. Sleeping {wait}s...", flush=True)
+            wait = min(e.value, 90)
+            print(f"WARN: FloodWait {e.value}s (auth), attempt {attempt+1}/3. Sleeping {wait}s...", flush=True)
             await asyncio.sleep(wait)
         except Unauthorized as e:
             last_error = e
