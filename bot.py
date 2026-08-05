@@ -433,9 +433,36 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
     chat_id = job.get("chat_id", 0)
     orig_msg_id = job.get("original_message_id", 0)
 
+    target_url = ""
+    if tg_file_path:
+        target_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
+    elif file_url:
+        target_url = file_url
+
+    http_success = False
+    if target_url:
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
+                async with client.stream("GET", target_url) as resp:
+                    resp.raise_for_status()
+                    total = int(resp.headers.get("content-length") or 0)
+                    downloaded = 0
+                    with open(dest, "wb") as fh:
+                        async for chunk in resp.aiter_bytes(65536):
+                            fh.write(chunk)
+                            downloaded += len(chunk)
+                            if total and progress_cb:
+                                dl_pct = min(45.0, (downloaded / total) * 45.0)
+                                await progress_cb(dl_pct, "📥 <b>Downloading file...</b>")
+            if dest.exists() and dest.stat().st_size > 0:
+                http_success = True
+                return True
+        except Exception as e:
+            log.warning("HTTP download failed in bot.py, will fallback if possible: %s", e)
+
     api_id = os.environ.get("API_ID", "")
     api_hash = os.environ.get("API_HASH", "")
-    if file_id and api_id and api_hash:
+    if file_id and api_id and api_hash and not http_success:
         try:
             env = os.environ.copy()
             env["PAYLOAD_FILE_ID"] = str(file_id)
@@ -464,41 +491,21 @@ async def download_file_for_bot(job: dict, dest: Path, progress_cb=None) -> bool
                 try: proc.kill()
                 except: pass
                 raise ValueError("MTProto download timed out after 30 minutes")
+            except asyncio.CancelledError:
+                try: proc.kill()
+                except: pass
+                raise
             if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
                 return True
             else:
                 err_msg = "\n".join(dl_logs[-10:])
                 log.error(f"bot.py MTProto Download Failed (code {proc.returncode}). Logs:\n{err_msg}")
                 raise ValueError(f"MTProto Download Failed:\n{err_msg}")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             log.warning("MTProto download failed in bot.py: %s", e)
             raise
-
-    target_url = ""
-    if tg_file_path:
-        target_url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
-    elif file_url:
-        target_url = file_url
-
-    if target_url:
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=120) as client:
-                async with client.stream("GET", target_url) as resp:
-                    resp.raise_for_status()
-                    total = int(resp.headers.get("content-length") or 0)
-                    downloaded = 0
-                    with open(dest, "wb") as fh:
-                        async for chunk in resp.aiter_bytes(65536):
-                            fh.write(chunk)
-                            downloaded += len(chunk)
-                            if total and progress_cb:
-                                dl_pct = min(45.0, (downloaded / total) * 45.0)
-                                await progress_cb(dl_pct, "📥 <b>Downloading file...</b>")
-            if dest.exists() and dest.stat().st_size > 0:
-                return True
-        except Exception as e:
-            log.warning("HTTP download failed in bot.py: %s", e)
-            raise ValueError(f"HTTP download failed: {e}")
 
     raise ValueError("No valid URL or File ID found to download.")
 
@@ -585,13 +592,16 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             last_p = [-10.0]
 
             async def update_inspect_progress(pct: float, label: str):
-                if pct < 100.0 and (pct - last_p[0] < 4.0):
+                if status_wrap.message_id in CANCELLED_JOBS:
+                    raise asyncio.CancelledError("Job cancelled by user")
+                if pct < 100.0 and (pct - last_p[0] < 10.0):
                     return
                 last_p[0] = pct
                 try:
                     await status_wrap.edit_text(
                         f"{label}\n\n{progress_bar(pct)}",
-                        parse_mode="HTML"
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status_wrap.message_id}")]])
                     )
                 except Exception:
                     pass
@@ -607,6 +617,9 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
                         ok = dest.exists() and dest.stat().st_size > 0
                     except Exception as ex:
                         log.warning("Fallback get_file failed: %s", ex)
+
+                if status_wrap.message_id in CANCELLED_JOBS:
+                    raise asyncio.CancelledError("Job cancelled by user")
 
                 if ok and dest.exists() and dest.stat().st_size > 0:
                     await update_inspect_progress(50.0, "🧠 <b>Scanning APK & Security Protection...</b>")
