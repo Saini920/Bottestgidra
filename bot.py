@@ -585,7 +585,16 @@ async def cancel_github_job(job_name: str):
                 log.warning("Failed to cancel github job %s: %s", job_name, e)
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False) -> bool:
+def get_report_url() -> str:
+    base = (WEBHOOK_URL or "").strip().rstrip("/")
+    if not base:
+        rp = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "").strip()
+        if rp:
+            base = ("https://" + rp) if not rp.startswith(("http://", "https://")) else rp.rstrip("/")
+    return (base + "/internal/count") if base else ""
+
+
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, user_id: str = "") -> bool:
     if not GITHUB_TOKEN:
         return False
     client_payload = {
@@ -597,6 +606,9 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "is_admin": str(is_admin),
         "is_premium": str(is_premium),
         "file_id": file_id,
+        "user_id": str(user_id),
+        "report_url": get_report_url(),
+        "report_token": BOT_TOKEN,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
@@ -641,7 +653,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
     else:
         event_type = "decompile-job"
         
-    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium):
+    user_id = str(msg.from_user.id) if msg and msg.from_user else ""
+    if not await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, user_id):
         await status.edit_text(
             "❌ GitHub trigger failed: GitHub API ne dispatch reject kiya.\n"
             "Check that GITHUB_TOKEN is correct (repo scope) and repo is "
@@ -1482,25 +1495,61 @@ def main():
     else:
         log.info("Polling mode")
         
-        # Start a dummy HTTP server to pass Railway healthchecks
+        # HTTP server: passes Railway healthchecks + receives worker count reports
         import threading
-        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
         class HealthCheckHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 self.send_response(200)
                 self.send_header("Content-type", "text/plain")
                 self.end_headers()
                 self.wfile.write(b"OK")
+            def do_POST(self):
+                if self.path != "/internal/count":
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                token = self.headers.get("X-Count-Token", "")
+                if token != BOT_TOKEN:
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                try:
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    body = json.loads(self.rfile.read(length) or b"{}")
+                    uid = str(body.get("user_id", ""))
+                    count = int(body.get("count", 0))
+                    if uid and count > 0:
+                        today_iso = date.today().isoformat()
+                        rec = db.data['daily_usage'].get(uid)
+                        if rec and rec["date"] == today_iso:
+                            rec["count"] += count
+                        else:
+                            db.data['daily_usage'][uid] = {"date": today_iso, "count": count}
+                        db.save()
+                        log.info("Count report: user=%s +%d (now %d)", uid, count, db.data['daily_usage'][uid]["count"])
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"ok": true}')
+                except Exception as e:
+                    log.error("Count report error: %s", e)
+                    try:
+                        self.send_response(500)
+                        self.end_headers()
+                        self.wfile.write(b'{"ok": false}')
+                    except Exception:
+                        pass
             def log_message(self, format, *args):
                 pass
         
         def start_dummy_server():
             try:
-                server = HTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
-                log.info(f"Dummy HTTP server started on port {PORT} for health checks")
+                server = ThreadingHTTPServer(("0.0.0.0", PORT), HealthCheckHandler)
+                log.info(f"HTTP server started on port {PORT} (healthchecks + /internal/count)")
                 server.serve_forever()
             except Exception as e:
-                log.error(f"Failed to start dummy HTTP server: {e}")
+                log.error(f"Failed to start HTTP server: {e}")
                 
         threading.Thread(target=start_dummy_server, daemon=True).start()
         

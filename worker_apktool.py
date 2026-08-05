@@ -24,6 +24,9 @@ FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
 JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
 IS_PREMIUM = os.environ.get("PAYLOAD_IS_PREMIUM", "False").lower() == "true"
+USER_ID = os.environ.get("PAYLOAD_USER_ID", CHAT_ID)
+REPORT_URL = os.environ.get("PAYLOAD_REPORT_URL", "")
+REPORT_TOKEN = os.environ.get("PAYLOAD_REPORT_TOKEN", "")
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -204,6 +207,30 @@ def check_zip_limits(file_path: Path):
         raise ValueError(f"ZIP mein {apks} .apk files hain — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
 
 
+def count_zip_so_dex(file_path: Path) -> int:
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return 0
+    import zipfile
+    with zipfile.ZipFile(file_path) as zf:
+        names = zf.namelist()
+    return sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+
+
+def report_extra_count(extra: int):
+    if not REPORT_URL or not REPORT_TOKEN or extra <= 0:
+        return
+    try:
+        httpx.post(
+            REPORT_URL,
+            json={"user_id": USER_ID, "count": extra},
+            headers={"X-Count-Token": REPORT_TOKEN},
+            timeout=10,
+        )
+        log.info("Reported extra count %d for user %s", extra, USER_ID)
+    except Exception as e:
+        log.warning("Count report failed: %s", e)
+
+
 async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
@@ -288,6 +315,14 @@ async def main():
         if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return
+
+        try:
+            extra = count_zip_so_dex(dest)
+        except Exception as e:
+            log.warning("Could not count zip contents: %s", e)
+            extra = 0
+        if extra:
+            report_extra_count(extra)
 
         try:
             check_zip_limits(dest)
