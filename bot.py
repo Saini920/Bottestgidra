@@ -570,6 +570,8 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             self.message_id = mid
 
         async def edit_text(self, text, parse_mode=None, reply_markup=None):
+            from telegram.error import RetryAfter
+            import asyncio
             try:
                 await self.ctx.bot.edit_message_text(
                     chat_id=self.chat_id,
@@ -578,6 +580,19 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
                     parse_mode=parse_mode,
                     reply_markup=reply_markup
                 )
+            except RetryAfter as e:
+                log.warning(f"FloodWait in StatusWrapper: sleeping {e.retry_after}s")
+                await asyncio.sleep(e.retry_after)
+                try:
+                    await self.ctx.bot.edit_message_text(
+                        chat_id=self.chat_id,
+                        message_id=self.message_id,
+                        text=text,
+                        parse_mode=parse_mode,
+                        reply_markup=reply_markup
+                    )
+                except Exception as ex:
+                    log.warning("StatusWrapper edit_text retry error: %s", ex)
             except Exception as e:
                 log.warning("StatusWrapper edit_text error: %s", e)
 
