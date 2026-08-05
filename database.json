@@ -41,10 +41,10 @@
   },
   "free_mode": false,
   "pending_jobs": {
-    "d13e51e1": {
+    "3e2fd152": {
       "chat_id": 7251749429,
-      "status_message_id": 862,
-      "original_message_id": 861,
+      "status_message_id": 864,
+      "original_message_id": 863,
       "filename": "CapCut_patched_v3.apk",
       "tg_file_path": "",
       "file_url": "",
