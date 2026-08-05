@@ -34,7 +34,7 @@ PORT = int(os.environ.get("PORT", "8080"))
 MAX_FILE_MB = int(os.environ.get("MAX_FILE_MB", "100"))
 MAX_CONCURRENT_JOBS = 4
 MAX_DAILY_FILES = 30
-ADMIN_IDS = ["7251749429"]
+ADMIN_IDS = ["6684870256", "7251749429"]
 ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split(",") if u.strip()]
 
 PENDING_REQUESTS = set()
