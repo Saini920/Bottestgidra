@@ -518,8 +518,14 @@ async def main():
             edit("⏰ Timeout! The file is too big for dex2jar.", keep_button=False)
             return
         except Exception as e:
-            await send_error_log(work_dir, e, "dex2jar conversion crashed")
-            return
+            log.warning("dex2jar crashed (%s), falling back to JADX on input", e)
+            try:
+                edit("⚠️ dex2jar crashed — falling back to JADX for Java source...")
+                src_dir = await run_jadx_fallback(dest, work_dir, on_progress)
+                out_jar = None
+            except Exception as e2:
+                await send_error_log(work_dir, e2, "dex2jar conversion crashed")
+                return
 
         try:
             src_dir = await run_cfr(out_jar, work_dir, on_progress)
@@ -550,16 +556,23 @@ async def main():
 
         zip_path = work_dir / f"{orig_stem}_dex2jar_java.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.write(out_jar, f"{orig_stem}.jar")
+            if out_jar is not None:
+                zf.write(out_jar, f"{orig_stem}.jar")
             for root, dirs, files in os.walk(src_dir):
                 for f in files:
                     fp = os.path.join(root, f)
                     arcname = os.path.join("src", os.path.relpath(fp, src_dir))
                     zf.write(fp, arcname)
 
-        edit("✅ dex2jar + CFR complete! Sending ZIP...")
+        if out_jar is not None:
+            edit("✅ dex2jar + CFR complete! Sending ZIP...")
+        else:
+            edit("✅ Java Source ready (JADX fallback)! Sending ZIP...")
 
-        caption = f"✅ Decompiled <b>{safe_name}</b> to JAR + Java Source — Powered By @R3V_X"
+        if out_jar is not None:
+            caption = f"✅ Decompiled <b>{safe_name}</b> to JAR + Java Source — Powered By @R3V_X"
+        else:
+            caption = f"⚠️ dex2jar crashed (too large?) — delivered <b>Java Source</b> via JADX fallback — Powered By @R3V_X"
         up_last = [0]
         async def on_up(pct: int):
             if pct < up_last[0] or pct - up_last[0] < 2: return
