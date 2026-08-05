@@ -1,5 +1,6 @@
 name: decompile-apktool
 run-name: job-${{ github.event.client_payload.chat_id }}-${{ github.event.client_payload.message_id }}
+# re-register: workflow was stuck in deleted state after history reset
 on:
   repository_dispatch:
     types: [decompile-apktool]
