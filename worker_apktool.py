@@ -145,7 +145,7 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
 async def run_apktool(file_path: Path, work_dir: Path, on_progress) -> Path:
     out_dir = work_dir / "decompiled_apk"
     cmd = [
-        "java", "-jar", "/opt/apktool/apktool.jar", "d", str(file_path),
+        "java", "-Xmx6G", "-jar", "/opt/apktool/apktool.jar", "d", str(file_path),
         "-o", str(out_dir), "-f"
     ]
     log.info("Running: %s", " ".join(cmd))

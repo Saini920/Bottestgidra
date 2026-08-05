@@ -246,7 +246,7 @@ async def main():
             return
 
         unsigned_apk = work_dir / "unsigned.apk"
-        cmd = ["java", "-jar", "/opt/apktool/apktool.jar", "b", str(target_dir), "-o", str(unsigned_apk)]
+        cmd = ["java", "-Xmx6G", "-jar", "/opt/apktool/apktool.jar", "b", str(target_dir), "-o", str(unsigned_apk)]
 
         last_prog = [0, ""]
         async def on_progress(pct: int, label: str):
