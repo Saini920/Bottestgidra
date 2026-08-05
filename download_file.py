@@ -1,10 +1,28 @@
 import os, sys, asyncio
 from pyrogram import Client
 
-async def progress(current, total):
-    if total > 0:
-        pct = current * 100.0 / total
-        print(f"PROGRESS:{pct:.2f}", flush=True)
+async def robust_download(app, media, dest_path):
+    total = getattr(media, "file_size", 0)
+    if total == 0 and hasattr(media, "document"):
+        total = media.document.file_size
+        
+    downloaded = 0
+    with open(dest_path, "wb") as f:
+        stream = app.stream_media(media)
+        while True:
+            try:
+                # 45 seconds timeout per chunk to prevent infinite network hangs
+                chunk = await asyncio.wait_for(stream.__anext__(), timeout=45.0)
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total > 0:
+                    pct = downloaded * 100.0 / total
+                    print(f"PROGRESS:{pct:.2f}", flush=True)
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                print("ERROR: Chunk download timed out after 45 seconds!", flush=True)
+                sys.exit(1)
 
 async def main():
     raw_api = os.environ.get("API_ID", "").strip()
@@ -25,18 +43,20 @@ async def main():
         print("Missing credentials or file_id for MTProto download.")
         sys.exit(1)
         
-    print(f"Downloading file_id {file_id} via MTProto (Pyrogram)...", flush=True)
+    print(f"Downloading file_id {file_id} via MTProto (Pyrogram stream)...", flush=True)
     app = Client("worker_session", api_id=api_id, api_hash=api_hash, bot_token=bot_token, in_memory=True)
+    
     async with app:
         if chat_id and orig_msg_id:
             msg = await app.get_messages(chat_id, orig_msg_id)
             if msg and msg.document:
-                await app.download_media(msg.document, file_name=dest_path, progress=progress)
+                await robust_download(app, msg, dest_path)
             else:
                 print("Failed to fetch message or no document found. Trying fallback...", flush=True)
-                await app.download_media(file_id, file_name=dest_path, progress=progress)
+                await robust_download(app, file_id, dest_path)
         else:
-            await app.download_media(file_id, file_name=dest_path, progress=progress)
+            await robust_download(app, file_id, dest_path)
+            
     print("Download complete.", flush=True)
 
 if __name__ == "__main__":
