@@ -2,27 +2,21 @@ import os, sys, asyncio
 from pyrogram import Client
 
 async def robust_download(app, media, dest_path):
-    total = getattr(media, "file_size", 0)
-    if total == 0 and hasattr(media, "document"):
-        total = media.document.file_size
-        
-    downloaded = 0
-    with open(dest_path, "wb") as f:
-        stream = app.stream_media(media)
-        while True:
-            try:
-                # 45 seconds timeout per chunk to prevent infinite network hangs
-                chunk = await asyncio.wait_for(stream.__anext__(), timeout=45.0)
-                f.write(chunk)
-                downloaded += len(chunk)
-                if total > 0:
-                    pct = downloaded * 100.0 / total
-                    print(f"PROGRESS:{pct:.2f}", flush=True)
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                print("ERROR: Chunk download timed out after 45 seconds!", flush=True)
-                sys.exit(1)
+    async def progress(current, total):
+        if total > 0:
+            pct = current * 100.0 / total
+            print(f"PROGRESS:{pct:.2f}", flush=True)
+
+    task = asyncio.create_task(app.download_media(media, file_name=dest_path, progress=progress))
+    try:
+        # Give it up to 60 minutes overall, or we can just await it
+        await asyncio.wait_for(task, timeout=3600)
+    except asyncio.TimeoutError:
+        print("ERROR: Download timed out after 60 minutes!", flush=True)
+        sys.exit(1)
+    except Exception as e:
+        print(f"ERROR: Pyrogram download failed: {e}", flush=True)
+        sys.exit(1)
 
 async def main():
     raw_api = os.environ.get("API_ID", "").strip()
