@@ -1,5 +1,6 @@
-import os, sys, asyncio
+import os, sys, asyncio, hashlib
 from pyrogram import Client
+from pyrogram.errors import FloodWait, Unauthorized
 
 async def robust_download(app, media, dest_path):
     import time
@@ -51,33 +52,61 @@ async def main():
     if not api_id or not api_hash or not bot_token or not file_id:
         print("Missing credentials or file_id for MTProto download.")
         sys.exit(1)
-        
-    # Use a small pool of session files to avoid Telegram's 'auth.ImportBotAuthorization' FloodWait limits
-    # Generating a random hex creates a NEW session every time, which exhausts the login rate limit quickly.
-    pool_id = hash(file_id) % 5
+
+    # Use a stable pool of session files so Telegram's 'auth.ImportBotAuthorization'
+    # is NOT repeated on every download (repeated logins trigger FloodWait).
+    # NOTE: python's built-in hash() is randomized per process (PYTHONHASHSEED),
+    # so we must use hashlib for a stable session name across runs.
+    pool_id = int(hashlib.md5(file_id.encode("utf-8")).hexdigest(), 16) % 5
     session_name = f"worker_session_pool_{pool_id}"
     app = Client(session_name, api_id=api_id, api_hash=api_hash, bot_token=bot_token, workdir="/tmp")
-    
-    async with app:
-        if chat_id and orig_msg_id:
-            msg = await app.get_messages(chat_id, orig_msg_id)
-            if msg and msg.document:
-                await robust_download(app, msg, dest_path)
-            else:
-                print("Failed to fetch message or no document found. Trying fallback...", flush=True)
-                await robust_download(app, file_id, dest_path)
-        else:
-            await robust_download(app, file_id, dest_path)
-            
-    print("Download complete.", flush=True)
+
+    last_error = None
+    for attempt in range(3):
+        try:
+            async with app:
+                if chat_id and orig_msg_id:
+                    msg = await app.get_messages(chat_id, orig_msg_id)
+                    if msg and msg.document:
+                        await robust_download(app, msg, dest_path)
+                    else:
+                        print("Failed to fetch message or no document found. Trying fallback...", flush=True)
+                        await robust_download(app, file_id, dest_path)
+                else:
+                    await robust_download(app, file_id, dest_path)
+            print("Download complete.", flush=True)
+            return
+        except FloodWait as e:
+            last_error = e
+            wait = min(e.retry_after, 90)
+            print(f"WARN: FloodWait {e.retry_after}s (auth), attempt {attempt+1}/3. Sleeping {wait}s...", flush=True)
+            await asyncio.sleep(wait)
+        except Unauthorized as e:
+            last_error = e
+            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/3. Sleeping 30s...", flush=True)
+            await asyncio.sleep(30)
+        except Exception as e:
+            last_error = e
+            print(f"WARN: MTProto auth/download error, attempt {attempt+1}/3: {e}", flush=True)
+            await asyncio.sleep(5)
+
+    print(f"ERROR: MTProto auth/download failed after 3 attempts: {last_error}", flush=True)
+    sys.exit(1)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
     finally:
-        for f in os.listdir("/tmp"):
-            if f.startswith("worker_session_") and (f.endswith(".session") or f.endswith(".session-journal")):
-                try:
-                    os.remove(f"/tmp/{f}")
-                except:
-                    pass
+        # IMPORTANT: KEEP the .session files so the bot authorization is reused and
+        # 'auth.ImportBotAuthorization' FloodWait is avoided. Only remove stale journal/lock files.
+        try:
+            for f in os.listdir("/tmp"):
+                if f.startswith("worker_session_") and f.endswith(".session-journal"):
+                    try:
+                        os.remove(f"/tmp/{f}")
+                    except Exception:
+                        pass
+        except Exception:
+            pass
