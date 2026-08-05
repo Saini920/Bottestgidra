@@ -185,8 +185,6 @@ OVER_LIMIT_MSG = (
     "Limits:\n"
     "  • .so/.dex — Free 30 MB | Premium 100 MB\n"
     "  • APK/ZIP — Free 200 MB | Premium 500 MB\n\n"
-    "Use the <b>link method</b> for larger files:\n"
-    "   /link <i>https://your-link.com/file.so</i>\n\n"
     "Powered By @R3V_X"
 )
 
@@ -310,7 +308,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             "• 📊 <b>Increased Daily Limit:</b> <b>70 Files / Day</b> (vs 30 Free)\n"
             "• ⭐ <b>Premium Features Included:</b>\n"
             "• 📦 <b>File Upload Limits:</b> .so/.dex up to <b>100 MB</b> & APK/ZIP up to <b>500 MB</b> (Free: 30 MB / 200 MB)\n"
-            "• 🔗 <b>Link Decompilation (/link):</b> Decompile from Drive/Direct links\n"
             "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant processing during peak load\n"
             "• 📦 <b>Batch ZIP Decompiler:</b> Premium ZIP — max <b>5 .so/.dex</b> & <b>2 .apk</b> inside\n"
             "• 📱 <b>APK Engines:</b> JADX (Java Source), dex2jar (JAR+Java), Apktool (XML/Smali) & Compilation Support\n"
@@ -474,15 +471,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • .exe / .dll / .so / .elf / .apk / .zip\n"
         "  ⚠️ Upload Limits — Free: .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
         "  ⭐ Premium: .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n\n"
-        "═══════════════════════\n"
-        "🔗 <b>Method 2: Link method (no size limit!)</b>\n"
-        "For bigger files:\n"
-        "  <b>Step 1:</b> Upload file to Google Drive / MediaFire / "
-        "Dropbox / GitHub / any host\n"
-        "  <b>Step 2:</b> Copy the shareable link\n"
-        "  <b>Step 3:</b> Send: <i>/link &lt;url&gt;</i>\n"
-        "  ✅ ZIP / APK / JAR are auto-extracted, binaries inside are found "
-        "and decompiled\n\n"
         "⚡ <b>Features & Engines:</b>\n"
         "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of native files (Free)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
@@ -491,13 +479,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
         "  • 🆓 <b>Free Quota:</b> 30 Files / Day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day + /link method — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Premium: max 5 .so/.dex + 2 .apk per ZIP)\n"
         "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
         "  • 💳 <b>Price:</b> <b>₹99 Only</b>\n"
         "  • 💬 <b>To Buy/Renew:</b> Contact @R3V_X\n\n"
-        "🚀 Send a file or a link now! Powered By @R3V_X",
+        "🚀 Send a file now! Powered By @R3V_X",
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("⭐ Buy Premium Plan (₹99)", callback_data="buy_sub")]
@@ -542,12 +530,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/help</code> — View all commands and bot description.\n"
         "• <code>/profile</code> — View your profile, daily remaining quota, and server stats.\n"
         "• <code>/myid</code> — Display your Telegram User ID.\n"
-        "• <code>/link &lt;url&gt;</code> — Decompile large files via direct link (Google Drive, MediaFire, Dropbox, etc.)."
         f"{admin_section}\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
         "• 🆓 <b>Free Quota:</b> 30 files / day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
         "• ⭐ <b>Premium Quota:</b> 70 files / day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
-        "• 🔗 <b>Direct Link Method (/link):</b> Exclusive Premium Feature\n"
         "• 🚀 <b>Priority Fast-Lane Queue:</b> Instant execution during peak load\n"
         "• 📦 <b>Batch Decompiler:</b> Premium — max 5 .so/.dex + 2 .apk per ZIP\n"
         "• 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
@@ -752,7 +738,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             limit_msg = (
                 "⚠️ <b>File Size Limit Exceeded!</b>\n\n"
                 f"Free users can upload files up to <b>{user_max_mb} MB</b> (your file is <b>{size_mb:.1f} MB</b>).\n\n"
-                "⭐ Upgrade to <b>Premium (₹99)</b> to upload larger files and unlock the <b>/link method</b>!"
+                "⭐ Upgrade to <b>Premium (₹99)</b> to upload larger files!"
             )
             await msg.reply_text(
                 limit_msg,
@@ -866,87 +852,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra", file_id=file_id)
     except Exception as e:
         await status.edit_text("❌ File processing failed: " + str(e))
-
-
-async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await check_force_join(update, context): return
-    user_id = str(update.effective_user.id)
-    if not is_allowed(update.effective_user.id):
-        await reply_denied(update.message, update.effective_user.id)
-        return
-
-    is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
-    if not is_premium:
-        await update.message.reply_text(
-            "🔒 <b>FEATURE RESTRICTED TO PREMIUM SUBSCRIBERS!</b>\n\n"
-            "The <b>/link method</b> is an exclusive <b>Premium Feature (₹99)</b>.\n"
-            "Free users are restricted to direct file uploads (Max 20 MB).\n"
-            "Upgrade your account to decompile large files via direct link without limits!\n\n"
-            "💳 <b>Price:</b> <b>₹99</b>\n"
-            "👥 Contact Admins to Upgrade: <b>@R3V_X</b>",
-            parse_mode=constants.ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
-            ])
-        )
-        return
-
-    if not context.args:
-        await update.message.reply_text(
-            "🔗 Usage: /link <url>\n\n"
-            "Example:\n"
-            "/link https://drive.google.com/file/d/ABC123/view\n"
-            "/link https://example.com/firmware.bin\n\n"
-            "Supported: Google Drive, MediaFire, Dropbox, GitHub, any direct link."
-        )
-        return
-
-    url = context.args[0].strip()
-    if not url.startswith(("http://", "https://")):
-        await update.message.reply_text("❌ Send a valid link (http:// or https://).")
-        return
-
-    err = check_daily_limit(update.effective_user.id)
-    if err:
-        await update.message.reply_text(err, parse_mode=constants.ParseMode.HTML)
-        return
-
-    msg = update.message
-    status = await msg.reply_text("🔗 Link received! Processing...")
-    filename = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "download"
-    user_id = str(update.effective_user.id)
-    is_premium = user_id in ADMIN_IDS or user_id in db.data["subscriptions"]
-    
-    import uuid
-    job_id = str(uuid.uuid4())[:8]
-    PENDING_JOBS[job_id] = {"msg": msg, "status": status, "filename": filename, "file_url": url, "tg_file_path": ""}
-    
-    if is_premium:
-        btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
-        btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
-        btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
-        btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
-    else:
-        btn_jadx = InlineKeyboardButton("☕ JADX (Premium Only)", callback_data="buy_sub")
-        btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (Premium Only)", callback_data="buy_sub")
-        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
-        btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
-
-    await status.edit_text(
-        "🤖 <b>Link Received!</b>\nChoose your processing engine:\n\n"
-        "• ☕ <b>JADX:</b> APK → Java Source (⭐ Premium)\n"
-        "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source (⭐ Premium)\n"
-        "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
-        "• ⚙️ <b>Ghidra:</b> Decompile binaries & ZIPs (Free)\n"
-        "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup([
-            [btn_jadx, btn_dex2jar],
-            [btn_apktool],
-            [InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")],
-            [btn_build]
-        ])
-    )
 
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1602,7 +1507,6 @@ def main():
     app.add_handler(CommandHandler("setlimit", cmd_setlimit))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("active", cmd_active))
-    app.add_handler(CommandHandler("link", cmd_link))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_file))
     app.add_handler(CallbackQueryHandler(handle_engine_choice, pattern="^engine_"))
