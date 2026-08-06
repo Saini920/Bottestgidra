@@ -42,3 +42,4 @@ jobs:
           files: app/build/outputs/apk/debug/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# re-register-2026-08-06
