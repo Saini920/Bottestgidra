@@ -31,6 +31,7 @@ USER_ID = os.environ.get("PAYLOAD_USER_ID", CHAT_ID)
 REPORT_URL = os.environ.get("PAYLOAD_REPORT_URL", "")
 REPORT_TOKEN = BOT_TOKEN
 SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
+MIN_SDK = os.environ.get("PAYLOAD_MIN_SDK", "")
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -308,10 +309,11 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
 
     keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
     signed = work_dir / "signed.apk"
-    await on_progress(60, "🔏 Signing APK (v1+v2)...")
+    min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
+    await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+ (v1+v2)...")
     await run_tool([apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                    "--min-sdk-version", "14", "--out", str(signed), str(aligned)], on_progress, "apksigner")
+                    "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)], on_progress, "apksigner")
     await on_progress(80, "🔏 Verifying signature...")
     await run_tool([apksigner, "verify", "-v", str(signed)], on_progress, "apksigner verify")
     await on_progress(90, "✅ APK signed!")
@@ -432,13 +434,15 @@ async def main():
             return
 
         await on_progress(100, "✅ APK signed!")
+        min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
+        caption = f"🔏 <b>Re-signed APK</b> (v1+v2, Android {min_sdk}+) — Powered By @R3V_X"
         try:
             http_ok = False
             if signed.stat().st_size <= 50 * 1024 * 1024:
                 try:
                     with open(signed, "rb") as doc_f:
                         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-                        data = {"chat_id": CHAT_ID, "caption": "🔏 <b>Re-signed APK</b> (v1+v2, Android 4+ compatible) — Powered By @R3V_X", "parse_mode": "HTML"}
+                        data = {"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}
                         files = {"document": doc_f}
                         async with httpx.AsyncClient(timeout=300) as client:
                             resp = await client.post(url, data=data, files=files)
@@ -450,7 +454,7 @@ async def main():
                 if not os.environ.get("API_ID", "").strip():
                     raise ValueError("File too large for Bot API (50MB) and no API_ID/API_HASH configured.")
                 proc = await asyncio.create_subprocess_exec(
-                    sys.executable, "upload_file.py", str(signed), "🔏 Re-signed APK (v1+v2) — Powered By @R3V_X",
+                    sys.executable, "upload_file.py", str(signed), caption,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
                 await proc.wait()

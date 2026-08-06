@@ -262,6 +262,44 @@ async def reply_denied(msg, user_id: int = None) -> None:
 
 
 
+def build_apk_chooser(job_id, job, is_premium):
+    jd_limit_mb = JADX_DEX2JAR_LIMIT_PREMIUM_MB if is_premium else JADX_DEX2JAR_LIMIT_FREE_MB
+    jd_allowed = is_premium or (job.get("file_size") or 0) <= jd_limit_mb * 1024 * 1024
+    if jd_allowed:
+        btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
+        btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
+    else:
+        btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
+        btn_dex2jar = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
+    if is_premium:
+        btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
+        btn_sign = InlineKeyboardButton("🔏 Sign APK", callback_data=f"sign_version_{job_id}")
+    else:
+        btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
+        btn_sign = InlineKeyboardButton("🔒 Sign APK (Premium Only)", callback_data="buy_sub")
+    text = (
+        "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
+        "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+        "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+        "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
+        "• 🔏 <b>Sign APK:</b> Re-sign with new key (choose Android 5–16) (⭐ Premium)"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [btn_jadx, btn_dex2jar],
+        [btn_apktool],
+        [btn_sign],
+    ])
+    return text, keyboard
+
+
+def engine_display_label(engine):
+    if engine in ENGINE_LABELS:
+        return ENGINE_LABELS[engine]
+    if engine.startswith("apksign-"):
+        return f"🔏 APK Signer (Android {engine.split('-')[1]})"
+    return engine.replace("-", " ").capitalize()
+
+
 async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -276,7 +314,7 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("❌ This request has expired or is invalid.")
         return
 
-    if engine in PREMIUM_ONLY_ENGINES:
+    if engine in PREMIUM_ONLY_ENGINES or engine.split("-")[0] in PREMIUM_ONLY_ENGINES:
         uid = str(query.from_user.id)
         if uid not in ADMIN_IDS and uid not in db.data["subscriptions"]:
             await query.edit_message_text(
@@ -290,7 +328,7 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
     job = PENDING_JOBS.pop(job_id)
-    engine_label = ENGINE_LABELS.get(engine, engine.replace("-", " ").capitalize())
+    engine_label = engine_display_label(engine)
     await query.edit_message_text(f"🚀 Job submitted for {engine_label} engine! Sending to server...")
     await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine, job.get("file_id", ""))
 
@@ -363,6 +401,36 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
                 ])
             )
+        return
+
+    if data.startswith("sign_version_"):
+        job_id = data.split("sign_version_")[1]
+        job = PENDING_JOBS.get(job_id)
+        if job:
+            await query.answer("Choose target Android version", show_alert=False)
+            rows = []
+            for start in range(5, 17, 4):
+                row = [InlineKeyboardButton(f"🤖 Android {v}", callback_data=f"engine_apksign-{v}_{job_id}")
+                       for v in range(start, min(start + 4, 17))]
+                rows.append(row)
+            rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sign_back_{job_id}")])
+            await query.edit_message_text(
+                "🔏 <b>Select Target Android Version</b>\n\n"
+                "Your APK will be re-signed for the selected Android version (minSdk 5–16).\n\n"
+                "Choose a version:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(rows)
+            )
+        return
+
+    if data.startswith("sign_back_"):
+        job_id = data.split("sign_back_")[1]
+        job = PENDING_JOBS.get(job_id)
+        if job:
+            uid = str(user.id)
+            is_premium = uid in ADMIN_IDS or uid in db.data["subscriptions"]
+            text, keyboard = build_apk_chooser(job_id, job, is_premium)
+            await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
         return
 
     if data.startswith("limit_"):
@@ -577,7 +645,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • 🛠️ <b>DEX Compile Engine:</b> Smali / Java / JAR / ZIP → classes.dex (⭐ Premium)\n"
         "  • ⚙️ <b>C/C++ Compile Engine:</b> .c / .cpp / ZIP → Android .so (NDK) (⭐ Premium)\n"
         "  • 📦 <b>APK Build Engine:</b> Real source ZIP → signed + unsigned APK (⭐ Premium)\n"
-        "  • 🔏 <b>APK Sign Engine:</b> Re-sign any APK (v1+v2, Android 4+) (⭐ Premium)\n"
+        "  • 🔏 <b>APK Sign Engine:</b> Re-sign any APK (v1+v2, choose Android 5–16) (⭐ Premium)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
@@ -653,7 +721,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (⭐ Premium only)\n"
         "• ⚙️ <b>C/C++ Compile:</b> .c / .cpp / ZIP → Android ARM64 .so (⭐ Premium only)\n"
         "• 📦 <b>APK Build (Source):</b> Real source ZIP → signed + unsigned APK (Java/Kotlin, ⭐ Premium)\n"
-        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, Android 4 to 16) (⭐ Premium)\n\n"
+        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, choose Android 5–16) (⭐ Premium)\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
         "• <b>JADX/dex2jar Limits:</b> APK/ZIP — Free up to 30 MB, Premium up to 100 MB\n"
@@ -732,7 +800,7 @@ def get_report_url() -> str:
     return (base + "/internal/count") if base else ""
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False):
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, min_sdk: str = ""):
     if not GITHUB_TOKEN:
         return False, 0, "GITHUB_TOKEN env missing"
     client_payload = {
@@ -744,6 +812,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "is_admin": str(is_admin),
         "is_premium": str(is_premium),
         "file_id": file_id,
+        "min_sdk": min_sdk,
         "report_url": get_report_url(),
     }
     if tg_file_path:
@@ -782,6 +851,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             parse_mode=constants.ParseMode.HTML,
         )
         return
+    min_sdk = ""
     if engine == "jadx":
         event_type = "decompile-jadx"
     elif engine == "dex2jar":
@@ -802,13 +872,14 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "cc-compile"
     elif engine == "apkbuild":
         event_type = "apk-source-build"
-    elif engine == "apksign":
+    elif engine == "apksign" or engine.startswith("apksign-"):
         event_type = "apk-sign"
+        min_sdk = engine.split("-")[1] if "-" in engine else ""
     else:
         event_type = "decompile-job"
         
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
-    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium)
+    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, min_sdk)
     if not ok:
         await status.edit_text(
             "❌ GitHub trigger failed (HTTP <code>{code}</code>).\n"
@@ -994,34 +1065,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".apk"):
-            if jd_allowed:
-                btn_jadx = InlineKeyboardButton("☕ JADX (Java Source)", callback_data=f"engine_jadx_{job_id}")
-                btn_dex2jar = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
-            else:
-                btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
-                btn_dex2jar = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
-            if is_premium or user_id in ADMIN_IDS:
-                btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
-            else:
-                btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
-            if is_premium or user_id in ADMIN_IDS:
-                btn_sign = InlineKeyboardButton("🔏 Sign APK", callback_data=f"engine_apksign_{job_id}")
-            else:
-                btn_sign = InlineKeyboardButton("🔒 Sign APK (Premium Only)", callback_data="buy_sub")
-
-            await status.edit_text(
-                "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
-                "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
-                "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
-                "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
-                "• 🔏 <b>Sign APK:</b> Re-sign with new key (v1+v2, Android 4+) (⭐ Premium)",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [btn_jadx, btn_dex2jar],
-                    [btn_apktool],
-                    [btn_sign],
-                ])
-            )
+            text, keyboard = build_apk_chooser(job_id, PENDING_JOBS[job_id], is_premium)
+            await status.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
             if is_premium or user_id in ADMIN_IDS:
                 btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
@@ -1542,7 +1587,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not job and parsed:
             job = db.get_active_job(int(parsed[2]))
         if job:
-            engine_label = {"ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "apktool-build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer"}.get(job.get("engine", ""), "🔧 Unknown")
+            engine_label = engine_display_label(job.get("engine", ""))
         else:
             engine_label = ENGINE_LABELS.get(parsed[0], "🔧 Unknown") if parsed else "🔧 Unknown"
         user_id = (job or {}).get("user_id", "?")

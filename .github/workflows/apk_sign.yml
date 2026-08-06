@@ -86,6 +86,7 @@ jobs:
           PAYLOAD_IS_PREMIUM: ${{ github.event.client_payload.is_premium }}
           PAYLOAD_REPORT_URL: ${{ github.event.client_payload.report_url }}
           PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
+          PAYLOAD_MIN_SDK: ${{ github.event.client_payload.min_sdk }}
           PAYLOAD_SDK_ROOT: ${{ env.SDK_ROOT }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
