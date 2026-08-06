@@ -38,6 +38,33 @@ MAX_DEX_PREMIUM = 10
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+CANCEL_MARKER = "Job Cancelled by User"
+CANCELLED = {"v": False}
+
+
+class JobCancelled(BaseException):
+    pass
+
+
+async def cancel_watchdog():
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            while not CANCELLED["v"]:
+                await asyncio.sleep(2)
+                try:
+                    resp = await client.post(
+                        f"{API}/getMessage",
+                        data={"chat_id": CHAT_ID, "message_id": MESSAGE_ID},
+                    )
+                    txt = ((resp.json() or {}).get("result") or {}).get("text") or ""
+                except Exception:
+                    continue
+                if CANCEL_MARKER in txt:
+                    CANCELLED["v"] = True
+                    return
+    except Exception as e:
+        log.warning("Cancel watchdog stopped: %s", e)
+
 
 def check_download_size(total_bytes: int):
     if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
@@ -70,6 +97,8 @@ def tg(method: str, **params):
 import json
 
 def edit(text: str, parse_mode: str = None, keep_button: bool = True):
+    if CANCELLED["v"]:
+        return
     params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
     if parse_mode:
         params["parse_mode"] = parse_mode
@@ -177,6 +206,8 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
                 downloaded = 0
                 with open(dest, "wb") as fh:
                     async for chunk in resp.aiter_bytes(65536):
+                        if CANCELLED["v"]:
+                            raise JobCancelled()
                         fh.write(chunk)
                         downloaded += len(chunk)
                         if total:
@@ -225,6 +256,9 @@ async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start
         last_activity = time.monotonic()
         last_cpu = proc_cpu_usage(proc.pid)
         while True:
+            if CANCELLED["v"]:
+                proc.kill()
+                raise JobCancelled()
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
                 last_activity = time.monotonic()
@@ -340,6 +374,7 @@ async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
+    asyncio.create_task(cancel_watchdog())
 
     edit("🟢 Job started! Preparing Smali Decode engine on cloud server...", parse_mode="HTML")
 
@@ -371,6 +406,8 @@ async def main():
                             done = 0
                             with open(dest, "wb") as fh:
                                 async for chunk in resp.aiter_bytes(65536):
+                                    if CANCELLED["v"]:
+                                        raise JobCancelled()
                                     fh.write(chunk)
                                     done += len(chunk)
                                     if total:
@@ -391,6 +428,9 @@ async def main():
                 )
                 dl_logs = []
                 while True:
+                    if CANCELLED["v"]:
+                        proc.kill()
+                        raise JobCancelled()
                     raw = await proc.stdout.readline()
                     if not raw:
                         break
@@ -539,6 +579,9 @@ async def main():
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
                 )
                 while True:
+                    if CANCELLED["v"]:
+                        proc.kill()
+                        raise JobCancelled()
                     raw = await proc.stdout.readline()
                     if not raw:
                         break
@@ -563,4 +606,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except JobCancelled:
+        pass

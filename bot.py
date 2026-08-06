@@ -353,10 +353,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         try:
             msg_id = int(data.split("_")[1])
             chat_id = query.message.chat_id
-            job_name = f"job-{chat_id}-{msg_id}"
             
             CANCELLED_JOBS.add(msg_id)
-            asyncio.create_task(cancel_github_job(job_name))
+            asyncio.create_task(cancel_github_job(chat_id, msg_id))
             
             await query.edit_message_text("❌ <b>Job Cancelled by User.</b>", parse_mode=constants.ParseMode.HTML)
         except Exception as e:
@@ -743,20 +742,16 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Your Telegram User ID:\n<code>{update.effective_user.id}</code>", parse_mode=constants.ParseMode.HTML)
 
 
-async def cancel_github_job(job_name: str):
+async def cancel_github_job(chat_id, msg_id):
     if not GITHUB_TOKEN: return
     headers = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
         "Accept": "application/vnd.github+json",
         "User-Agent": "ghidra-bot"
     }
-    # Run names: job-/jadx-/dex2jar-/apktool-/build-{chat_id}-{message_id}
-    chat_msg = job_name.rsplit("-", 2)
-    if len(chat_msg) == 3:
-        chat_id, msg_id = chat_msg[1], chat_msg[2]
-        prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign"]
-    else:
-        prefixes = [job_name]
+    # Run names: {prefix}-{chat_id}-{message_id}
+    chat_s, msg_s = str(chat_id), str(msg_id)
+    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign"]
     async with httpx.AsyncClient(timeout=30.0) as client:
         for status in ["in_progress", "queued"]:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}"
@@ -767,10 +762,10 @@ async def cancel_github_job(job_name: str):
                     for run in runs:
                         rname = run.get("name", "")
                         for p in prefixes:
-                            if rname.startswith(p + "-" + chat_id + "-") or rname == p + "-" + chat_id + "-" + msg_id:
+                            if rname.startswith(p + "-" + chat_s + "-" + msg_s):
                                 run_id = run["id"]
                                 await client.post(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}/cancel", headers=headers)
-                                log.info("Cancelled Github run %s for %s", run_id, job_name)
+                                log.info("Cancelled Github run %s for chat=%s msg=%s", run_id, chat_s, msg_s)
                                 return
             except Exception as e:
                 log.warning("Failed to cancel github job %s: %s", job_name, e)
