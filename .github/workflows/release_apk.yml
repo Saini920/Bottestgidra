@@ -1,4 +1,4 @@
-name: Build & Direct GitHub Release APK
+name: Build & Direct GitHub Release APK v2
 
 on:
   push:
