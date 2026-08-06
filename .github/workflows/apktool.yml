@@ -86,3 +86,4 @@ jobs:
           /tmp/venv/bin/python worker_apktool.py
 # re-register-2026-08-06
 # re-register-2026-08-06
+# re-register-2026-08-06-v2
