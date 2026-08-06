@@ -215,6 +215,8 @@ def send_document(file_path: Path, caption: str, filename: str):
 
 
 def check_zip_limits(file_path: Path):
+    if IS_ADMIN:
+        return
     if Path(FILENAME).suffix.lower() != ".zip":
         return
     import zipfile

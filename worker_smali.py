@@ -265,6 +265,8 @@ async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start
 
 
 def check_zip_limits(file_path: Path):
+    if IS_ADMIN:
+        return
     if Path(FILENAME).suffix.lower() != ".zip":
         return
     with zipfile.ZipFile(file_path) as zf:

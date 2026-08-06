@@ -275,6 +275,8 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
 
 
 def check_zip_limits(file_path: Path):
+    if IS_ADMIN:
+        return
     if Path(FILENAME).suffix.lower() != ".zip":
         return
     import zipfile
