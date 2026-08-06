@@ -561,8 +561,15 @@ def make_keystore(path: Path) -> Path:
     return path
 
 
+class TolerantZipFile(zipfile.ZipFile):
+    def _RealGetContents(self):
+        super()._RealGetContents()
+        for zinfo in self.filelist:
+            zinfo._end_offset = None
+
+
 def _merge_apk(base_apk: Path, out_apk: Path, extra: dict):
-    with zipfile.ZipFile(base_apk) as zin:
+    with TolerantZipFile(base_apk) as zin:
         with zipfile.ZipFile(out_apk, "w", zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
                 zout.writestr(item, zin.read(item.filename))
