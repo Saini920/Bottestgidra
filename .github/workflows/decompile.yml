@@ -101,3 +101,4 @@ jobs:
           /tmp/venv/bin/python worker.py
 
 
+# re-register-2026-08-06
