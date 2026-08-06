@@ -42,6 +42,8 @@ MAX_SRC_FILES_PREMIUM = 200
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+TOOL_LOG_FH = None
+
 
 def check_download_size(total_bytes: int):
     if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
@@ -106,7 +108,17 @@ async def send_error_log(work_dir, exception_obj, title="APK Build failed"):
     sent = False
     try:
         err_file = Path(work_dir) / "error.txt"
-        err_file.write_text(f"❌ {title}:\n\n{err_str}")
+        text = f"❌ {title}:\n\n{err_str}"
+        if TOOL_LOG_FH is not None:
+            try:
+                TOOL_LOG_FH.flush()
+                log_path = Path(TOOL_LOG_FH.name)
+                if log_path.exists():
+                    tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-500:])
+                    text += f"\n\n══════════ TOOL OUTPUT (last 500 lines) ══════════\n{tail}"
+            except Exception:
+                pass
+        err_file.write_text(text)
         caption = f"❌ Error Log:\n{str(exception_obj)[:100]}"
         try:
             with open(err_file, "rb") as ef:
@@ -218,6 +230,11 @@ async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, prog
                 out_lines.append(line)
                 if len(out_lines) > 100:
                     del out_lines[:-100]
+                if TOOL_LOG_FH is not None:
+                    try:
+                        TOOL_LOG_FH.write(line + "\n")
+                    except Exception:
+                        pass
                 if "error" in line.lower() or "exception" in line.lower():
                     await on_progress(60, f"⚠️ {label} (checking)...")
         return await proc.wait()
@@ -545,6 +562,8 @@ async def main():
     work_dir = Path(tempfile.gettempdir()) / ("apkbuild_" + os.urandom(8).hex())
     try:
         work_dir.mkdir(parents=True)
+        global TOOL_LOG_FH
+        TOOL_LOG_FH = open(work_dir / "build_log.txt", "a", encoding="utf-8", errors="replace")
         ext = Path(FILENAME).suffix or ".bin"
         dest = work_dir / f"input_file{ext}"
         last = [-100.0]
@@ -647,11 +666,8 @@ async def main():
         except asyncio.TimeoutError:
             edit("⏰ Timeout! The source is too large to build.", keep_button=False)
             return
-        except ValueError as e:
-            edit(f"❌ {e}", keep_button=False)
-            return
         except Exception as e:
-            await send_error_log(work_dir, e, "APK Build crashed")
+            await send_error_log(work_dir, e, "APK Build failed")
             return
 
         await on_progress(100, done_msg)
@@ -665,6 +681,11 @@ async def main():
         except Exception as e:
             await send_error_log(work_dir, e, "Result upload failed")
     finally:
+        if TOOL_LOG_FH is not None:
+            try:
+                TOOL_LOG_FH.close()
+            except Exception:
+                pass
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
