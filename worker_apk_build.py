@@ -403,7 +403,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     if mp["version_name"]:
         link_cmd += ["--version-name", mp["version_name"]]
     if assets_dir and assets_dir.is_dir():
-        link_cmd += ["--assets-dir", str(assets_dir)]
+        link_cmd += ["-A", str(assets_dir)]
     if compiled_res and compiled_res.exists():
         link_cmd += [str(compiled_res)]
     await run_tool(link_cmd, on_progress, "aapt2 link")

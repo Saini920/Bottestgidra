@@ -41,6 +41,24 @@ MAX_SMALI_FILES_PREMIUM = 5000
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 
+def find_android_jar():
+    for env in ("ANDROID_SDK_ROOT", "ANDROID_HOME"):
+        root = os.environ.get(env)
+        if root and os.path.isdir(root):
+            pl_dir = os.path.join(root, "platforms")
+            if os.path.isdir(pl_dir):
+                try:
+                    vers = sorted((d for d in os.listdir(pl_dir) if re.match(r"^android-\d+$", d)),
+                                  key=lambda v: int(v.split("-")[1]), reverse=True)
+                except Exception:
+                    vers = []
+                for v in vers:
+                    p = os.path.join(pl_dir, v, "android.jar")
+                    if os.path.exists(p):
+                        return p
+    return ""
+
+
 def check_download_size(total_bytes: int):
     if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
         raise ValueError(
@@ -277,6 +295,7 @@ async def compile_java_to_dex(input_path: Path, work_dir: Path, on_progress) -> 
     await on_progress(25, "☕ Preparing Java sources...")
     java_files = []
     input_jar = None
+    android_jar = find_android_jar()
     ext = Path(FILENAME).suffix.lower()
 
     if input_path.is_file():
@@ -329,7 +348,10 @@ async def compile_java_to_dex(input_path: Path, work_dir: Path, on_progress) -> 
         classes_dir = work_dir / "classes"
         classes_dir.mkdir(exist_ok=True)
         await on_progress(40, "☕ Compiling Java → .class (javac)...")
-        cmd = ["javac", "-d", str(classes_dir)] + java_files
+        cmd = ["javac", "-d", str(classes_dir)]
+        if android_jar:
+            cmd += ["-classpath", android_jar]
+        cmd += java_files
         await run_tool(cmd, on_progress, "javac")
         if not any(classes_dir.rglob("*.class")):
             raise ValueError("javac produced no .class files (check your Java source).")
@@ -339,7 +361,10 @@ async def compile_java_to_dex(input_path: Path, work_dir: Path, on_progress) -> 
     await on_progress(65, "🧬 Running D8 (class → .dex)...")
     dex_out = work_dir / "dex_out"
     dex_out.mkdir(exist_ok=True)
-    cmd = ["java", "-Xmx8G", "-cp", R8_JAR, "com.android.tools.r8.D8", "--release", "--output", str(dex_out), str(input_jar)]
+    cmd = ["java", "-Xmx8G", "-cp", R8_JAR, "com.android.tools.r8.D8", "--release", "--output", str(dex_out)]
+    if android_jar:
+        cmd += ["--lib", android_jar]
+    cmd += [str(input_jar)]
     await run_tool(cmd, on_progress, "D8")
     dex_files = sorted(dex_out.glob("*.dex"))
     if not dex_files:

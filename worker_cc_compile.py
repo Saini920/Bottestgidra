@@ -235,6 +235,28 @@ def find_inputs(src_dir: Path, suffixes) -> list:
     return [str(p) for p in sorted(Path(src_dir).rglob("*")) if p.is_file() and p.suffix.lower() in suffixes]
 
 
+def is_zip_file(path: Path) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) == b"PK\x03\x04"
+    except Exception:
+        return False
+
+
+def looks_like_cc_source(path: Path) -> bool:
+    try:
+        data = path.read_bytes()[:16384]
+    except Exception:
+        return False
+    if b"\x00" in data[:1024]:
+        return False
+    text = data.decode("utf-8", errors="replace")
+    markers = ("#include", "#define", "#ifndef", "#ifdef", "#pragma", "int main(",
+               "void main(", "typedef ", "struct ", "class ", "namespace ", "std::",
+               "using namespace", 'extern "C"', "->", "uint8_t", "int32_t", "char*")
+    return any(m in text for m in markers)
+
+
 def find_ndk_bin() -> str:
     if NDK_BIN and os.path.isdir(NDK_BIN):
         return NDK_BIN
@@ -278,13 +300,15 @@ async def compile_to_so(input_path: Path, work_dir: Path, on_progress) -> Path:
             c_files = [str(input_path)]
         elif ext in CPP_EXTENSIONS:
             cpp_files = [str(input_path)]
-        elif ext == ".zip":
+        elif ext == ".zip" or is_zip_file(input_path):
             extract_dir = work_dir / "cc_src"
             extract_dir.mkdir(exist_ok=True)
             with zipfile.ZipFile(input_path, "r") as zf:
                 zf.extractall(extract_dir)
             c_files = find_inputs(extract_dir, CC_EXTENSIONS)
             cpp_files = find_inputs(extract_dir, CPP_EXTENSIONS)
+        elif looks_like_cc_source(input_path):
+            cpp_files = [str(input_path)]
         else:
             raise ValueError("Unsupported input. Send a .c/.cpp file or a ZIP containing C/C++ sources.")
     elif input_path.is_dir():
