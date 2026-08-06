@@ -37,6 +37,8 @@ MAX_DAILY_FILES = 30
 ADMIN_IDS = ["6684870256", "7251749429"]
 JADX_DEX2JAR_LIMIT_FREE_MB = 30
 JADX_DEX2JAR_LIMIT_PREMIUM_MB = 100
+PDF_LIMIT_FREE_MB = 30
+PDF_LIMIT_PREMIUM_MB = 300
 PREMIUM_ONLY_ENGINES = {"apkbuild", "apksign", "cccompile", "dexcompile-smali", "dexcompile-java", "apktool", "apktool-build"}
 ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split(",") if u.strip()]
 
@@ -197,7 +199,8 @@ OVER_LIMIT_MSG = (
     "Limits:\n"
     "  • .so/.dex — Free 30 MB | Premium 100 MB\n"
     "  • APK/ZIP — Free 200 MB | Premium 500 MB\n"
-    "  • ☕ JADX / 🧬 dex2jar (APK/ZIP) — Free up to 30 MB | Premium up to 100 MB\n\n"
+    "  • ☕ JADX / 🧬 dex2jar (APK/ZIP) — Free up to 30 MB | Premium up to 100 MB\n"
+    "  • 📄 PDF → TXT — Free up to 30 MB | Premium up to 300 MB\n\n"
     "Powered By @R3V_X"
 )
 
@@ -646,12 +649,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • 📦 <b>APK Build Engine:</b> Real source ZIP → signed + unsigned APK (⭐ Premium)\n"
         "  • 🔏 <b>APK Sign Engine:</b> Re-sign any APK (v1+v2, choose Android 5–16) (⭐ Premium)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
+        "  • 📄 <b>PDF → TXT Engine:</b> Convert PDF to plain text (Free ≤30 MB, Premium ≤300 MB)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
         "  • Live progress animation (0-100%)\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION & UPGRADE (₹99):</b>\n"
-        "  • 🆓 <b>Free Quota:</b> 30 Files / Day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB, JADX/dex2jar ≤30 MB\n"
-        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB, JADX/dex2jar ≤100 MB\n"
+        "  • 🆓 <b>Free Quota:</b> 30 Files / Day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB, JADX/dex2jar ≤30 MB, PDF ≤30 MB\n"
+        "  • ⭐ <b>Premium Quota:</b> 70 Files / Day — .so/.dex ≤100 MB, APK/ZIP ≤500 MB, JADX/dex2jar ≤100 MB, PDF ≤300 MB\n"
         "  • 🚀 <b>Priority Fast-Lane Queue Slot</b> (Skip waiting queue)\n"
         "  • 📦 <b>Multi-File Batch ZIP Decompiler</b> (Premium: max 5 .so/.dex + 2 .apk per ZIP)\n"
         "  • 📱 <b>Apktool Engine:</b> Full APK Decompilation & Compilation Support\n"
@@ -720,7 +724,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (⭐ Premium only)\n"
         "• ⚙️ <b>C/C++ Compile:</b> .c / .cpp / ZIP → Android ARM64 .so (⭐ Premium only)\n"
         "• 📦 <b>APK Build (Source):</b> Real source ZIP → signed + unsigned APK (Java/Kotlin, ⭐ Premium)\n"
-        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, choose Android 5–16) (⭐ Premium)\n\n"
+        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, choose Android 5–16) (⭐ Premium)\n"
+        "• 📄 <b>PDF → TXT:</b> Convert PDF (or ZIP of PDFs) → plain text (Free ≤30 MB, Premium ≤300 MB)\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
         "• <b>JADX/dex2jar Limits:</b> APK/ZIP — Free up to 30 MB, Premium up to 100 MB\n"
@@ -728,6 +733,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <b>DEX Compile:</b> ⭐ Premium only (free users can't compile)\n"
         "• <b>C/C++ Compile:</b> ⭐ Premium only (free users can't compile)\n"
         "• <b>APK Build / Sign:</b> ⭐ Premium only (builds run on cloud Android SDK)\n"
+        "• <b>PDF → TXT:</b> Free up to 30 MB | Premium up to 300 MB\n"
         "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & 1 .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
         "• <b>Server Concurrency:</b> Max 4 active jobs at a time\n\n"
@@ -751,7 +757,7 @@ async def cancel_github_job(chat_id, msg_id):
     }
     # Run names: {prefix}-{chat_id}-{message_id}
     chat_s, msg_s = str(chat_id), str(msg_id)
-    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign"]
+    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign", "pdftxt"]
     async with httpx.AsyncClient(timeout=30.0) as client:
         for status in ["in_progress", "queued"]:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}"
@@ -869,6 +875,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
     elif engine == "apksign" or engine.startswith("apksign-"):
         event_type = "apk-sign"
         min_sdk = engine.split("-")[1] if "-" in engine else ""
+    elif engine == "pdftxt":
+        event_type = "pdf-to-txt"
     else:
         event_type = "decompile-job"
         
@@ -1085,6 +1093,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_build_src = InlineKeyboardButton("📦 Build APK (Source)", callback_data=f"engine_apkbuild_{job_id}")
             else:
                 btn_build_src = InlineKeyboardButton("🔒 Build APK (Premium Only)", callback_data="buy_sub")
+            pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
+            if user_id in ADMIN_IDS or (doc.file_size or 0) <= pdf_limit_mb * 1024 * 1024:
+                btn_pdf = InlineKeyboardButton("📄 PDF → TXT", callback_data=f"engine_pdftxt_{job_id}")
+            else:
+                btn_pdf = InlineKeyboardButton(f"🔒 PDF → TXT (max {pdf_limit_mb} MB)", callback_data="buy_sub")
 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
@@ -1095,7 +1108,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• 🛠️ <b>Compile:</b> Smali / Java files → .dex (⭐ Premium)\n"
                 "• 🛠️ <b>Compile .so:</b> C/C++ sources → Android .so (⭐ Premium)\n"
                 "• 📦 <b>Build APK:</b> Real source code → signed + unsigned APK (⭐ Premium)\n"
-                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
+                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)\n"
+                "• 📄 <b>PDF → TXT:</b> Convert PDFs inside ZIP to text (Free ≤30 MB, Premium ≤300 MB)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
@@ -1103,9 +1117,32 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [btn_decode, btn_compile],
                     [btn_so],
                     [btn_build_src],
-                    [btn_build]
+                    [btn_build],
+                    [btn_pdf]
                 ])
             )
+        elif doc.file_name and doc.file_name.lower().endswith(".pdf"):
+            pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
+            pdf_allowed = user_id in ADMIN_IDS or (doc.file_size or 0) <= pdf_limit_mb * 1024 * 1024
+            if pdf_allowed:
+                btn_pdf = InlineKeyboardButton("📄 Convert PDF → TXT", callback_data=f"engine_pdftxt_{job_id}")
+                await status.edit_text(
+                    "📄 <b>PDF File Detected!</b>\n\n"
+                    f"• 📄 <b>PDF → TXT:</b> Convert PDF to plain text (poppler-utils)\n"
+                    f"  (Free ≤ {PDF_LIMIT_FREE_MB} MB | Premium ≤ {PDF_LIMIT_PREMIUM_MB} MB)",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[btn_pdf]])
+                )
+            else:
+                btn_pdf = InlineKeyboardButton("🔒 PDF → TXT (Premium Only)", callback_data="buy_sub")
+                await status.edit_text(
+                    "📄 <b>PDF File Detected!</b>\n\n"
+                    f"⚠️ Your PDF is <b>{size_mb:.1f} MB</b> but PDF → TXT supports up to "
+                    f"<b>{pdf_limit_mb} MB</b> for {'Premium' if is_premium else 'Free'} users.\n\n"
+                    f"• ⭐ Upgrade to <b>Premium (₹99)</b> to unlock PDF → TXT up to <b>{PDF_LIMIT_PREMIUM_MB} MB</b>.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([[btn_pdf]])
+                )
         else:
             await status.edit_text("📥 <b>Downloading to Cloud Server...</b>\n⏳ Processing with Ghidra Engine...", parse_mode="HTML")
             await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra", file_id=file_id)
@@ -1519,13 +1556,13 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def parse_run_name(run_name: str):
     import re as _re
-    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign)-(\d+)-(\d+)$", run_name or "")
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt)-(\d+)-(\d+)$", run_name or "")
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
 
 
-ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer"}
+ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer", "pdftxt": "📄 PDF → TXT"}
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
@@ -1539,6 +1576,7 @@ TASK_LABELS = {
     "cccompile": "C/C++ source → Android .so (NDK)",
     "apkbuild": "Real source code → signed + unsigned APK",
     "apksign": "Re-sign APK (v1+v2)",
+    "pdftxt": "PDF → TXT conversion (poppler-utils)",
 }
 
 
