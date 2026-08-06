@@ -806,13 +806,13 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     client_payload = {
         "chat_id": str(chat_id),
         "message_id": str(message_id),
+        "original_message_id": str(original_msg_id),
         "filename": filename,
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
         "is_premium": str(is_premium),
         "file_id": file_id,
         "min_sdk": min_sdk,
-        "report_url": get_report_url(),
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
