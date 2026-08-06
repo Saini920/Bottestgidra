@@ -243,18 +243,27 @@ def is_zip_file(path: Path) -> bool:
         return False
 
 
-def looks_like_cc_source(path: Path) -> bool:
+def detect_cc_language(path: Path) -> str:
+    """Return 'c', 'cpp', or '' based on file content."""
     try:
         data = path.read_bytes()[:16384]
     except Exception:
-        return False
+        return ""
     if b"\x00" in data[:1024]:
-        return False
+        return ""
     text = data.decode("utf-8", errors="replace")
-    markers = ("#include", "#define", "#ifndef", "#ifdef", "#pragma", "int main(",
-               "void main(", "typedef ", "struct ", "class ", "namespace ", "std::",
-               "using namespace", 'extern "C"', "->", "uint8_t", "int32_t", "char*")
-    return any(m in text for m in markers)
+    cpp_markers = ("#include <iostream>", "#include <vector>", "#include <string>",
+                   "#include <map>", "#include <unordered_map>", "std::", "namespace ",
+                   "using namespace", "template<", "template <", "class ", "public:",
+                   "private:", "protected:", "cout <<", "cin >>")
+    c_markers = ("#include <stdio.h>", "#include <stdlib.h>", "#include <string.h>",
+                 "#include <unistd.h>", "printf(", "malloc(", "calloc(", "realloc(",
+                 "free(", "typedef struct", "#include <pthread.h>")
+    if any(m in text for m in cpp_markers):
+        return "cpp"
+    if any(m in text for m in c_markers):
+        return "c"
+    return ""
 
 
 def find_ndk_bin() -> str:
@@ -307,8 +316,14 @@ async def compile_to_so(input_path: Path, work_dir: Path, on_progress) -> Path:
                 zf.extractall(extract_dir)
             c_files = find_inputs(extract_dir, CC_EXTENSIONS)
             cpp_files = find_inputs(extract_dir, CPP_EXTENSIONS)
-        elif looks_like_cc_source(input_path):
-            cpp_files = [str(input_path)]
+        elif (lang := detect_cc_language(input_path)):
+            suffix = ".cpp" if lang == "cpp" else ".c"
+            renamed = work_dir / f"source_0{suffix}"
+            shutil.copyfile(input_path, renamed)
+            if lang == "cpp":
+                cpp_files = [str(renamed)]
+            else:
+                c_files = [str(renamed)]
         else:
             raise ValueError("Unsupported input. Send a .c/.cpp file or a ZIP containing C/C++ sources.")
     elif input_path.is_dir():
