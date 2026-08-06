@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import zipfile
 from html import unescape
 from pathlib import Path
 from urllib.parse import unquote
@@ -301,14 +300,25 @@ def get_tool(sdk, name):
     return ""
 
 
-def strip_old_signatures(input_apk: Path, out_apk: Path):
-    drop = re.compile(r"^META-INF/.*\.(RSA|DSA|EC|SF)$", re.IGNORECASE)
-    with zipfile.ZipFile(input_apk) as zin:
-        with zipfile.ZipFile(out_apk, "w", zipfile.ZIP_DEFLATED) as zout:
-            for item in zin.infolist():
-                if drop.match(item.filename) or item.filename.upper() == "META-INF/MANIFEST.MF":
-                    continue
-                zout.writestr(item, zin.read(item.filename))
+def strip_old_signatures(input_apk: Path, work_dir: Path) -> Path:
+    drop_suffix = (".RSA", ".DSA", ".EC", ".SF")
+    extract = work_dir / "apk_src"
+    extract.mkdir(exist_ok=True)
+    try:
+        subprocess.run(["unzip", "-q", "-o", str(input_apk), "-d", str(extract)], check=True)
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Could not open APK as a ZIP archive (unzip failed): {e}")
+    meta = extract / "META-INF"
+    if meta.is_dir():
+        for f in list(meta.iterdir()):
+            if f.name.upper().endswith(drop_suffix) or f.name.upper() == "MANIFEST.MF":
+                f.unlink(missing_ok=True)
+    stripped = work_dir / "stripped.apk"
+    try:
+        subprocess.run(["zip", "-q", "-r", str(stripped), "."], cwd=str(extract), check=True)
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Could not repack APK after signature removal: {e}")
+    return stripped
 
 
 def make_keystore(path: Path) -> Path:
@@ -322,9 +332,9 @@ def make_keystore(path: Path) -> Path:
 async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     await on_progress(20, "🔏 Validating APK...")
     try:
-        with zipfile.ZipFile(input_apk) as zf:
-            names = zf.namelist()
-    except zipfile.BadZipFile:
+        r = subprocess.run(["unzip", "-Z1", str(input_apk)], check=True, capture_output=True, text=True)
+        names = r.stdout.splitlines()
+    except subprocess.CalledProcessError as e:
         raise ValueError("File is not a valid APK (ZIP archive).")
     if not any(n.lower() == "androidmanifest.xml" for n in names):
         raise ValueError("Not a valid APK (AndroidManifest.xml missing).")
@@ -334,8 +344,7 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     if not apksigner or not zipalign:
         raise ValueError("Android SDK build-tools missing (apksigner/zipalign required).")
 
-    stripped = work_dir / "stripped.apk"
-    await asyncio.to_thread(strip_old_signatures, input_apk, stripped)
+    stripped = await asyncio.to_thread(strip_old_signatures, input_apk, work_dir)
 
     aligned = work_dir / "aligned.apk"
     await on_progress(40, "🔏 Aligning APK (zipalign)...")
