@@ -50,6 +50,13 @@ GITHUB_EVENT = os.environ.get("GITHUB_EVENT", "decompile-job")
 from database import RepoDB
 db = RepoDB(GITHUB_TOKEN, GITHUB_REPO)
 
+def load_active_jobs():
+    try:
+        for k, v in (db.data.get("active_jobs") or {}).items():
+            ACTIVE_JOBS[int(k)] = v
+    except Exception as e:
+        log.warning("load_active_jobs failed: %s", e)
+
 def record_user_name(user):
     uid = str(user.id)
     name = user.first_name
@@ -77,6 +84,8 @@ PENDING_JOBS = {}
 ACTIVE_JOBS = {}
 active_jobs_timestamps = []
 CANCELLED_JOBS = set()
+
+load_active_jobs()
 
 from datetime import date, timedelta
 
@@ -767,6 +776,10 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         "engine": engine,
         "started": time.time(),
     }
+    try:
+        db.set_active_job(status.message_id, ACTIVE_JOBS[status.message_id])
+    except Exception as e:
+        log.warning("Failed to persist active job: %s", e)
     await status.edit_text(
         "Job sent to server!\n"
         "⏱️ Expected: 2-10 minutes.\n"
@@ -1336,13 +1349,13 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def parse_run_name(run_name: str):
     import re as _re
-    m = _re.match(r"^(job|jadx|dex2jar|apktool|build)-(\d+)-(\d+)$", run_name or "")
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract)-(\d+)-(\d+)$", run_name or "")
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
 
 
-ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode"}
+ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract"}
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
@@ -1360,9 +1373,13 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     now = time.time()
-    for mid in list(ACTIVE_JOBS.keys()):
-        if now - ACTIVE_JOBS[mid].get("started", 0) > 3600:
-            del ACTIVE_JOBS[mid]
+    expired = [mid for mid in list(ACTIVE_JOBS.keys()) if now - ACTIVE_JOBS[mid].get("started", 0) > 3600]
+    for mid in expired:
+        del ACTIVE_JOBS[mid]
+        try:
+            db.remove_active_job(mid)
+        except Exception:
+            pass
 
     runs = []
     if GITHUB_TOKEN and GITHUB_REPO:
@@ -1386,6 +1403,8 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for idx, (run_id, run_name, status) in enumerate(runs, 1):
         parsed = parse_run_name(run_name)
         job = ACTIVE_JOBS.get(int(parsed[2])) if parsed else None
+        if not job and parsed:
+            job = db.get_active_job(int(parsed[2]))
         if job:
             engine_label = {"ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "apktool-build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract"}.get(job.get("engine", ""), "🔧 Unknown")
         else:
