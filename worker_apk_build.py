@@ -335,6 +335,31 @@ def parse_manifest(path: Path):
             "version_code": version_code, "version_name": version_name}
 
 
+def ensure_manifest_package(manifest: Path, extract_dir: Path) -> str:
+    text = manifest.read_text(errors="replace")
+    m = re.search(r"<manifest[^>]*\bpackage\s*=\s*[\"']([^\"']+)[\"']", text)
+    if m:
+        return m.group(1)
+    pkg = ""
+    for gp in sorted(extract_dir.rglob("build.gradle")) + sorted(extract_dir.rglob("build.gradle.kts")):
+        try:
+            gt = gp.read_text(errors="replace")
+        except Exception:
+            continue
+        gm = (re.search(r"namespace\s*=\s*\"([^\"]+)\"", gt)
+              or re.search(r"applicationId\s*=\s*\"([^\"]+)\"", gt)
+              or re.search(r"applicationId\s+\"([^\"]+)\"", gt)
+              or re.search(r"namespace\s+\"([^\"]+)\"", gt))
+        if gm:
+            pkg = gm.group(1)
+            break
+    if not pkg:
+        pkg = "com.example.app"
+    text = text.replace("<manifest", f'<manifest package="{pkg}"', 1)
+    manifest.write_text(text)
+    return pkg
+
+
 async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, sdk):
     await on_progress(15, "📦 Extracting source code...")
     extract_dir = work_dir / "src"
@@ -349,6 +374,8 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             raise ValueError("No AndroidManifest.xml found in the ZIP (standard source layout required).")
         manifest = m2[0]
     mp = parse_manifest(manifest)
+    if not mp["package"]:
+        mp["package"] = ensure_manifest_package(manifest, extract_dir)
 
     res_dir = find_dir(extract_dir, ["res", "app/res"])
     assets_dir = find_dir(extract_dir, ["assets", "app/assets"])

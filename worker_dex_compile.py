@@ -348,6 +348,7 @@ async def compile_java_to_dex(input_path: Path, work_dir: Path, on_progress) -> 
         classes_dir = work_dir / "classes"
         classes_dir.mkdir(exist_ok=True)
         await on_progress(40, "☕ Compiling Java → .class (javac)...")
+        java_files = [str(await asyncio.to_thread(_prepare_java_file, Path(f))) for f in java_files]
         cmd = ["javac", "-d", str(classes_dir)]
         if android_jar:
             cmd += ["-classpath", android_jar]
@@ -377,6 +378,108 @@ async def compile_java_to_dex(input_path: Path, work_dir: Path, on_progress) -> 
             zf.write(d, d.name)
     await on_progress(80, "✅ D8 done!")
     return dex_zip
+
+
+COMMON_ANDROID_IMPORTS = {
+    "Activity": "android.app.Activity", "Dialog": "android.app.Dialog",
+    "AlertDialog": "android.app.AlertDialog", "Notification": "android.app.Notification",
+    "NotificationManager": "android.app.NotificationManager",
+    "Context": "android.content.Context", "Intent": "android.content.Intent",
+    "SharedPreferences": "android.content.SharedPreferences",
+    "ColorStateList": "android.content.res.ColorStateList",
+    "Resources": "android.content.res.Resources", "Configuration": "android.content.res.Configuration",
+    "Bundle": "android.os.Bundle", "Handler": "android.os.Handler", "Looper": "android.os.Looper",
+    "Build": "android.os.Build", "Environment": "android.os.Environment", "StatFs": "android.os.StatFs",
+    "PowerManager": "android.os.PowerManager", "Vibrator": "android.os.Vibrator",
+    "BlurMaskFilter": "android.graphics.BlurMaskFilter", "Paint": "android.graphics.Paint",
+    "Canvas": "android.graphics.Canvas", "Color": "android.graphics.Color", "Bitmap": "android.graphics.Bitmap",
+    "Typeface": "android.graphics.Typeface",
+    "Drawable": "android.graphics.drawable.Drawable",
+    "GradientDrawable": "android.graphics.drawable.GradientDrawable",
+    "ColorDrawable": "android.graphics.drawable.ColorDrawable",
+    "View": "android.view.View", "ViewGroup": "android.view.ViewGroup",
+    "Window": "android.view.Window", "Gravity": "android.view.Gravity",
+    "View": "android.view.View", "View.OnClickListener": "android.view.View$OnClickListener",
+    "Spannable": "android.text.Spannable", "SpannableString": "android.text.SpannableString",
+    "Log": "android.util.Log", "SparseArray": "android.util.SparseArray",
+    "FrameLayout": "android.widget.FrameLayout", "RelativeLayout": "android.widget.RelativeLayout",
+    "LinearLayout": "android.widget.LinearLayout", "ScrollView": "android.widget.ScrollView",
+    "TextView": "android.widget.TextView", "EditText": "android.widget.EditText",
+    "Button": "android.widget.Button", "ImageView": "android.widget.ImageView",
+    "Toast": "android.widget.Toast", "ListView": "android.widget.ListView",
+    "BaseAdapter": "android.widget.BaseAdapter", "ArrayAdapter": "android.widget.ArrayAdapter",
+    "AdapterView": "android.widget.AdapterView",
+    "Animator": "android.animation.Animator", "ValueAnimator": "android.animation.ValueAnimator",
+    "ObjectAnimator": "android.animation.ObjectAnimator",
+}
+
+
+def _auto_add_android_imports(path: Path) -> Path:
+    try:
+        text = path.read_text(errors="replace")
+    except Exception:
+        return path
+    if re.search(r"^\s*package\s+", text, re.M):
+        return path
+    existing_imports = set(re.findall(r"^\s*import\s+([\w.]+);", text, re.M))
+    declared = set(re.findall(r"\b(?:class|interface|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)", text))
+    needed = []
+    for simple, full in COMMON_ANDROID_IMPORTS.items():
+        base_simple = simple.rsplit(".", 1)[-1]
+        if base_simple in declared:
+            continue
+        if any(imp.split(".")[-1] == base_simple for imp in existing_imports):
+            continue
+        if re.search(rf"\b{re.escape(base_simple)}\b", text):
+            if full not in existing_imports:
+                needed.append(full)
+    if not needed:
+        return path
+    needed.sort()
+    header = "\n".join(f"import {n};" for n in needed) + "\n"
+    m = re.search(r"^", text)
+    new_text = text[:m.start()] + header + text[m.start():]
+    path.write_text(new_text)
+    return path
+
+
+def _rename_java_to_public_class(path: Path) -> Path:
+    try:
+        text = path.read_text(errors="replace")
+    except Exception:
+        return path
+    m = re.search(r"public\s+(?:abstract\s+|final\s+)?(?:strictfp\s+)?(class|interface|enum|@interface|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)", text)
+    if m:
+        name = m.group(2)
+        if path.name != name + ".java":
+            new_path = path.with_name(name + ".java")
+            try:
+                shutil.move(str(path), str(new_path))
+                return new_path
+            except Exception:
+                return path
+    return path
+
+
+def _prepare_java_file(path: Path) -> Path:
+    path = _rename_java_to_public_class(path)
+    path = _auto_add_android_imports(path)
+    return path
+    try:
+        text = path.read_text(errors="replace")
+    except Exception:
+        return path
+    m = re.search(r"public\s+(?:abstract\s+|final\s+)?(?:strictfp\s+)?(class|interface|enum|@interface|record)\s+([A-Za-z_$][A-Za-z0-9_$]*)", text)
+    if m:
+        name = m.group(2)
+        if path.name != name + ".java":
+            new_path = path.with_name(name + ".java")
+            try:
+                shutil.move(str(path), str(new_path))
+                return new_path
+            except Exception:
+                return path
+    return path
 
 
 def _jar_dir(src_dir: Path, out_jar: Path) -> Path:

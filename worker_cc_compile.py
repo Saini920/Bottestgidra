@@ -334,22 +334,36 @@ async def compile_to_so(input_path: Path, work_dir: Path, on_progress) -> Path:
     obj_dir = work_dir / "obj"
     obj_dir.mkdir(exist_ok=True)
     objs = []
-    await on_progress(40, "⚙️ Compiling C/C++ → object files...")
-    for i, f in enumerate(c_files):
-        obj = obj_dir / f"c_{i}.o"
-        await run_tool([clang, "-c", "-fPIC", "-O2", "-std=c11", "-o", str(obj), f], on_progress, "clang")
-        objs.append(str(obj))
-    for i, f in enumerate(cpp_files):
-        obj = obj_dir / f"cpp_{i}.o"
-        await run_tool([clangxx, "-c", "-fPIC", "-O2", "-std=c++17", "-o", str(obj), f], on_progress, "clang++")
-        objs.append(str(obj))
 
     safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", FILENAME)[:60] or "file"
     lib_name = f"lib_{Path(safe_name).stem or 'code'}.so"
     out_so = work_dir / lib_name
-    linker = clangxx if cpp_files else clang
-    await on_progress(70, "🔗 Linking shared library (.so)...")
-    await run_tool([linker, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, "link")
+
+    if c_files and not cpp_files:
+        await on_progress(40, "⚙️ Compiling + linking C sources...")
+        await run_tool([clang, "-shared", "-fPIC", "-O2", "-std=c11", "-o", str(out_so)] + c_files, on_progress, "clang")
+    elif cpp_files and not c_files:
+        await on_progress(40, "⚙️ Compiling + linking C++ sources...")
+        await run_tool([clangxx, "-shared", "-fPIC", "-O2", "-std=c++17", "-o", str(out_so)] + cpp_files, on_progress, "clang++")
+    else:
+        await on_progress(40, "⚙️ Compiling C/C++ → object files...")
+        for i, f in enumerate(c_files):
+            obj = obj_dir / f"c_{i}.o"
+            await run_tool([clang, "-c", "-fPIC", "-O2", "-std=c11", "-o", str(obj), f], on_progress, "clang")
+            if not obj.exists():
+                raise RuntimeError(f"clang produced no object file for {f}")
+            objs.append(str(obj))
+        for i, f in enumerate(cpp_files):
+            obj = obj_dir / f"cpp_{i}.o"
+            await run_tool([clangxx, "-c", "-fPIC", "-O2", "-std=c++17", "-o", str(obj), f], on_progress, "clang++")
+            if not obj.exists():
+                raise RuntimeError(f"clang++ produced no object file for {f}")
+            objs.append(str(obj))
+        if not objs:
+            raise ValueError("No object files produced from C/C++ sources.")
+        await on_progress(70, "🔗 Linking shared library (.so)...")
+        await run_tool([clangxx, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, "link")
+
     if not out_so.exists():
         raise ValueError("Linker produced no .so output.")
     await on_progress(85, "✅ .so built!")
