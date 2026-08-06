@@ -276,7 +276,8 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
         return
         
     job = PENDING_JOBS.pop(job_id)
-    await query.edit_message_text(f"🚀 Job submitted for {engine.capitalize()} engine! Sending to server...")
+    engine_label = ENGINE_LABELS.get(engine, engine.replace("-", " ").capitalize())
+    await query.edit_message_text(f"🚀 Job submitted for {engine_label} engine! Sending to server...")
     await enqueue_or_dispatch(job["msg"], job["status"], job["file_url"], job["filename"], job["tg_file_path"], engine, job.get("file_id", ""))
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -325,6 +326,26 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("✅ Confirm Decode (Full Smali)", callback_data=f"engine_smali_{job_id}")],
                     [InlineKeyboardButton("📦 Extract (com/ folder only)", callback_data=f"engine_smaliextract_{job_id}")],
+                    [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                ])
+            )
+        return
+
+    if data.startswith("compile_dex_"):
+        job_id = data.split("compile_dex_")[1]
+        job = PENDING_JOBS.get(job_id)
+        if job:
+            await query.answer("Choose Compile mode", show_alert=False)
+            await query.edit_message_text(
+                "🛠️ <b>Compile to .dex</b>\n\n"
+                "Your archive contains source files. What do you want to compile?\n\n"
+                "• 🧩 <b>Smali → .dex:</b> Assemble Smali files → classes.dex\n"
+                "• ☕ <b>Java → .dex:</b> Compile Java sources (.java/.jar/.class) → classes.dex\n\n"
+                "Which one do you want?",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🧩 Smali → .dex", callback_data=f"engine_dexcompile-smali_{job_id}")],
+                    [InlineKeyboardButton("☕ Java → .dex", callback_data=f"engine_dexcompile-java_{job_id}")],
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
                 ])
             )
@@ -539,6 +560,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • ☕ <b>JADX Engine:</b> APK/DEX/Smali → Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
         "  • 🧬 <b>dex2jar Engine:</b> APK/DEX → JAR + Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
         "  • 🧩 <b>Smali Decode Engine:</b> .dex / multiple .dex → Smali Code (like Apktool)\n"
+        "  • 🛠️ <b>DEX Compile Engine:</b> Smali / Java / JAR / ZIP → classes.dex\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
@@ -610,11 +632,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📤 <b>DIRECT UPLOAD:</b>\n"
         "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n"
         "• ☕ <b>JADX / 🧬 dex2jar:</b> APK/ZIP — Free up to 30 MB | Premium up to 100 MB\n"
-        "• 🧩 <b>Smali Decode:</b> .dex or ZIP with multiple .dex → Smali Code (Free: up to 3 .dex, Premium: up to 10 .dex per ZIP)\n\n"
+        "• 🧩 <b>Smali Decode:</b> .dex or ZIP with multiple .dex → Smali Code (Free: up to 3 .dex, Premium: up to 10 .dex per ZIP)\n"
+        "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (Free: up to 5 files, Premium: up to 20 files per ZIP)\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
         "• <b>JADX/dex2jar Limits:</b> APK/ZIP — Free up to 30 MB, Premium up to 100 MB\n"
         "• <b>Smali Decode:</b> Free max 3 .dex per ZIP | Premium max 10 .dex per ZIP\n"
+        "• <b>DEX Compile:</b> Free max 5 source files per ZIP | Premium max 20 source files per ZIP\n"
         "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & 1 .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
         "• <b>Server Concurrency:</b> Max 4 active jobs at a time\n\n"
@@ -640,7 +664,7 @@ async def cancel_github_job(job_name: str):
     chat_msg = job_name.rsplit("-", 2)
     if len(chat_msg) == 3:
         chat_id, msg_id = chat_msg[1], chat_msg[2]
-        prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali"]
+        prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java"]
     else:
         prefixes = [job_name]
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -748,6 +772,10 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-smali"
     elif engine == "smaliextract":
         event_type = "decompile-smali-extract"
+    elif engine == "dexcompile-smali":
+        event_type = "dex-compile-smali"
+    elif engine == "dexcompile-java":
+        event_type = "dex-compile-java"
     else:
         event_type = "decompile-job"
         
@@ -863,11 +891,32 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if doc.file_name and doc.file_name.lower().endswith(".smali"):
             btn_jadx = InlineKeyboardButton("☕ Smali → Java", callback_data=f"engine_jadx_{job_id}")
+            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-smali_{job_id}")
             await status.edit_text(
-                "☕ <b>Smali File Detected!</b>\nConvert Smali to readable Java source?\n\n"
-                "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java",
+                "☕ <b>Smali File Detected!</b>\nWhat do you want to do?\n\n"
+                "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java source\n"
+                "• 🛠️ <b>Compile to .dex:</b> Assemble Smali back to classes.dex",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[btn_jadx]])
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_jadx],
+                    [btn_compile],
+                ])
+            )
+        elif doc.file_name and doc.file_name.lower().endswith(".java"):
+            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
+            await status.edit_text(
+                "☕ <b>Java Source Detected!</b>\nCompile your Java file to Android DEX?\n\n"
+                "• 🛠️ <b>Compile to .dex:</b> javac + d8 → classes.dex",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[btn_compile]])
+            )
+        elif doc.file_name and doc.file_name.lower().endswith((".jar", ".class")):
+            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
+            await status.edit_text(
+                "🧬 <b>Java Bytecode Detected!</b>\nConvert to Android DEX?\n\n"
+                "• 🛠️ <b>Compile to .dex:</b> d8 → classes.dex",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[btn_compile]])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".dex"):
             btn_jadx = InlineKeyboardButton("☕ Decompile (Java)", callback_data=f"engine_jadx_{job_id}")
@@ -920,6 +969,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
                 btn_d2j = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
             btn_decode = InlineKeyboardButton("🧩 Decode .dex → Smali", callback_data=f"decode_smali_{job_id}")
+            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"compile_dex_{job_id}")
 
             await status.edit_text(
                 "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
@@ -927,12 +977,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🧩 <b>Decode:</b> Multiple .dex → Smali Code\n"
+                "• 🛠️ <b>Compile:</b> Smali / Java files → .dex\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
                     [btn_jadx, btn_d2j],
-                    [btn_decode],
+                    [btn_decode, btn_compile],
                     [btn_build]
                 ])
             )
@@ -1349,13 +1400,13 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def parse_run_name(run_name: str):
     import re as _re
-    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract)-(\d+)-(\d+)$", run_name or "")
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java)-(\d+)-(\d+)$", run_name or "")
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
 
 
-ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract"}
+ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX"}
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
@@ -1364,6 +1415,8 @@ TASK_LABELS = {
     "apktool-build": "APK Compile / Build (Apktool)",
     "smali": ".dex → Smali Code (baksmali)",
     "smaliextract": ".dex → Smali (com/ folder only)",
+    "dexcompile-smali": "Smali → classes.dex (smali assembler)",
+    "dexcompile-java": "Java → classes.dex (javac + d8)",
 }
 
 
@@ -1406,7 +1459,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not job and parsed:
             job = db.get_active_job(int(parsed[2]))
         if job:
-            engine_label = {"ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "apktool-build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract"}.get(job.get("engine", ""), "🔧 Unknown")
+            engine_label = {"ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "apktool-build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX"}.get(job.get("engine", ""), "🔧 Unknown")
         else:
             engine_label = ENGINE_LABELS.get(parsed[0], "🔧 Unknown") if parsed else "🔧 Unknown"
         user_id = (job or {}).get("user_id", "?")
