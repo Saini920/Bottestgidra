@@ -341,6 +341,16 @@
       "filename": ".a Alight motiojn .zip",
       "engine": "ghidra",
       "started": 1786018330.9650106
+    },
+    "1275": {
+      "user_id": "6684870256",
+      "username": "Ghostofhackers",
+      "name": "\u26a1\ufe0e\ud835\udd72\ud835\udd8d\ud835\udd94\ud835\udd98\ud835\udd99 \ud835\udd94\ud835\udd8b \ud835\udd8d\ud835\udd86\ud835\udd88\ud835\udd90\ud835\udd8a\ud835\udd97\ud835\udd98\u26a1\ufe0e",
+      "chat_id": "6684870256",
+      "message_id": 1275,
+      "filename": "base (1).apk",
+      "engine": "apktool",
+      "started": 1786020908.3880525
     }
   }
 }
