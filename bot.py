@@ -806,7 +806,6 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     client_payload = {
         "chat_id": str(chat_id),
         "message_id": str(message_id),
-        "original_message_id": str(original_msg_id),
         "filename": filename,
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
