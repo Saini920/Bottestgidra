@@ -37,6 +37,7 @@ MAX_DAILY_FILES = 30
 ADMIN_IDS = ["6684870256", "7251749429"]
 JADX_DEX2JAR_LIMIT_FREE_MB = 30
 JADX_DEX2JAR_LIMIT_PREMIUM_MB = 100
+PREMIUM_ONLY_ENGINES = {"apkbuild", "apksign", "cccompile", "dexcompile-smali", "dexcompile-java", "apktool", "apktool-build"}
 ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split(",") if u.strip()]
 
 PENDING_REQUESTS = set()
@@ -274,7 +275,20 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     if job_id not in PENDING_JOBS:
         await query.edit_message_text("❌ This request has expired or is invalid.")
         return
-        
+
+    if engine in PREMIUM_ONLY_ENGINES:
+        uid = str(query.from_user.id)
+        if uid not in ADMIN_IDS and uid not in db.data["subscriptions"]:
+            await query.edit_message_text(
+                "🔒 <b>Premium Only!</b>\n\n"
+                "This engine is available for <b>Premium subscribers</b> only.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
+                ])
+            )
+            return
+
     job = PENDING_JOBS.pop(job_id)
     engine_label = ENGINE_LABELS.get(engine, engine.replace("-", " ").capitalize())
     await query.edit_message_text(f"🚀 Job submitted for {engine_label} engine! Sending to server...")
@@ -560,10 +574,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  • ☕ <b>JADX Engine:</b> APK/DEX/Smali → Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
         "  • 🧬 <b>dex2jar Engine:</b> APK/DEX → JAR + Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
         "  • 🧩 <b>Smali Decode Engine:</b> .dex / multiple .dex → Smali Code (like Apktool)\n"
-        "  • 🛠️ <b>DEX Compile Engine:</b> Smali / Java / JAR / ZIP → classes.dex\n"
-        "  • ⚙️ <b>C/C++ Compile Engine:</b> .c / .cpp / ZIP → Android .so (NDK)\n"
+        "  • 🛠️ <b>DEX Compile Engine:</b> Smali / Java / JAR / ZIP → classes.dex (⭐ Premium)\n"
+        "  • ⚙️ <b>C/C++ Compile Engine:</b> .c / .cpp / ZIP → Android .so (NDK) (⭐ Premium)\n"
         "  • 📦 <b>APK Build Engine:</b> Real source ZIP → signed + unsigned APK (⭐ Premium)\n"
-        "  • 🔏 <b>APK Sign Engine:</b> Re-sign any APK (v1+v2, Android 4+)\n"
+        "  • 🔏 <b>APK Sign Engine:</b> Re-sign any APK (v1+v2, Android 4+) (⭐ Premium)\n"
         "  • 📱 <b>Apktool Engine:</b> APK Decompile & Compile (⭐ Premium)\n"
         "  • 🔍 <b>Smart APK Scanner:</b> Extracts and decompiles Native .so libraries automatically\n"
         "  • ☁️ <b>Cloud Links:</b> Large outputs (>50MB) are uploaded directly to Telegram via MTProto\n"
@@ -636,16 +650,16 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n"
         "• ☕ <b>JADX / 🧬 dex2jar:</b> APK/ZIP — Free up to 30 MB | Premium up to 100 MB\n"
         "• 🧩 <b>Smali Decode:</b> .dex or ZIP with multiple .dex → Smali Code (Free: up to 3 .dex, Premium: up to 10 .dex per ZIP)\n"
-        "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (Free: up to 5 files, Premium: up to 20 files per ZIP)\n"
-        "• ⚙️ <b>C/C++ Compile:</b> .c / .cpp / ZIP → Android ARM64 .so (Free: up to 5 files, Premium: up to 20 files per ZIP)\n"
+        "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (⭐ Premium only)\n"
+        "• ⚙️ <b>C/C++ Compile:</b> .c / .cpp / ZIP → Android ARM64 .so (⭐ Premium only)\n"
         "• 📦 <b>APK Build (Source):</b> Real source ZIP → signed + unsigned APK (Java/Kotlin, ⭐ Premium)\n"
-        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, Android 4 to 16)\n\n"
+        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, Android 4 to 16) (⭐ Premium)\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
         "• <b>JADX/dex2jar Limits:</b> APK/ZIP — Free up to 30 MB, Premium up to 100 MB\n"
         "• <b>Smali Decode:</b> Free max 3 .dex per ZIP | Premium max 10 .dex per ZIP\n"
-        "• <b>DEX Compile:</b> Free max 5 source files per ZIP | Premium max 20 source files per ZIP\n"
-        "• <b>C/C++ Compile:</b> Free max 5 source files per ZIP | Premium max 20 source files per ZIP\n"
+        "• <b>DEX Compile:</b> ⭐ Premium only (free users can't compile)\n"
+        "• <b>C/C++ Compile:</b> ⭐ Premium only (free users can't compile)\n"
         "• <b>APK Build / Sign:</b> ⭐ Premium only (builds run on cloud Android SDK)\n"
         "• <b>ZIP Content Rules:</b> Free — max 1 .so/.dex & 1 .apk inside; Premium — max 5 .so/.dex & 2 .apk inside\n"
         "• <b>Daily Quota:</b> 30 files / day (Unlimited for Admins)\n"
@@ -905,7 +919,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if doc.file_name and doc.file_name.lower().endswith(".smali"):
             btn_jadx = InlineKeyboardButton("☕ Smali → Java", callback_data=f"engine_jadx_{job_id}")
-            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-smali_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-smali_{job_id}")
+            else:
+                btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
             await status.edit_text(
                 "☕ <b>Smali File Detected!</b>\nWhat do you want to do?\n\n"
                 "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java source\n"
@@ -917,7 +934,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".java"):
-            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
+            else:
+                btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
             await status.edit_text(
                 "☕ <b>Java Source Detected!</b>\nCompile your Java file to Android DEX?\n\n"
                 "• 🛠️ <b>Compile to .dex:</b> javac + d8 → classes.dex",
@@ -925,7 +945,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[btn_compile]])
             )
         elif doc.file_name and doc.file_name.lower().endswith((".jar", ".class")):
-            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
+            else:
+                btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
             await status.edit_text(
                 "🧬 <b>Java Bytecode Detected!</b>\nConvert to Android DEX?\n\n"
                 "• 🛠️ <b>Compile to .dex:</b> d8 → classes.dex",
@@ -933,7 +956,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[btn_compile]])
             )
         elif doc.file_name and doc.file_name.lower().endswith((".c", ".cc")):
-            btn_cc = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_cc = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+            else:
+                btn_cc = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
             await status.edit_text(
                 "⚙️ <b>C Source Detected!</b>\nCompile to Android ARM64 shared library?\n\n"
                 "• 🛠️ <b>Compile to .so:</b> NDK clang → lib_*.so",
@@ -941,7 +967,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup([[btn_cc]])
             )
         elif doc.file_name and doc.file_name.lower().endswith((".cpp", ".cxx", ".c++", ".cp")):
-            btn_cc = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_cc = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+            else:
+                btn_cc = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
             await status.edit_text(
                 "⚙️ <b>C++ Source Detected!</b>\nCompile to Android ARM64 shared library?\n\n"
                 "• 🛠️ <b>Compile to .so:</b> NDK clang++ → lib_*.so",
@@ -975,14 +1004,17 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
             else:
                 btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
-            btn_sign = InlineKeyboardButton("🔏 Sign APK", callback_data=f"engine_apksign_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_sign = InlineKeyboardButton("🔏 Sign APK", callback_data=f"engine_apksign_{job_id}")
+            else:
+                btn_sign = InlineKeyboardButton("🔒 Sign APK (Premium Only)", callback_data="buy_sub")
 
             await status.edit_text(
                 "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
                 "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
-                "• 🔏 <b>Sign APK:</b> Re-sign with new key (v1+v2, Android 4+)",
+                "• 🔏 <b>Sign APK:</b> Re-sign with new key (v1+v2, Android 4+) (⭐ Premium)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
                     [btn_jadx, btn_dex2jar],
@@ -1002,8 +1034,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
                 btn_d2j = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
             btn_decode = InlineKeyboardButton("🧩 Decode .dex → Smali", callback_data=f"decode_smali_{job_id}")
-            btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"compile_dex_{job_id}")
-            btn_so = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"compile_dex_{job_id}")
+            else:
+                btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
+            if is_premium or user_id in ADMIN_IDS:
+                btn_so = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+            else:
+                btn_so = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
             if is_premium or user_id in ADMIN_IDS:
                 btn_build_src = InlineKeyboardButton("📦 Build APK (Source)", callback_data=f"engine_apkbuild_{job_id}")
             else:
@@ -1015,8 +1053,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                 "• 🧩 <b>Decode:</b> Multiple .dex → Smali Code\n"
-                "• 🛠️ <b>Compile:</b> Smali / Java files → .dex\n"
-                "• 🛠️ <b>Compile .so:</b> C/C++ sources → Android .so\n"
+                "• 🛠️ <b>Compile:</b> Smali / Java files → .dex (⭐ Premium)\n"
+                "• 🛠️ <b>Compile .so:</b> C/C++ sources → Android .so (⭐ Premium)\n"
                 "• 📦 <b>Build APK:</b> Real source code → signed + unsigned APK (⭐ Premium)\n"
                 "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)",
                 parse_mode="HTML",
