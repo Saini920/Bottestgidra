@@ -236,7 +236,7 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
         raise ValueError("Could not download file from this link.")
 
 
-async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
+async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callfixup: bool = False) -> dict:
     project_dir = work_dir / "project"
     project_dir.mkdir(parents=True)
     out_c = work_dir / "decompiled.c"
@@ -247,12 +247,18 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
         str(project_dir),
         "Proj",
         "-overwrite",
+    ]
+    if disable_callfixup:
+        props = work_dir / "analysis.options"
+        props.write_text("Analysis.CallFixupAnalyzer.enabled=false\n")
+        cmd.extend(["-properties", str(props)])
+    cmd.extend([
         "-import", str(file_path),
         "-scriptPath", str(SCRIPT_DIR),
         "-postScript", "DecompileAll.java",
         str(out_c), str(out_meta),
         "-deleteProject",
-    ]
+    ])
     log.info("Running: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -301,9 +307,9 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
         proc.kill()
         raise TimeoutError("Ghidra analysis timed out")
     log.info("analyzeHeadless exit=%s", rc)
-    tail_txt = "\n".join(tail[-40:])
+    tail_txt = "\n".join(tail[-50:])
     if rc != 0:
-        raise RuntimeError(f"Ghidra exited with code {rc}:\n{tail_txt[-400:]}")
+        raise RuntimeError(f"Ghidra exited with code {rc}:\n{tail_txt[-1200:]}")
     return {"c": out_c, "meta": out_meta, "tail": tail_txt, "returncode": rc}
 
 
@@ -510,23 +516,41 @@ async def main():
                 edit(f"📦 <b>Batch / APK Detected!</b> Found {len(candidates)} binary file(s). Starting multi-file decompilation...", parse_mode="HTML")
                 for idx, bin_path in enumerate(candidates, start=1):
                     edit(f"⚙️ <b>Processing ({idx}/{len(candidates)}):</b> <code>{bin_path.name}</code>...", parse_mode="HTML")
-                    try:
-                        res = await asyncio.wait_for(
-                            run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress), timeout=3600
-                        )
-                        bname = bin_path.stem
-                        if res["c"].exists() and res["c"].stat().st_size > 0:
-                            out_files.append((f"{bname}.c", res["c"]))
-                        if res["meta"].exists() and res["meta"].stat().st_size > 0:
-                            out_files.append((f"{bname}_info.txt", res["meta"]))
-                    except Exception as e:
-                        log.warning("Batch file %s failed: %s", bin_path.name, e)
+                    for attempt in (1, 2):
+                        try:
+                            res = await asyncio.wait_for(
+                                run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress, disable_callfixup=(attempt == 2)), timeout=3600
+                            )
+                            bname = bin_path.stem
+                            if res["c"].exists() and res["c"].stat().st_size > 0:
+                                out_files.append((f"{bname}.c", res["c"]))
+                            if res["meta"].exists() and res["meta"].stat().st_size > 0:
+                                out_files.append((f"{bname}_info.txt", res["meta"]))
+                            break
+                        except RuntimeError as e:
+                            if attempt == 1:
+                                log.warning("Batch file %s crashed, retrying with CallFixupAnalyzer disabled: %s", bin_path.name, e)
+                                continue
+                            log.warning("Batch file %s failed: %s", bin_path.name, e)
+                            break
+                        except Exception as e:
+                            log.warning("Batch file %s failed: %s", bin_path.name, e)
+                            break
 
         if not out_files:
             try:
-                result = await asyncio.wait_for(
-                    run_ghidra(dest, work_dir / "analysis", on_progress), timeout=7200
-                )
+                result = None
+                for attempt in (1, 2):
+                    try:
+                        result = await asyncio.wait_for(
+                            run_ghidra(dest, work_dir / "analysis", on_progress, disable_callfixup=(attempt == 2)), timeout=7200
+                        )
+                        break
+                    except RuntimeError as e:
+                        if attempt == 1:
+                            log.warning("Ghidra crashed, retrying with CallFixupAnalyzer disabled: %s", e)
+                            continue
+                        raise
                 bname = Path(filename).stem or "decompiled"
                 if result["c"].exists() and result["c"].stat().st_size > 0:
                     out_files.append((f"{bname}.c", result["c"]))
@@ -537,7 +561,8 @@ async def main():
                 return
             except Exception as e:
                 log.exception("Ghidra crashed")
-                edit("❌ Decompilation failed: " + str(e)[:300], keep_button=False)
+                err = str(e)[:1200].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                edit("❌ Decompilation failed: <code>" + err + "</code>", keep_button=False)
                 return
 
         if not out_files:
