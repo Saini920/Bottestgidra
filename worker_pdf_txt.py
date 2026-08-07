@@ -269,7 +269,7 @@ async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, prog
 
 
 def find_inputs(src_dir: Path, suffixes) -> list:
-    return [str(p) for p in sorted(Path(src_dir).rglob("*")) if p.is_file() and p.suffix.lower() in suffixes]
+    return [p for p in sorted(Path(src_dir).rglob("*")) if p.is_file() and p.suffix.lower() in suffixes]
 
 
 def is_zip_file(path: Path) -> bool:
