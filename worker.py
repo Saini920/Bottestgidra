@@ -124,8 +124,34 @@ def proc_cpu_usage(pid: int) -> int:
         return -1
 
 
+def detect_available_ram_gb() -> float:
+    try:
+        page = os.sysconf("SC_PAGE_SIZE")
+        pages = os.sysconf("SC_PHYS_PAGES")
+        if page and pages:
+            return pages * page / (1024 ** 3)
+    except Exception:
+        pass
+    return 0.0
+
+
+def parse_mem_gb(value: str) -> int:
+    m = re.match(r"(\d+(?:\.\d+)?)", value or "")
+    return int(float(m.group(1))) if m else 4
+
+
 def apply_memory_settings():
-    mem = os.environ.get("JAVA_MAX_MEM", "4G")
+    requested = os.environ.get("JAVA_MAX_MEM", "4G")
+    mem = requested
+    avail = detect_available_ram_gb()
+    if avail:
+        # Reserve ~2 GB of headroom for Ghidra's native decompiler memory,
+        # otherwise big binaries push RSS over the runner RAM and get SIGKILLed (OOM).
+        cap = int(avail - 2)
+        req = parse_mem_gb(requested)
+        if cap >= 1 and req > cap:
+            mem = f"{cap}G"
+            log.warning("Capped JAVA_MAX_MEM %s -> %s (available RAM %.1f GB)", requested, mem, avail)
     props = GHIDRA_HOME / "support" / "launch.properties"
     try:
         text = props.read_text(errors="replace")
@@ -275,7 +301,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress) -> dict:
         proc.kill()
         raise TimeoutError("Ghidra analysis timed out")
     log.info("analyzeHeadless exit=%s", rc)
-    return {"c": out_c, "meta": out_meta, "tail": "\n".join(tail[-40:]), "returncode": rc}
+    tail_txt = "\n".join(tail[-40:])
+    if rc != 0:
+        raise RuntimeError(f"Ghidra exited with code {rc}:\n{tail_txt[-400:]}")
+    return {"c": out_c, "meta": out_meta, "tail": tail_txt, "returncode": rc}
 
 
 def send_document(file_path: Path, caption: str, filename: str):
@@ -512,7 +541,15 @@ async def main():
                 return
 
         if not out_files:
-            edit("❌ Analysis failed or no output files generated.")
+            tail_txt = ""
+            try:
+                tail_txt = result["tail"][-250:]
+            except Exception:
+                pass
+            msg = "❌ Analysis failed or no output files generated."
+            if tail_txt:
+                msg += "\n\n<code>" + tail_txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</code>"
+            edit(msg, parse_mode="HTML")
             return
 
         edit("📦 Packaging results...")

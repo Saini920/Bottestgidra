@@ -79,7 +79,18 @@ public class DecompileAll extends GhidraScript {
         int total = funcs.size();
         int done = 0;
         int lastPrinted = -1;
+        int sinceReset = 0;
         for (Function f : funcs) {
+            // The native decompiler holds memory per function that is only freed on dispose().
+            // For huge binaries (large .so), periodically recreate the interface so RSS does
+            // not climb until the runner OOM-kills the whole process (empty .c output).
+            if (sinceReset >= 1500) {
+                decomp.dispose();
+                decomp = new DecompInterface();
+                decomp.openProgram(currentProgram);
+                sinceReset = 0;
+                System.gc();
+            }
             out.println("// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------");
             DecompileResults res = decomp.decompileFunction(f, 120, null);
             if (res != null && res.decompileCompleted()) {
@@ -88,6 +99,10 @@ public class DecompileAll extends GhidraScript {
                 out.println("/* [FAILED] could not decompile " + f.getName() + " */");
             }
             done++;
+            sinceReset++;
+            if (done % 50 == 0) {
+                out.flush();
+            }
             int pct = (total == 0) ? 100 : (done * 100) / total;
             if (pct != lastPrinted && pct % 5 == 0) {
                 println("DECOMP_PROGRESS " + done + "/" + total);
