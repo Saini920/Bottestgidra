@@ -220,14 +220,16 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
         raise ValueError("Could not download file from this link.")
 
 
-async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, progress_stall: int = 1800):
+async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, progress_stall: int = 1800, heartbeat=None, check_errors: bool = True):
     log.info("Running: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
     )
     out_lines = []
+    last_hb = time.monotonic()
 
     async def read_stream():
+        nonlocal last_hb
         last_activity = time.monotonic()
         last_cpu = proc_cpu_usage(proc.pid)
         while True:
@@ -237,6 +239,7 @@ async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, prog
             try:
                 raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
                 last_activity = time.monotonic()
+                last_hb = time.monotonic()
             except asyncio.TimeoutError:
                 cpu = proc_cpu_usage(proc.pid)
                 if cpu > last_cpu:
@@ -245,6 +248,9 @@ async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, prog
                 elif time.monotonic() - last_activity >= progress_stall:
                     proc.kill()
                     raise RuntimeError(f"{label} stalled: no CPU activity for {progress_stall//60} minutes")
+                if heartbeat and time.monotonic() - last_hb >= 60:
+                    last_hb = time.monotonic()
+                    await heartbeat()
                 continue
             if not raw:
                 break
@@ -253,7 +259,7 @@ async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, prog
                 out_lines.append(line)
                 if len(out_lines) > 100:
                     del out_lines[:-100]
-                if "error" in line.lower() or "exception" in line.lower():
+                if check_errors and ("error" in line.lower() or "exception" in line.lower()):
                     await on_progress(60, f"⚠️ {label} (checking)...")
         return await proc.wait()
 
@@ -288,7 +294,7 @@ def is_pdf_file(path: Path) -> bool:
         return False
 
 
-OCR_LANGS = "eng+hin+urd+ben+mar+guj+tam+tel+kan+mal+pan+ori+asm"
+OCR_LANGS = "eng+hin+urd+ben+mar+guj+tam+tel+kan+mal+pan"
 OCR_PSMS = ("3", "6", "11")
 
 
@@ -300,6 +306,12 @@ async def convert_single_pdf(pdf_path: Path, txt_path: Path, on_progress, label:
     """Extract text with progressive flag fallback. Returns True if meaningful output produced."""
     if txt_path.exists():
         txt_path.unlink()
+    started = time.monotonic()
+
+    async def hb():
+        mins = int((time.monotonic() - started) // 60)
+        edit(f"⏳ {label}: still converting... ({mins} min)", keep_button=True)
+
     candidates = [
         ["pdftotext", "-q", "-layout", str(pdf_path), str(txt_path)],
         ["pdftotext", "-q", "-raw", str(pdf_path), str(txt_path)],
@@ -308,7 +320,7 @@ async def convert_single_pdf(pdf_path: Path, txt_path: Path, on_progress, label:
     ]
     for cmd in candidates:
         try:
-            await run_tool(cmd, on_progress, label)
+            await run_tool(cmd, on_progress, label, timeout=1200, progress_stall=600, heartbeat=hb, check_errors=False)
         except Exception as e:
             log.warning("%s attempt failed: %s", label, e)
             if txt_path.exists():
@@ -329,7 +341,7 @@ async def ocr_page(page: Path, base: Path, on_progress, label: str) -> str:
             out.unlink()
         try:
             await run_tool(["tesseract", str(page), str(Path(str(base) + f"_psm{psm}")), "-l", OCR_LANGS, "--psm", psm],
-                           on_progress, label, timeout=1800, progress_stall=900)
+                           on_progress, label, timeout=300, progress_stall=180, check_errors=False)
         except Exception as e:
             log.warning("tesseract failed for %s: %s", page.name, e)
             continue
@@ -340,15 +352,16 @@ async def ocr_page(page: Path, base: Path, on_progress, label: str) -> str:
     return ""
 
 
-async def ocr_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str) -> bool:
+async def ocr_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str, start_pct: int = 0, end_pct: int = 100) -> bool:
     """OCR fallback for scanned (image-only) PDFs via pdftoppm + tesseract."""
     if not shutil.which("pdftoppm") or not shutil.which("tesseract"):
         log.warning("OCR tools missing (pdftoppm/tesseract)")
         return False
+    await on_progress(start_pct, f"🔍 {label}: rendering pages...")
     ocr_dir = pdf_path.parent / (pdf_path.stem + "_ocr")
     ocr_dir.mkdir(exist_ok=True)
     try:
-        await run_tool(["pdftoppm", "-r", "300", "-jpeg", str(pdf_path), str(ocr_dir / "pg")], on_progress, label, timeout=3600, progress_stall=1800)
+        await run_tool(["pdftoppm", "-r", "300", "-jpeg", str(pdf_path), str(ocr_dir / "pg")], on_progress, label, timeout=1200, progress_stall=600, check_errors=False)
     except Exception as e:
         log.warning("pdftoppm failed for %s: %s", pdf_path.name, e)
         return False
@@ -358,15 +371,20 @@ async def ocr_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str) -> bo
         log.warning("No pages rendered for %s", pdf_path.name)
         return False
     texts = []
+    total_pages = len(pages)
+    span = max(1, end_pct - start_pct)
     for i, page in enumerate(pages, 1):
         if CANCELLED["v"]:
             raise JobCancelled()
+        pct = start_pct + int((i - 1) * span / total_pages)
+        await on_progress(pct, f"🔍 {label}: OCR page {i}/{total_pages}...")
         t = await ocr_page(page, ocr_dir / f"out_{i}", on_progress, label)
         if t:
             texts.append(t)
     if not texts:
         log.warning("OCR produced no text for %s", pdf_path.name)
         return False
+    await on_progress(end_pct - 1, f"🔍 {label}: saving text...")
     txt_path.write_text("\n".join(texts), encoding="utf-8")
     return has_meaningful_text(txt_path.read_text(encoding="utf-8", errors="replace"))
 
@@ -408,10 +426,12 @@ async def convert_pdfs(input_path: Path, work_dir: Path, on_progress) -> tuple:
         if CANCELLED["v"]:
             raise JobCancelled()
         txt = pf.with_suffix(".txt")
-        await on_progress(int(20 + (i - 1) * 60 / total), f"📄 Converting PDF {i}/{total}...")
+        band_start = int(20 + (i - 1) * 60 / total)
+        band_end = int(20 + i * 60 / total)
+        await on_progress(band_start, f"📄 Converting PDF {i}/{total}...")
         ok = await convert_single_pdf(pf, txt, on_progress, f"pdftotext {i}")
         if not ok:
-            ok = await ocr_pdf(pf, txt, on_progress, f"OCR {i}")
+            ok = await ocr_pdf(pf, txt, on_progress, f"OCR {i}", band_start, band_end)
             if ok:
                 ocr_used += 1
         if not ok:

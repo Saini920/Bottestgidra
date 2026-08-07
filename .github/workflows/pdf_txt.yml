@@ -23,7 +23,7 @@ jobs:
             tesseract-ocr-hin tesseract-ocr-urd tesseract-ocr-ben \
             tesseract-ocr-mar tesseract-ocr-guj tesseract-ocr-tam \
             tesseract-ocr-tel tesseract-ocr-kan tesseract-ocr-mal \
-            tesseract-ocr-pan tesseract-ocr-ori tesseract-ocr-asm
+            tesseract-ocr-pan
           pdftotext -v
           tesseract --version
           tesseract --list-langs
