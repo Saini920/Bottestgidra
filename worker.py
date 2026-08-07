@@ -389,7 +389,10 @@ async def main():
     work_dir = Path(tempfile.gettempdir()) / ("ghidra_" + os.urandom(8).hex())
     try:
         work_dir.mkdir(parents=True)
-        dest = work_dir / "input.bin"
+        in_ext = Path(FILENAME or "input.bin").suffix.lower()
+        if not in_ext or not re.fullmatch(r"\.[A-Za-z0-9]{1,10}", in_ext):
+            in_ext = ".bin"
+        dest = work_dir / ("input" + in_ext)
         last = [-100.0]
 
         dl_method = ["📥 Downloading file..."]
