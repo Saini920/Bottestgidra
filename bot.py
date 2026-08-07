@@ -1615,6 +1615,22 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.warning("cmd_active github query failed: %s", e)
             query_error = str(e)[:120]
 
+    gh_mids = set()
+    for _rid, rname, _st in runs:
+        p = parse_run_name(rname)
+        if p:
+            try:
+                gh_mids.add(int(p[2]))
+            except ValueError:
+                pass
+
+    for mid, job in list(ACTIVE_JOBS.items()):
+        if mid in gh_mids:
+            continue
+        if now - job.get("started", 0) > 3600:
+            continue
+        runs.append((None, f"job-0-{mid}", "dispatched"))
+
     lines = ["⚙️ <b>ACTIVE CLOUD JOBS</b>", "═══════════════════════════"]
     buttons = []
 
@@ -1642,7 +1658,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = (job or {}).get("username", "")
         name = (job or {}).get("name", "")
         filename = (job or {}).get("filename", "?")
-        status_icon = {"in_progress": "🟢 Running", "queued": "⏳ Queued", "completed": "✅ Done", "action_required": "❌ Failed", "cancelled": "🚫 Cancelled"}.get(status, f"❓ {status}")
+        status_icon = {"in_progress": "🟢 Running", "queued": "⏳ Queued", "dispatched": "🟡 Dispatched", "completed": "✅ Done", "action_required": "❌ Failed", "cancelled": "🚫 Cancelled"}.get(status, f"❓ {status}")
         user_line = f"🆔 <code>{user_id}</code>"
         if username:
             user_line += f" | <b>@{username}</b>"
@@ -1657,7 +1673,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"   {user_line}\n"
             f"   📄 <code>{filename}</code>{task_line}"
         )
-        if show_button:
+        if show_button and run_id:
             buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({engine_label.split()[1]})", callback_data=f"stoprun_{run_id}")])
 
     if runs:
@@ -1826,12 +1842,22 @@ async def cleanup_workflows_loop(app: Application):
                     )
                     if r.status_code == 200:
                         runs = r.json().get("workflow_runs", [])
+                        now_ts = time.time()
                         for run in runs:
-                            if run.get("status") == "completed":
-                                await client.delete(
-                                    f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run['id']}",
-                                    headers=headers
-                                )
+                            if run.get("status") != "completed":
+                                continue
+                            try:
+                                upd = run.get("updated_at", "") or ""
+                                from datetime import datetime, timezone
+                                upd_ts = datetime.fromisoformat(upd.replace("Z", "+00:00")).timestamp()
+                            except Exception:
+                                upd_ts = 0
+                            if now_ts - upd_ts < 300:
+                                continue  # keep recently-finished runs visible for debugging + /active
+                            await client.delete(
+                                f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run['id']}",
+                                headers=headers
+                            )
         except Exception as e:
             pass # Silent failure to avoid spamming logs if there's an issue
         await asyncio.sleep(60)  # Check every 60 seconds
