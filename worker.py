@@ -243,6 +243,10 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
 
 async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callfixup: bool = False) -> dict:
     project_dir = work_dir / "project"
+    if project_dir.exists():
+        # Crash-retry reuses the same work_dir; a stale project dir from the
+        # previous attempt makes mkdir raise FileExistsError (Errno 17).
+        shutil.rmtree(project_dir, ignore_errors=True)
     project_dir.mkdir(parents=True)
     out_c = work_dir / "decompiled.c"
     out_meta = work_dir / "info.txt"
