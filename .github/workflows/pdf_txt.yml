@@ -16,11 +16,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install poppler-utils
+      - name: Install poppler-utils + tesseract
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils
+          sudo apt-get install -y poppler-utils tesseract-ocr
           pdftotext -v
+          tesseract --version
 
       - name: Cache TG Session
         uses: actions/cache@v4

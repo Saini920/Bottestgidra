@@ -288,6 +288,65 @@ def is_pdf_file(path: Path) -> bool:
         return False
 
 
+async def convert_single_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str) -> bool:
+    """Extract text with progressive flag fallback. Returns True if non-empty output produced."""
+    if txt_path.exists():
+        txt_path.unlink()
+    candidates = [
+        ["pdftotext", "-q", "-layout", str(pdf_path), str(txt_path)],
+        ["pdftotext", "-q", "-raw", str(pdf_path), str(txt_path)],
+        ["pdftotext", "-q", "-fixed", "10", str(pdf_path), str(txt_path)],
+        ["pdftotext", "-q", str(pdf_path), str(txt_path)],
+    ]
+    for cmd in candidates:
+        try:
+            await run_tool(cmd, on_progress, label)
+        except Exception as e:
+            log.warning("%s attempt failed: %s", label, e)
+            if txt_path.exists():
+                txt_path.unlink()
+            continue
+        if txt_path.exists() and txt_path.stat().st_size > 0:
+            return True
+        if txt_path.exists():
+            txt_path.unlink()
+    return False
+
+
+async def ocr_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str) -> bool:
+    """OCR fallback for scanned (image-only) PDFs via pdftoppm + tesseract."""
+    if not shutil.which("pdftoppm") or not shutil.which("tesseract"):
+        return False
+    ocr_dir = pdf_path.parent / (pdf_path.stem + "_ocr")
+    ocr_dir.mkdir(exist_ok=True)
+    try:
+        await run_tool(["pdftoppm", "-r", "200", "-jpeg", str(pdf_path), str(ocr_dir / "pg")], on_progress, label, timeout=3600, progress_stall=1800)
+    except Exception as e:
+        log.warning("pdftoppm failed for %s: %s", pdf_path.name, e)
+        return False
+    pages = [p for p in ocr_dir.iterdir() if p.suffix.lower() == ".jpg"]
+    pages.sort(key=lambda p: int(re.search(r"(\d+)\.jpg$", p.name).group(1)) if re.search(r"(\d+)\.jpg$", p.name) else 0)
+    if not pages:
+        return False
+    texts = []
+    for i, page in enumerate(pages, 1):
+        if CANCELLED["v"]:
+            raise JobCancelled()
+        base = ocr_dir / f"out_{i}"
+        try:
+            await run_tool(["tesseract", str(page), str(base), "-l", "eng", "--psm", "3"], on_progress, label, timeout=1800, progress_stall=900)
+        except Exception as e:
+            log.warning("tesseract failed for %s page %d: %s", pdf_path.name, i, e)
+            continue
+        out_txt = Path(str(base) + ".txt")
+        if out_txt.exists():
+            texts.append(out_txt.read_text(encoding="utf-8", errors="replace"))
+    if not texts:
+        return False
+    txt_path.write_text("\n".join(texts), encoding="utf-8")
+    return txt_path.stat().st_size > 0
+
+
 async def convert_pdfs(input_path: Path, work_dir: Path, on_progress) -> tuple:
     await on_progress(20, "📄 Preparing PDF files...")
     pdf_files: list = []
@@ -319,14 +378,19 @@ async def convert_pdfs(input_path: Path, work_dir: Path, on_progress) -> tuple:
         raise ValueError(f"Too many PDFs in ZIP: {len(pdf_files)} — max {max_pdf} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
 
     scanned = []
+    ocr_used = 0
     total = len(pdf_files)
     for i, pf in enumerate(pdf_files, 1):
         if CANCELLED["v"]:
             raise JobCancelled()
         txt = pf.with_suffix(".txt")
         await on_progress(int(20 + (i - 1) * 60 / total), f"📄 Converting PDF {i}/{total}...")
-        await run_tool(["pdftotext", "-q", str(pf), str(txt)], on_progress, f"pdftotext {i}")
-        if txt.exists() and txt.stat().st_size == 0:
+        ok = await convert_single_pdf(pf, txt, on_progress, f"pdftotext {i}")
+        if not ok:
+            ok = await ocr_pdf(pf, txt, on_progress, f"OCR {i}")
+            if ok:
+                ocr_used += 1
+        if not ok:
             scanned.append(pf.name)
 
     await on_progress(85, "📦 Packaging TXT files...")
@@ -343,7 +407,7 @@ async def convert_pdfs(input_path: Path, work_dir: Path, on_progress) -> tuple:
                     zf.write(txt, txt.name)
         if not os.path.getsize(result):
             raise ValueError("No TXT output produced.")
-    return result, scanned
+    return result, scanned, ocr_used
 
 
 async def main():
@@ -448,11 +512,14 @@ async def main():
             edit(f"{label}\n{progress_bar(pct)}")
 
         try:
-            result, scanned = await convert_pdfs(dest, work_dir, on_progress)
+            result, scanned, ocr_used = await convert_pdfs(dest, work_dir, on_progress)
+            notes = []
+            if ocr_used:
+                notes.append(f"🔍 OCR used on {ocr_used} PDF(s)")
             if scanned:
-                caption = f"✅ Converted PDF → TXT! ⚠️ {len(scanned)} PDF(s) had no selectable text (scanned pages). — Powered By @R3V_X"
-            else:
-                caption = "✅ PDF converted → <b>TXT</b> — Powered By @R3V_X"
+                notes.append(f"⚠️ {len(scanned)} PDF(s) had no readable text")
+            note_str = " | ".join(notes)
+            caption = f"✅ PDF converted → <b>TXT</b>" + (f" ({note_str})" if note_str else "") + " — Powered By @R3V_X"
             done_msg = "✅ PDF → TXT conversion complete!"
         except asyncio.TimeoutError:
             edit("⏰ Timeout! The PDF is too large to convert.", keep_button=False)
