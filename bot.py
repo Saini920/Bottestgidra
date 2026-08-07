@@ -1556,7 +1556,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def parse_run_name(run_name: str):
     import re as _re
-    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt)-(\d+)-(\d+)$", run_name or "")
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt)-(-?\d+)-(\d+)$", run_name or "")
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
@@ -1595,29 +1595,45 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     runs = []
-    if GITHUB_TOKEN and GITHUB_REPO:
+    query_ok = False
+    query_error = ""
+    if not GITHUB_TOKEN:
+        query_error = "GITHUB_TOKEN env missing"
+    elif GITHUB_REPO:
         try:
             headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
             async with httpx.AsyncClient(timeout=10) as client:
                 for status in ["in_progress", "queued"]:
                     r = await client.get(f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}", headers=headers)
                     if r.status_code == 200:
+                        query_ok = True
                         for run in r.json().get("workflow_runs", []):
                             runs.append((run["id"], run.get("name", ""), status))
+                    else:
+                        query_error = f"GitHub API {r.status_code}"
         except Exception as e:
             log.warning("cmd_active github query failed: %s", e)
-
-    if not runs:
-        await update.message.reply_text("⚙️ <b>Active Cloud Jobs</b>\n══════════════\n\n✅ No active jobs right now.", parse_mode=constants.ParseMode.HTML)
-        return
+            query_error = str(e)[:120]
 
     lines = ["⚙️ <b>ACTIVE CLOUD JOBS</b>", "═══════════════════════════"]
     buttons = []
-    for idx, (run_id, run_name, status) in enumerate(runs, 1):
+
+    if query_error:
+        lines.append(f"\n⚠️ <i>GitHub query failed ({query_error}) — showing cached jobs only.</i>")
+
+    def run_line(idx, run_id, run_name, status, show_button):
         parsed = parse_run_name(run_name)
-        job = ACTIVE_JOBS.get(int(parsed[2])) if parsed else None
+        job = None
+        if parsed:
+            try:
+                job = ACTIVE_JOBS.get(int(parsed[2]))
+            except ValueError:
+                job = None
         if not job and parsed:
-            job = db.get_active_job(int(parsed[2]))
+            try:
+                job = db.get_active_job(int(parsed[2]))
+            except Exception:
+                job = None
         if job:
             engine_label = engine_display_label(job.get("engine", ""))
         else:
@@ -1626,7 +1642,7 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
         username = (job or {}).get("username", "")
         name = (job or {}).get("name", "")
         filename = (job or {}).get("filename", "?")
-        status_icon = "🟢 Running" if status == "in_progress" else "⏳ Queued"
+        status_icon = {"in_progress": "🟢 Running", "queued": "⏳ Queued", "completed": "✅ Done", "action_required": "❌ Failed", "cancelled": "🚫 Cancelled"}.get(status, f"❓ {status}")
         user_line = f"🆔 <code>{user_id}</code>"
         if username:
             user_line += f" | <b>@{username}</b>"
@@ -1641,7 +1657,45 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"   {user_line}\n"
             f"   📄 <code>{filename}</code>{task_line}"
         )
-        buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({engine_label.split()[1]})", callback_data=f"stoprun_{run_id}")])
+        if show_button:
+            buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({engine_label.split()[1]})", callback_data=f"stoprun_{run_id}")])
+
+    if runs:
+        for idx, (run_id, run_name, status) in enumerate(runs, 1):
+            run_line(idx, run_id, run_name, status, show_button=True)
+    else:
+        lines.append("\n✅ No active jobs right now.")
+        if query_ok:
+            try:
+                headers = {"Authorization": f"Bearer {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(
+                        f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?per_page=6",
+                        headers=headers,
+                    )
+                    if r.status_code == 200:
+                        recent = r.json().get("workflow_runs", [])
+                        if recent:
+                            lines.append("\n🕘 <b>Recent runs:</b>")
+                            for run in recent:
+                                st = run.get("status", "")
+                                concl = run.get("conclusion") or ""
+                                if st == "completed":
+                                    icon = "✅" if concl == "success" else ("❌" if concl == "failure" else ("🚫" if concl == "cancelled" else "❓"))
+                                elif st == "in_progress":
+                                    icon = "🟢"
+                                elif st == "queued":
+                                    icon = "⏳"
+                                else:
+                                    icon = "❓"
+                                rname = run.get("name", "") or "?"
+                                rp = parse_run_name(rname)
+                                flabel = ENGINE_LABELS.get(rp[0], "🔧") if rp else "🔧"
+                                lines.append(f"{icon} <code>{rname}</code> · {flabel}")
+                        else:
+                            lines.append("\n🕘 No recent runs found.")
+            except Exception as e:
+                log.warning("cmd_active recent runs query failed: %s", e)
 
     text = "\n".join(lines)
     await update.message.reply_text(
