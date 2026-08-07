@@ -774,7 +774,7 @@ async def cancel_github_job(chat_id, msg_id):
                                 log.info("Cancelled Github run %s for chat=%s msg=%s", run_id, chat_s, msg_s)
                                 return
             except Exception as e:
-                log.warning("Failed to cancel github job %s: %s", job_name, e)
+                log.warning("Failed to cancel github job chat=%s msg=%s: %s", chat_s, msg_s, e)
 
 
 async def cancel_github_run(run_id: int):
@@ -904,6 +904,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         "filename": filename,
         "engine": engine,
         "started": time.time(),
+        "run_id": None,
+        "run_status": "",
     }
     try:
         db.set_active_job(status.message_id, ACTIVE_JOBS[status.message_id])
@@ -1629,7 +1631,9 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
         if now - job.get("started", 0) > 3600:
             continue
-        runs.append((None, f"job-0-{mid}", "dispatched"))
+        rs = job.get("run_status", "")
+        status = rs if rs in ("in_progress", "queued") else "dispatched"
+        runs.append((job.get("run_id"), f"job-0-{mid}", status))
 
     lines = ["⚙️ <b>ACTIVE CLOUD JOBS</b>", "═══════════════════════════"]
     buttons = []
@@ -1827,6 +1831,37 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def track_runs_loop():
+    while True:
+        try:
+            if GITHUB_TOKEN and GITHUB_REPO and ACTIVE_JOBS:
+                headers = {
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github+json"
+                }
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    r = await client.get(
+                        f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?per_page=20",
+                        headers=headers
+                    )
+                    if r.status_code == 200:
+                        for run in r.json().get("workflow_runs", []):
+                            p = parse_run_name(run.get("name", "") or "")
+                            if not p:
+                                continue
+                            try:
+                                mid = int(p[2])
+                            except ValueError:
+                                continue
+                            job = ACTIVE_JOBS.get(mid)
+                            if job is not None:
+                                job["run_id"] = run["id"]
+                                job["run_status"] = run.get("status", "")
+        except Exception as e:
+            log.warning("track_runs failed: %s", e)
+        await asyncio.sleep(20)
+
+
 async def cleanup_workflows_loop(app: Application):
     while True:
         try:
@@ -1868,6 +1903,7 @@ async def post_init(app: Application):
     asyncio.create_task(subscription_checker_loop(app))
     asyncio.create_task(weekly_analytics_loop(app))
     asyncio.create_task(cleanup_workflows_loop(app))
+    asyncio.create_task(track_runs_loop())
 
 
 def main():
