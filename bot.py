@@ -300,6 +300,8 @@ def engine_display_label(engine):
         return ENGINE_LABELS[engine]
     if engine.startswith("apksign-"):
         return f"🔏 APK Signer (Android {engine.split('-')[1]})"
+    if not engine:
+        return "🔧 Unknown"
     return engine.replace("-", " ").capitalize()
 
 
@@ -1564,7 +1566,7 @@ def parse_run_name(run_name: str):
     return m.group(1), m.group(2), m.group(3)
 
 
-ENGINE_LABELS = {"job": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer", "pdftxt": "📄 PDF → TXT"}
+ENGINE_LABELS = {"job": "🐉 Ghidra", "ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer", "pdftxt": "📄 PDF → TXT"}
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
@@ -1678,7 +1680,9 @@ async def cmd_active(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"   📄 <code>{filename}</code>{task_line}"
         )
         if show_button and run_id:
-            buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({engine_label.split()[1]})", callback_data=f"stoprun_{run_id}")])
+            parts = engine_label.split()
+            short = parts[1] if len(parts) > 1 else (parts[0] if parts else "Job")
+            buttons.append([InlineKeyboardButton(f"🛑 Stop #{idx} ({short})", callback_data=f"stoprun_{run_id}")])
 
     if runs:
         for idx, (run_id, run_name, status) in enumerate(runs, 1):
