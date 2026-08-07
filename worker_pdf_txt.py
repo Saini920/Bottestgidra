@@ -288,8 +288,16 @@ def is_pdf_file(path: Path) -> bool:
         return False
 
 
+OCR_LANGS = "eng+hin+urd+ben+mar+guj+tam+tel+kan+mal+pan+ori+asm"
+OCR_PSMS = ("3", "6", "11")
+
+
+def has_meaningful_text(data: str) -> bool:
+    return any(ch.isalnum() for ch in data.replace("\x0c", " ").strip())
+
+
 async def convert_single_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str) -> bool:
-    """Extract text with progressive flag fallback. Returns True if non-empty output produced."""
+    """Extract text with progressive flag fallback. Returns True if meaningful output produced."""
     if txt_path.exists():
         txt_path.unlink()
     candidates = [
@@ -306,45 +314,61 @@ async def convert_single_pdf(pdf_path: Path, txt_path: Path, on_progress, label:
             if txt_path.exists():
                 txt_path.unlink()
             continue
-        if txt_path.exists() and txt_path.stat().st_size > 0:
-            return True
         if txt_path.exists():
+            content = txt_path.read_text(encoding="utf-8", errors="replace")
+            if has_meaningful_text(content):
+                return True
             txt_path.unlink()
     return False
+
+
+async def ocr_page(page: Path, base: Path, on_progress, label: str) -> str:
+    for psm in OCR_PSMS:
+        out = Path(str(base) + f"_psm{psm}.txt")
+        if out.exists():
+            out.unlink()
+        try:
+            await run_tool(["tesseract", str(page), str(Path(str(base) + f"_psm{psm}")), "-l", OCR_LANGS, "--psm", psm],
+                           on_progress, label, timeout=1800, progress_stall=900)
+        except Exception as e:
+            log.warning("tesseract failed for %s: %s", page.name, e)
+            continue
+        if out.exists():
+            content = out.read_text(encoding="utf-8", errors="replace")
+            if has_meaningful_text(content):
+                return content
+    return ""
 
 
 async def ocr_pdf(pdf_path: Path, txt_path: Path, on_progress, label: str) -> bool:
     """OCR fallback for scanned (image-only) PDFs via pdftoppm + tesseract."""
     if not shutil.which("pdftoppm") or not shutil.which("tesseract"):
+        log.warning("OCR tools missing (pdftoppm/tesseract)")
         return False
     ocr_dir = pdf_path.parent / (pdf_path.stem + "_ocr")
     ocr_dir.mkdir(exist_ok=True)
     try:
-        await run_tool(["pdftoppm", "-r", "200", "-jpeg", str(pdf_path), str(ocr_dir / "pg")], on_progress, label, timeout=3600, progress_stall=1800)
+        await run_tool(["pdftoppm", "-r", "300", "-jpeg", str(pdf_path), str(ocr_dir / "pg")], on_progress, label, timeout=3600, progress_stall=1800)
     except Exception as e:
         log.warning("pdftoppm failed for %s: %s", pdf_path.name, e)
         return False
     pages = [p for p in ocr_dir.iterdir() if p.suffix.lower() == ".jpg"]
     pages.sort(key=lambda p: int(re.search(r"(\d+)\.jpg$", p.name).group(1)) if re.search(r"(\d+)\.jpg$", p.name) else 0)
     if not pages:
+        log.warning("No pages rendered for %s", pdf_path.name)
         return False
     texts = []
     for i, page in enumerate(pages, 1):
         if CANCELLED["v"]:
             raise JobCancelled()
-        base = ocr_dir / f"out_{i}"
-        try:
-            await run_tool(["tesseract", str(page), str(base), "-l", "eng", "--psm", "3"], on_progress, label, timeout=1800, progress_stall=900)
-        except Exception as e:
-            log.warning("tesseract failed for %s page %d: %s", pdf_path.name, i, e)
-            continue
-        out_txt = Path(str(base) + ".txt")
-        if out_txt.exists():
-            texts.append(out_txt.read_text(encoding="utf-8", errors="replace"))
+        t = await ocr_page(page, ocr_dir / f"out_{i}", on_progress, label)
+        if t:
+            texts.append(t)
     if not texts:
+        log.warning("OCR produced no text for %s", pdf_path.name)
         return False
     txt_path.write_text("\n".join(texts), encoding="utf-8")
-    return txt_path.stat().st_size > 0
+    return has_meaningful_text(txt_path.read_text(encoding="utf-8", errors="replace"))
 
 
 async def convert_pdfs(input_path: Path, work_dir: Path, on_progress) -> tuple:

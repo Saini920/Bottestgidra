@@ -19,9 +19,14 @@ jobs:
       - name: Install poppler-utils + tesseract
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils tesseract-ocr
+          sudo apt-get install -y poppler-utils tesseract-ocr \
+            tesseract-ocr-hin tesseract-ocr-urd tesseract-ocr-ben \
+            tesseract-ocr-mar tesseract-ocr-guj tesseract-ocr-tam \
+            tesseract-ocr-tel tesseract-ocr-kan tesseract-ocr-mal \
+            tesseract-ocr-pan tesseract-ocr-ori tesseract-ocr-asm
           pdftotext -v
           tesseract --version
+          tesseract --list-langs
 
       - name: Cache TG Session
         uses: actions/cache@v4
