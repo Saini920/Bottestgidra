@@ -290,7 +290,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
                 break
             line = raw.decode(errors="replace").strip()
             tail.append(line)
-            del tail[:-60]
+            del tail[:-250]
             low = line.lower()
             if "analyzing" in low or "processing" in low:
                 await on_progress(20, "🔧 Analyzing binary with Ghidra...")
@@ -309,8 +309,19 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
     log.info("analyzeHeadless exit=%s", rc)
     tail_txt = "\n".join(tail[-50:])
     if rc != 0:
-        raise RuntimeError(f"Ghidra exited with code {rc}:\n{tail_txt[-1200:]}")
-    return {"c": out_c, "meta": out_meta, "tail": tail_txt, "returncode": rc}
+        raise RuntimeError(f"Ghidra exited with code {rc}:\n{extract_error_info(tail)[:1200]}")
+    return {"c": out_c, "meta": out_meta, "tail": tail_txt, "lines": list(tail), "returncode": rc}
+
+
+def extract_error_info(lines) -> str:
+    keys = ("error", "exception", "failed", "unable", "cannot", "could not",
+            "unsupported", "not recognized", "no language", "report", "caused by",
+            "fatal", "import", "invalid", "unknown")
+    out = []
+    for ln in (lines or []):
+        if any(k in ln.lower() for k in keys):
+            out.append(ln)
+    return "\n".join(out[-16:]) if out else "\n".join((lines or [])[-40:])
 
 
 def send_document(file_path: Path, caption: str, filename: str):
@@ -458,6 +469,14 @@ async def main():
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return
 
+        file_magic = ""
+        try:
+            with open(dest, "rb") as fh:
+                file_magic = fh.read(16).hex(" ")
+            log.info("Downloaded %s bytes, magic: %s", size, file_magic)
+        except Exception as e:
+            log.warning("Could not read magic: %s", e)
+
         try:
             extra = count_zip_so_dex(dest)
         except Exception as e:
@@ -566,14 +585,21 @@ async def main():
                 return
 
         if not out_files:
-            tail_txt = ""
+            diag = ""
             try:
-                tail_txt = result["tail"][-250:]
+                diag = extract_error_info(result.get("lines"))[:1400]
             except Exception:
-                pass
+                diag = ""
+            if not diag:
+                try:
+                    diag = result["tail"][-400:]
+                except Exception:
+                    diag = ""
             msg = "❌ Analysis failed or no output files generated."
-            if tail_txt:
-                msg += "\n\n<code>" + tail_txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</code>"
+            if file_magic:
+                msg += f"\n\n📦 File: {size/1024/1024:.1f} MB · magic: <code>{file_magic}</code>"
+            if diag:
+                msg += "\n\n<code>" + diag.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</code>"
             edit(msg, parse_mode="HTML")
             return
 
