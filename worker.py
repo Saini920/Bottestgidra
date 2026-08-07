@@ -145,9 +145,8 @@ def apply_memory_settings():
     mem = requested
     avail = detect_available_ram_gb()
     if avail:
-        # Reserve ~2 GB of headroom for Ghidra's native decompiler memory,
-        # otherwise big binaries push RSS over the runner RAM and get SIGKILLed (OOM).
-        cap = int(avail - 2)
+        # Reserve ~1 GB of headroom for Ghidra's native decompiler memory.
+        cap = int(avail - 1)
         req = parse_mem_gb(requested)
         if cap >= 1 and req > cap:
             mem = f"{cap}G"
@@ -155,12 +154,18 @@ def apply_memory_settings():
     props = GHIDRA_HOME / "support" / "launch.properties"
     try:
         text = props.read_text(errors="replace")
-        new = re.sub(r"^JAVA_MAX_MEM\s*=.*$", f"JAVA_MAX_MEM={mem}", text, flags=re.M)
-        if new == text and "JAVA_MAX_MEM" not in text:
+        # launch.properties ships JAVA_MAX_MEM commented out (e.g. "#JAVA_MAX_MEM=768M").
+        # If we don't uncomment it, Ghidra silently runs with the tiny default heap and
+        # big .so files die with java.lang.OutOfMemoryError during analysis.
+        pattern = re.compile(r"^[ \t]*[#!]?[ \t]*JAVA_MAX_MEM\s*=.*$", flags=re.M)
+        new = pattern.sub(f"JAVA_MAX_MEM={mem}", text)
+        if new == text:
             new = text.rstrip("\n") + f"\nJAVA_MAX_MEM={mem}\n"
         if new != text:
             props.write_text(new)
-        log.info("JAVA_MAX_MEM set to %s", mem)
+        verify = props.read_text(errors="replace")
+        m = re.search(r"^[ \t]*JAVA_MAX_MEM\s*=\s*(.+)$", verify, flags=re.M)
+        log.info("JAVA_MAX_MEM -> %s (active line: %s)", mem, m.group(1).strip() if m else "NOT FOUND")
     except Exception as e:
         log.warning("Could not set JAVA_MAX_MEM: %s", e)
 
