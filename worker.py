@@ -290,7 +290,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=7200)
+        rc = await asyncio.wait_for(read_stream(), timeout=18000)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("Ghidra analysis timed out")
@@ -528,7 +528,7 @@ async def main():
                     for attempt in (1, 2):
                         try:
                             res = await asyncio.wait_for(
-                                run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress, disable_callfixup=(attempt == 2)), timeout=3600
+                                run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress, disable_callfixup=(attempt == 2)), timeout=18000
                             )
                             bname = bin_path.stem
                             if res["c"].exists() and res["c"].stat().st_size > 0:
@@ -552,7 +552,7 @@ async def main():
                 for attempt in (1, 2):
                     try:
                         result = await asyncio.wait_for(
-                            run_ghidra(dest, work_dir / "analysis", on_progress, disable_callfixup=(attempt == 2)), timeout=7200
+                            run_ghidra(dest, work_dir / "analysis", on_progress, disable_callfixup=(attempt == 2)), timeout=18000
                         )
                         break
                     except RuntimeError as e:

@@ -199,7 +199,7 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
         raise ValueError("Could not download file from this link.")
 
 
-async def run_tool(cmd: list, on_progress, label: str, timeout: int = 3600, progress_stall: int = 1800, heartbeat=None, check_errors: bool = True):
+async def run_tool(cmd: list, on_progress, label: str, timeout: int = 18000, progress_stall: int = 1800, heartbeat=None, check_errors: bool = True):
     log.info("Running: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT

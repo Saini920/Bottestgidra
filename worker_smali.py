@@ -265,7 +265,7 @@ async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=3600)
+        rc = await asyncio.wait_for(read_stream(), timeout=18000)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("baksmali decode timed out")
