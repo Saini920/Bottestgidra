@@ -258,7 +258,7 @@ async def run_dex2jar(file_path: Path, work_dir: Path, on_progress) -> Path:
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=18000)
+        rc = await asyncio.wait_for(read_stream(), timeout=86400)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("dex2jar conversion timed out")
@@ -320,7 +320,7 @@ async def run_cfr(jar_path: Path, work_dir: Path, on_progress) -> Path:
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=18000)
+        rc = await asyncio.wait_for(read_stream(), timeout=86400)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("CFR decompilation timed out")
@@ -385,7 +385,7 @@ async def run_jadx_fallback(jar_path: Path, work_dir: Path, on_progress) -> Path
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=18000)
+        rc = await asyncio.wait_for(read_stream(), timeout=86400)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("JADX fallback decompilation timed out")

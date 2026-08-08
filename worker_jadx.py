@@ -270,7 +270,7 @@ async def run_jadx(file_path: Path, work_dir: Path, on_progress) -> Path:
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=18000)
+        rc = await asyncio.wait_for(read_stream(), timeout=86400)
     except asyncio.TimeoutError:
         proc.kill()
         raise TimeoutError("JADX decompilation timed out")
