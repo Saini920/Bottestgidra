@@ -28,7 +28,6 @@ MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-CANCEL_MARKER = "Job Cancelled by User"
 CANCELLED = {"v": False}
 
 
@@ -36,155 +35,9 @@ class JobCancelled(BaseException):
     pass
 
 
-async def cancel_watchdog():
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            while not CANCELLED["v"]:
-                await asyncio.sleep(2)
-                try:
-                    resp = await client.post(
-                        f"{API}/getMessage",
-                        data={"chat_id": CHAT_ID, "message_id": MESSAGE_ID},
-                    )
-                    txt = ((resp.json() or {}).get("result") or {}).get("text") or ""
-                except Exception:
-                    continue
-                if CANCEL_MARKER in txt:
-                    CANCELLED["v"] = True
-                    return
-    except Exception as e:
-        log.warning("Cancel watchdog stopped: %s", e)
-
-
-def check_download_size(total_bytes: int):
-    if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
-        raise ValueError(
-            f"File is {total_bytes/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB."
-        )
-
-
-def notify_app(message: str, title: str = None):
-    if not JOB_ID:
-        return
-    headers = {}
-    if title:
-        headers["Title"] = title.encode("utf-8")
-    try:
-        httpx.post(f"https://ntfy.sh/{JOB_ID}", data=message.encode("utf-8"), headers=headers, timeout=10)
-    except Exception:
-        pass
-
-
-
-def tg(method: str, **params):
-    try:
-        resp = httpx.post(f"{API}/{method}", data=params, timeout=60)
-        return resp.json()
-    except Exception as e:
-        log.warning("tg %s failed: %s", method, e)
-        return None
-
-import json
-
-def edit(text: str, parse_mode: str = None, keep_button: bool = True):
-    if CANCELLED["v"]:
-        return
-    params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
-    if parse_mode:
-        params["parse_mode"] = parse_mode
-    if keep_button:
-        params["reply_markup"] = json.dumps({
-            "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
-        })
-    tg("editMessageText", **params)
-    notify_app(text)
-
-def progress_bar(pct: float) -> str:
-    val = float(pct)
-    filled = max(0, min(16, int(val * 16 / 100)))
-    bar = "▰" * filled + "▱" * (16 - filled)
-    return f"{bar} {val:.2f} %"
-
-async def download_url(url: str, dest: Path, on_progress) -> str:
-    headers = {"User-Agent": "Mozilla/5.0"}
-    fid = None
-    if "drive.google.com" in url:
-        m = re.search(r"/file/d/([^/?#]+)", url) or re.search(r"[?&]id=([^&#]+)", url)
-        if m:
-            fid = m.group(1)
-            url = f"https://drive.google.com/uc?export=download&id={fid}"
-
-    timeout = httpx.Timeout(30.0, connect=30.0, read=300.0, write=300.0)
-    transport = httpx.AsyncHTTPTransport(retries=3)
-    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout, transport=transport) as client:
-        for attempt in range(3):
-            async with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                ct = resp.headers.get("content-type", "")
-                if "text/html" in ct:
-                    if attempt == 2:
-                        raise ValueError("The link is a webpage, not a direct file.")
-                    html = (await resp.aread()).decode(errors="replace")
-                    if fid:
-                        m = re.search(r'name="confirm"\s+value="([^"]+)"', html)
-                        if m:
-                            url = (f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm={m.group(1)}")
-                            continue
-                        if "Google Drive" in html or "drive.google" in html:
-                            raise ValueError("Google Drive file not accessible.")
-                    m = re.search(r'href="(https?://download[0-9]+\.mediafire\.com/[^"]+)"', html)
-                    if m:
-                        url = unescape(m.group(1))
-                        continue
-                    raise ValueError("The link is a webpage, not a direct file.")
-
-                filename = "download.zip"
-                cd = resp.headers.get("content-disposition", "")
-                m = re.search(r'filename="?([^";]+)"?', cd)
-                if m:
-                    filename = unquote(m.group(1)).strip()
-                else:
-                    path_part = unquote(resp.url.path.rstrip("/").rsplit("/", 1)[-1])
-                    if path_part:
-                        filename = path_part
-
-                total = int(resp.headers.get("content-length") or 0)
-                check_download_size(total)
-                downloaded = 0
-                with open(dest, "wb") as fh:
-                    async for chunk in resp.aiter_bytes(65536):
-                        if CANCELLED["v"]:
-                            raise JobCancelled()
-                        fh.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            pct = min(100, int(downloaded * 100 / total))
-                            await on_progress(pct)
-                size = dest.stat().st_size
-                if size == 0:
-                    edit("❌ Downloaded file is empty.", keep_button=False)
-                    return ""
-                if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
-                    edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
-                    return ""
-                return filename
-        raise ValueError("Could not download file from this link.")
-
-def send_document(file_path: Path, caption: str, filename: str):
-    with open(file_path, "rb") as fh:
-        resp = httpx.post(
-            f"{API}/sendDocument",
-            data={"chat_id": CHAT_ID, "caption": caption[:1024], "parse_mode": "HTML"},
-            files={"document": (filename, fh, "application/zip" if file_path.name.endswith(".zip") else "text/plain")},
-            timeout=180,
-        )
-    return resp.json()
-
 async def main():
     if not BOT_TOKEN or not CHAT_ID:
         sys.exit(1)
-    asyncio.create_task(cancel_watchdog())
-
     edit("🟢 Job started! Preparing Compiler on cloud server...", parse_mode="HTML")
     work_dir = Path(tempfile.gettempdir()) / ("apktool_build_" + os.urandom(8).hex())
     try:

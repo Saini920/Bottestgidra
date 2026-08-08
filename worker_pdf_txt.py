@@ -37,7 +37,6 @@ MAX_PDF_PREMIUM = 20
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-CANCEL_MARKER = "Job Cancelled by User"
 CANCELLED = {"v": False}
 
 
@@ -49,26 +48,6 @@ class TolerantZipFile(zipfile.ZipFile):
     @property
     def _end_offset(self):
         return None
-
-
-async def cancel_watchdog():
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            while not CANCELLED["v"]:
-                await asyncio.sleep(2)
-                try:
-                    resp = await client.post(
-                        f"{API}/getMessage",
-                        data={"chat_id": CHAT_ID, "message_id": MESSAGE_ID},
-                    )
-                    txt = ((resp.json() or {}).get("result") or {}).get("text") or ""
-                except Exception:
-                    continue
-                if CANCEL_MARKER in txt:
-                    CANCELLED["v"] = True
-                    return
-    except Exception as e:
-        log.warning("Cancel watchdog stopped: %s", e)
 
 
 def check_download_size(total_bytes: int):
@@ -458,8 +437,6 @@ async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
-    asyncio.create_task(cancel_watchdog())
-
     edit("🟢 Job started! Preparing PDF → TXT engine on cloud server...", parse_mode="HTML")
 
     work_dir = Path(tempfile.gettempdir()) / ("pdftxt_" + os.urandom(8).hex())
