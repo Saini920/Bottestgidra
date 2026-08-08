@@ -32,7 +32,7 @@
     },
     "7251749429": {
       "date": "2026-08-08",
-      "count": 9
+      "count": 10
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -40,7 +40,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 130,
+  "total_files": 131,
   "active_jobs": {
     "1411": {
       "user_id": "7251749429",
@@ -217,8 +217,8 @@
       "filename": "z project anime.zip",
       "engine": "apkbuild",
       "started": 1786207222.1726196,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31267514065,
+      "run_status": "completed"
     }
   }
 }
