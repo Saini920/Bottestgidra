@@ -237,9 +237,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         "-overwrite",
     ]
     if disable_callfixup:
-        props = work_dir / "analysis.options"
-        props.write_text("Analysis.CallFixupAnalyzer.enabled=false\n")
-        cmd.extend(["-properties", str(props)])
+        cmd.extend(["-preScript", "DisableCallFixup"])
     cmd.extend([
         "-import", str(file_path),
         "-scriptPath", str(SCRIPT_DIR),
@@ -553,6 +551,7 @@ async def main():
         if not out_files:
             try:
                 result = None
+                first_err = None
                 for attempt in (1, 2):
                     try:
                         result = await asyncio.wait_for(
@@ -561,9 +560,12 @@ async def main():
                         break
                     except RuntimeError as e:
                         if attempt == 1:
+                            first_err = str(e)
                             log.warning("Ghidra crashed, retrying with CallFixupAnalyzer disabled: %s", e)
                             continue
-                        raise
+                        raise RuntimeError(
+                            f"Both attempts failed.\n[1st] {first_err}\n[2nd] {e}"
+                        ) from e
                 bname = Path(filename).stem or "decompiled"
                 if result["c"].exists() and result["c"].stat().st_size > 0:
                     out_files.append((f"{bname}.c", result["c"]))
