@@ -39,10 +39,238 @@ class JobCancelled(BaseException):
     pass
 
 
+def check_download_size(total_bytes: int):
+    if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
+        raise ValueError(
+            f"File is {total_bytes/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB."
+        )
+
+
+def notify_app(message: str, title: str = None):
+    if not JOB_ID:
+        return
+    headers = {}
+    if title:
+        headers["Title"] = title.encode("utf-8")
+    try:
+        httpx.post(f"https://ntfy.sh/{JOB_ID}", data=message.encode("utf-8"), headers=headers, timeout=10)
+    except Exception as e:
+        log.warning("Ntfy failed: %s", e)
+
+
+def tg(method: str, **params):
+    try:
+        resp = httpx.post(f"{API}/{method}", data=params, timeout=60)
+        return resp.json()
+    except Exception as e:
+        log.warning("tg %s failed: %s", method, e)
+        return None
+
+
+import json
+
+def edit(text: str, parse_mode: str = None, keep_button: bool = True):
+    if CANCELLED["v"]:
+        return
+    params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
+    if parse_mode:
+        params["parse_mode"] = parse_mode
+    if keep_button:
+        params["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
+        })
+    tg("editMessageText", **params)
+    notify_app(text)
+
+
+def progress_bar(pct: float) -> str:
+    val = float(pct)
+    filled = max(0, min(16, int(val * 16 / 100)))
+    bar = "▰" * filled + "▱" * (16 - filled)
+    return f"{bar} {val:.2f} %"
+
+
+def proc_cpu_usage(pid: int) -> int:
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            parts = f.read().split()
+        return int(parts[13]) + int(parts[14])
+    except Exception:
+        return -1
+
+
+async def download_url(url: str, dest: Path, on_progress) -> str:
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    fid = None
+    if "drive.google.com" in url:
+        m = re.search(r"/file/d/([^/?#]+)", url) or re.search(r"[?&]id=([^&#]+)", url)
+        if m:
+            fid = m.group(1)
+            url = f"https://drive.google.com/uc?export=download&id={fid}"
+
+    timeout = httpx.Timeout(30.0, connect=30.0, read=300.0, write=300.0)
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout, transport=transport) as client:
+        for attempt in range(3):
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                ct = resp.headers.get("content-type", "")
+                if "text/html" in ct:
+                    if attempt == 2:
+                        raise ValueError("The link is a webpage, not a direct file.")
+                    html = (await resp.aread()).decode(errors="replace")
+                    if fid:
+                        m = re.search(r'name="confirm"\s+value="([^"]+)"', html)
+                        if m:
+                            url = (f"https://drive.usercontent.google.com/download"
+                                   f"?id={fid}&export=download&confirm={m.group(1)}")
+                            continue
+                        if "Google Drive" in html or "drive.google" in html:
+                            raise ValueError("Google Drive file not accessible.")
+                    m = re.search(r'href="(https?://download[0-9]+\.mediafire\.com/[^"]+)"', html)
+                    if m:
+                        url = unescape(m.group(1))
+                        continue
+                    raise ValueError("The link is a webpage, not a direct file.")
+
+                filename = "download.apk"
+                cd = resp.headers.get("content-disposition", "")
+                m = re.search(r'filename="?([^";]+)"?', cd)
+                if m:
+                    filename = unquote(m.group(1)).strip()
+                else:
+                    path_part = unquote(resp.url.path.rstrip("/").rsplit("/", 1)[-1])
+                    if path_part:
+                        filename = path_part
+
+                total = int(resp.headers.get("content-length") or 0)
+                check_download_size(total)
+                downloaded = 0
+                with open(dest, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(65536):
+                        if CANCELLED["v"]:
+                            raise JobCancelled()
+                        fh.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            pct = min(100, int(downloaded * 100 / total))
+                            await on_progress(pct)
+                return filename
+        raise ValueError("Could not download file from this link.")
+
+
+async def run_apktool(file_path: Path, work_dir: Path, on_progress) -> Path:
+    out_dir = work_dir / "decompiled_apk"
+    cmd = [
+        "java", "-Xmx8G", "-jar", "/opt/apktool/apktool.jar", "d", str(file_path),
+        "-o", str(out_dir), "-f"
+    ]
+    log.info("Running: %s", " ".join(cmd))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+    
+    await on_progress(10, "📱 Decompiling APK with Apktool...")
+    
+    async def read_stream():
+        last_activity = time.monotonic()
+        last_cpu = proc_cpu_usage(proc.pid)
+        while True:
+            if CANCELLED["v"]:
+                proc.kill()
+                raise JobCancelled()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
+                last_activity = time.monotonic()
+            except asyncio.TimeoutError:
+                cpu = proc_cpu_usage(proc.pid)
+                if cpu > last_cpu:
+                    last_cpu = cpu
+                    last_activity = time.monotonic()
+                elif time.monotonic() - last_activity >= 1800:
+                    proc.kill()
+                    raise RuntimeError("Apktool stalled: no CPU activity for 30 minutes")
+                continue
+            if not raw:
+                break
+            line = raw.decode(errors="replace").strip()
+            low = line.lower()
+            if "baksmali" in low or "smali" in low:
+                await on_progress(40, "🧩 Decompiling Smali Code...")
+            elif "resources" in low or "xml" in low:
+                await on_progress(70, "🖼️ Decoding Resources and XML...")
+        return await proc.wait()
+
+    try:
+        rc = await asyncio.wait_for(read_stream(), timeout=1800)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise TimeoutError("Apktool analysis timed out")
+    
+    if rc != 0 or not out_dir.exists():
+        raise Exception(f"Apktool failed with return code {rc}")
+    
+    return out_dir
+
+
+def send_document(file_path: Path, caption: str, filename: str):
+    with open(file_path, "rb") as fh:
+        resp = httpx.post(
+            f"{API}/sendDocument",
+            data={"chat_id": CHAT_ID, "caption": caption[:1024], "parse_mode": "HTML"},
+            files={"document": (filename, fh, "application/zip")},
+            timeout=180,
+        )
+    return resp.json()
+
+
+def check_zip_limits(file_path: Path):
+    if IS_ADMIN:
+        return
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return
+    import zipfile
+    with zipfile.ZipFile(file_path) as zf:
+        names = zf.namelist()
+    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+    apks = sum(1 for n in names if n.lower().endswith(".apk"))
+    max_so_dex = 5 if IS_PREMIUM else 1
+    max_apk = 2 if IS_PREMIUM else 1
+    if so_dex > max_so_dex:
+        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    if apks > max_apk:
+        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+
+
+def count_zip_so_dex(file_path: Path) -> int:
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return 0
+    import zipfile
+    with zipfile.ZipFile(file_path) as zf:
+        names = zf.namelist()
+    return sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+
+
+def report_extra_count(extra: int):
+    if not REPORT_URL or not REPORT_TOKEN or extra <= 0:
+        return
+    try:
+        httpx.post(
+            REPORT_URL,
+            json={"user_id": USER_ID, "count": extra},
+            headers={"X-Count-Token": REPORT_TOKEN},
+            timeout=10,
+        )
+        log.info("Reported extra count %d for user %s", extra, USER_ID)
+    except Exception as e:
+        log.warning("Count report failed: %s", e)
+
+
 async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
+
     edit("🟢 Job started! Preparing Apktool on cloud server...", parse_mode="HTML")
 
     work_dir = Path(tempfile.gettempdir()) / ("apktool_" + os.urandom(8).hex())

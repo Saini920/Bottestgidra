@@ -348,6 +348,7 @@ async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
+
     edit("🟢 Job started! Preparing APK Sign engine on cloud server...", parse_mode="HTML")
 
     work_dir = Path(tempfile.gettempdir()) / ("apksign_" + os.urandom(8).hex())

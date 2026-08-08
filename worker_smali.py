@@ -45,10 +45,315 @@ class JobCancelled(BaseException):
     pass
 
 
+def check_download_size(total_bytes: int):
+    if total_bytes and total_bytes > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
+        raise ValueError(
+            f"File is {total_bytes/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB."
+        )
+
+
+def notify_app(message: str, title: str = None):
+    if not JOB_ID:
+        return
+    headers = {}
+    if title:
+        headers["Title"] = title.encode("utf-8")
+    try:
+        httpx.post(f"https://ntfy.sh/{JOB_ID}", data=message.encode("utf-8"), headers=headers, timeout=10)
+    except Exception as e:
+        log.warning("Ntfy failed: %s", e)
+
+
+def tg(method: str, **params):
+    try:
+        resp = httpx.post(f"{API}/{method}", data=params, timeout=60)
+        return resp.json()
+    except Exception as e:
+        log.warning("tg %s failed: %s", method, e)
+        return None
+
+
+import json
+
+def edit(text: str, parse_mode: str = None, keep_button: bool = True):
+    if CANCELLED["v"]:
+        return
+    params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
+    if parse_mode:
+        params["parse_mode"] = parse_mode
+    if keep_button:
+        params["reply_markup"] = json.dumps({
+            "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
+        })
+    tg("editMessageText", **params)
+    notify_app(text)
+
+
+def progress_bar(pct: float) -> str:
+    val = float(pct)
+    filled = max(0, min(16, int(val * 16 / 100)))
+    bar = "▰" * filled + "▱" * (16 - filled)
+    return f"{bar} {val:.2f} %"
+
+
+def proc_cpu_usage(pid: int) -> int:
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            parts = f.read().split()
+        return int(parts[13]) + int(parts[14])
+    except Exception:
+        return -1
+
+
+async def send_error_log(work_dir, exception_obj, title="Smali Decode failed"):
+    import traceback
+    err_str = traceback.format_exc()
+    log.error("%s: %s", title, exception_obj)
+    sent = False
+    try:
+        err_file = Path(work_dir) / "error.txt"
+        err_file.write_text(f"❌ {title}:\n\n{err_str}")
+        caption = f"❌ Error Log:\n{str(exception_obj)[:100]}"
+        try:
+            with open(err_file, "rb") as ef:
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+                async with httpx.AsyncClient(timeout=120) as client:
+                    resp = await client.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"document": ef})
+                    resp.raise_for_status()
+            sent = True
+        except Exception as e:
+            log.warning("HTTP error log upload failed, falling back to MTProto: %s", e)
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "upload_file.py", str(err_file), caption,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+            await proc.wait()
+            sent = (proc.returncode == 0)
+    except Exception as e:
+        log.error("Failed to upload error log: %s", e)
+    if sent:
+        edit(f"❌ {title}. Error log sent.", keep_button=False)
+    else:
+        edit(f"❌ {title}. Could not send error log. Try again later.", keep_button=False)
+
+
+async def download_url(url: str, dest: Path, on_progress) -> str:
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    fid = None
+    if "drive.google.com" in url:
+        m = re.search(r"/file/d/([^/?#]+)", url) or re.search(r"[?&]id=([^&#]+)", url)
+        if m:
+            fid = m.group(1)
+            url = f"https://drive.google.com/uc?export=download&id={fid}"
+
+    timeout = httpx.Timeout(30.0, connect=30.0, read=300.0, write=300.0)
+    transport = httpx.AsyncHTTPTransport(retries=3)
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout, transport=transport) as client:
+        for attempt in range(3):
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                ct = resp.headers.get("content-type", "")
+                if "text/html" in ct:
+                    if attempt == 2:
+                        raise ValueError("The link is a webpage, not a direct file.")
+                    html = (await resp.aread()).decode(errors="replace")
+                    if fid:
+                        m = re.search(r'name="confirm"\s+value="([^"]+)"', html)
+                        if m:
+                            url = f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm={m.group(1)}"
+                            continue
+                        if "Google Drive" in html or "drive.google" in html:
+                            raise ValueError("Google Drive file not accessible.")
+                    m = re.search(r'href="(https?://download[0-9]+\.mediafire\.com/[^"]+)"', html)
+                    if m:
+                        url = unescape(m.group(1))
+                        continue
+                    raise ValueError("The link is a webpage, not a direct file.")
+
+                filename = "download.dex"
+                cd = resp.headers.get("content-disposition", "")
+                m = re.search(r'filename="?([^";]+)"?', cd)
+                if m:
+                    filename = unquote(m.group(1)).strip()
+                else:
+                    path_part = unquote(resp.url.path.rstrip("/").rsplit("/", 1)[-1])
+                    if path_part:
+                        filename = path_part
+
+                total = int(resp.headers.get("content-length") or 0)
+                check_download_size(total)
+                downloaded = 0
+                with open(dest, "wb") as fh:
+                    async for chunk in resp.aiter_bytes(65536):
+                        if CANCELLED["v"]:
+                            raise JobCancelled()
+                        fh.write(chunk)
+                        downloaded += len(chunk)
+                        if total:
+                            pct = min(100, int(downloaded * 100 / total))
+                            await on_progress(pct)
+                return filename
+        raise ValueError("Could not download file from this link.")
+
+
+def collect_dex_inputs(file_path: Path, work_dir: Path) -> list:
+    ext = Path(FILENAME).suffix.lower()
+    if ext == ".dex":
+        return [str(file_path)]
+    if ext == ".zip":
+        with zipfile.ZipFile(file_path, "r") as zf:
+            dex_entries = [n for n in zf.namelist() if n.lower().endswith(".dex")]
+        if not dex_entries:
+            raise ValueError("No .dex files found in the ZIP archive.")
+        max_dex = MAX_DEX_PREMIUM if IS_PREMIUM else MAX_DEX_FREE
+        if not IS_ADMIN and len(dex_entries) > max_dex:
+            raise ValueError(f"ZIP contains {len(dex_entries)} .dex files — max {max_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+        extract_dir = work_dir / "dex_input"
+        extract_dir.mkdir(exist_ok=True)
+        with zipfile.ZipFile(file_path, "r") as zf:
+            for de in dex_entries:
+                zf.extract(de, extract_dir)
+        return [str(p) for p in sorted(extract_dir.rglob("*.dex"))]
+    raise ValueError("Unsupported file type. Send a .dex file or a ZIP containing .dex files.")
+
+
+async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start: int, progress_end: int, idx: int, total: int) -> None:
+    cmd = [
+        "java", "-Xmx8G",
+        "-jar", BAKSMALI_JAR,
+        "disassemble", dex_path,
+        "-o", str(out_dir),
+    ]
+    log.info("Running baksmali: %s", " ".join(cmd))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+
+    out_lines = []
+    async def read_stream():
+        count = 0
+        last_activity = time.monotonic()
+        last_cpu = proc_cpu_usage(proc.pid)
+        while True:
+            if CANCELLED["v"]:
+                proc.kill()
+                raise JobCancelled()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
+                last_activity = time.monotonic()
+            except asyncio.TimeoutError:
+                cpu = proc_cpu_usage(proc.pid)
+                if cpu > last_cpu:
+                    last_cpu = cpu
+                    last_activity = time.monotonic()
+                elif time.monotonic() - last_activity >= 1800:
+                    proc.kill()
+                    raise RuntimeError("baksmali stalled: no CPU activity for 30 minutes")
+                continue
+            if not raw:
+                break
+            line = raw.decode(errors="replace").strip()
+            if line:
+                out_lines.append(line)
+                if len(out_lines) > 100:
+                    del out_lines[:-100]
+                if "Writing" in line or "smali" in line.lower():
+                    count += 1
+                    if count % 20 == 0:
+                        pct = progress_start + int((progress_end - progress_start) * 0.5)
+                        await on_progress(pct, f"🧩 Decoding .dex to Smali... ({idx}/{total})")
+        return await proc.wait()
+
+    try:
+        rc = await asyncio.wait_for(read_stream(), timeout=3600)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise TimeoutError("baksmali decode timed out")
+
+    if rc != 0:
+        raise RuntimeError(f"baksmali failed with exit code {rc}:\n" + "\n".join(out_lines[-20:]))
+
+    if not out_dir.exists() or not any(out_dir.rglob("*.smali")):
+        raise ValueError(f"No Smali output generated for {Path(dex_path).name}.")
+
+
+def check_zip_limits(file_path: Path):
+    if IS_ADMIN:
+        return
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return
+    with zipfile.ZipFile(file_path) as zf:
+        names = zf.namelist()
+    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+    apks = sum(1 for n in names if n.lower().endswith(".apk"))
+    max_so_dex = 5 if IS_PREMIUM else 1
+    max_apk = 2 if IS_PREMIUM else 1
+    if so_dex > max_so_dex:
+        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    if apks > max_apk:
+        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return 0
+    with zipfile.ZipFile(file_path) as zf:
+        names = zf.namelist()
+    return sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+
+
+def report_extra_count(extra: int):
+    if not REPORT_URL or not REPORT_TOKEN or extra <= 0:
+        return
+    try:
+        httpx.post(
+            REPORT_URL,
+            json={"user_id": USER_ID, "count": extra},
+            headers={"X-Count-Token": REPORT_TOKEN},
+            timeout=10,
+        )
+        log.info("Reported extra count %d for user %s", extra, USER_ID)
+    except Exception as e:
+        log.warning("Count report failed: %s", e)
+
+
+def collect_com_folders(smali_dirs: list, work_dir: Path) -> Path:
+    com_root = work_dir / "com_extract"
+    com_root.mkdir(exist_ok=True)
+    found = False
+    for d in smali_dirs:
+        for pkg in sorted(Path(d).iterdir()):
+            if pkg.is_dir() and (pkg.name == "com" or pkg.name in ("android", "org", "kotlin", "kotlinx", "java", "javax")):
+                dst = com_root / pkg.name
+                dst.mkdir(parents=True, exist_ok=True)
+                for item in pkg.iterdir():
+                    if item.is_dir():
+                        shutil.copytree(item, dst / item.name, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item, dst / item.name)
+                found = True
+    if not found:
+        for d in smali_dirs:
+            for pkg in sorted(Path(d).iterdir()):
+                if pkg.is_dir():
+                    dst = com_root / pkg.name
+                    dst.mkdir(parents=True, exist_ok=True)
+                    for item in pkg.iterdir():
+                        if item.is_dir():
+                            shutil.copytree(item, dst / item.name, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(item, dst / item.name)
+                    found = True
+                    break
+            if found:
+                break
+    if not found:
+        raise ValueError("No package folders found in the decoded Smali output.")
+    return com_root
+
+
 async def main():
     if not BOT_TOKEN or not CHAT_ID:
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
+
     edit("🟢 Job started! Preparing Smali Decode engine on cloud server...", parse_mode="HTML")
 
     work_dir = Path(tempfile.gettempdir()) / ("smali_" + os.urandom(8).hex())
