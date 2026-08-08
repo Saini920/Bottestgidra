@@ -483,13 +483,17 @@ async def main():
 
         edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Ghidra analysis...")
 
-        last = [0, ""]
+        start_t = time.monotonic()
+        last = [0, "", 0.0]
 
         async def on_progress(pct: int, label: str = "🧠 Analyzing..."):
-            if pct - last[0] < 5 and label == last[1]:
+            now = time.monotonic()
+            if pct - last[0] < 5 and label == last[1] and now - last[2] < 60:
                 return
-            last[0], last[1] = pct, label
-            edit(f"{label}\n{progress_bar(pct)}")
+            last[0], last[1], last[2] = pct, label, now
+            mins = int((now - start_t) // 60)
+            elapsed = f"{mins // 60}h {mins % 60:02d}m" if mins >= 60 else f"{mins}m {int(now - start_t) % 60:02d}s"
+            edit(f"{label}\n{progress_bar(pct)}\n⏱ {elapsed}")
 
         out_files = []
 
