@@ -32,7 +32,7 @@
     },
     "7251749429": {
       "date": "2026-08-08",
-      "count": 5
+      "count": 6
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -40,7 +40,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 126,
+  "total_files": 127,
   "active_jobs": {
     "1411": {
       "user_id": "7251749429",
@@ -169,8 +169,8 @@
       "filename": "libUE4.so",
       "engine": "ghidra",
       "started": 1786178855.212727,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31249165564,
+      "run_status": "completed"
     }
   }
 }
