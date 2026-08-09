@@ -311,6 +311,24 @@ def make_keystore(path: Path) -> Path:
     return path
 
 
+def inspect_custom_keystore(ks_path: Path, storepass: str):
+    try:
+        proc = subprocess.run(
+            ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass],
+            capture_output=True, text=True, timeout=60,
+        )
+        out = proc.stdout + proc.stderr
+    except Exception as e:
+        log.warning("keytool inspect failed: %s", e)
+        return "", [], True
+    m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out)
+    ks_type = m.group(1).lower() if m else ""
+    aliases = re.findall(r"^\s*([^\s,]+),\s+[^\n]*PrivateKeyEntry", out, re.M)
+    if proc.returncode != 0:
+        return "", [], False
+    return ks_type, aliases, True
+
+
 def get_custom_keystore(work_dir: Path):
     if not KEYSTORE_JSON:
         return None
@@ -323,7 +341,22 @@ def get_custom_keystore(work_dir: Path):
         ks_path.write_bytes(base64.b64decode(b64))
         if not ks_path.exists() or ks_path.stat().st_size == 0:
             return None
-        return ks_path, info.get("storepass", "android"), info.get("keypass", "android"), info.get("alias", "androiddebugkey")
+        storepass = info.get("storepass", "android")
+        keypass = info.get("keypass", storepass)
+        alias = (info.get("alias") or "").strip()
+        ks_type, aliases, ok = inspect_custom_keystore(ks_path, storepass)
+        if not ok:
+            raise ValueError(
+                "Custom signing key: keystore password (storepass) is incorrect. "
+                "Run /setkey again with the correct storepass."
+            )
+        if alias and alias not in aliases and aliases:
+            alias = aliases[0]
+        if not alias and aliases:
+            alias = aliases[0]
+        return ks_path, storepass, keypass, alias or "androiddebugkey", ks_type
+    except ValueError:
+        raise
     except Exception as e:
         log.warning("Failed to parse custom keystore: %s", e)
         return None
@@ -352,19 +385,27 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     await run_tool([zipalign, "-p", "-f", "4", str(stripped), str(aligned)], on_progress, "zipalign")
 
     ks_info = get_custom_keystore(work_dir)
-    if ks_info:
-        keystore, storepass, keypass, alias = ks_info
-        await on_progress(55, "🔏 Using your custom signing key...")
-    else:
-        keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
-        storepass, keypass, alias = "android", "android", "androiddebugkey"
     signed = work_dir / "signed.apk"
     min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
-    await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+ (v1+v2)...")
-    await run_tool([apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
-                    "--ks-key-alias", alias,
+    if ks_info:
+        keystore, storepass, keypass, alias, ks_type = ks_info
+        await on_progress(55, "🔏 Using your custom signing key...")
+        sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
+                    "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                    "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)], on_progress, "apksigner")
+                    "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)]
+        if ks_type:
+            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-type", ks_type,
+                        "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
+                        "--ks-key-alias", alias, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                        "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)]
+    else:
+        keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
+        sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                    "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)]
+    await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+ (v1+v2)...")
+    await run_tool(sign_cmd, on_progress, "apksigner")
     await on_progress(80, "🔏 Verifying signature...")
     await run_tool([apksigner, "verify", "-v", str(signed)], on_progress, "apksigner verify")
     await on_progress(90, "✅ APK signed!")

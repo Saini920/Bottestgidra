@@ -869,11 +869,11 @@ async def github_set_repo_secret(name: str, value: str):
         import base64
         import nacl.bindings
     except ImportError:
-        return False, "PyNaCl install nahi hai Railway par — naya code deploy/redeploy karke dobara try karo."
+        return False, "PyNaCl is not installed on Railway. Please redeploy with the latest code and try again."
     try:
         key, key_id = await github_repo_public_key()
         if not key:
-            return False, "Repo public key nahi mili."
+            return False, "Could not get the repo public key."
         sealed = nacl.bindings.crypto_box_seal(value.encode("utf-8"), base64.b64decode(key))
         encrypted_value = base64.b64encode(sealed).decode("utf-8")
     except Exception as e:
@@ -886,7 +886,7 @@ async def github_set_repo_secret(name: str, value: str):
         )
     if resp.status_code in (201, 204):
         return True, ""
-    return False, f"GitHub ne secret reject kiya (HTTP {resp.status_code}): {resp.text[:200]}"
+    return False, f"GitHub rejected the secret (HTTP {resp.status_code}): {resp.text[:200]}"
 
 
 async def github_delete_repo_secret(name: str):
@@ -999,7 +999,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_setkey_file(update, context, doc)
         return
     if KEY_STATE.get(chat_id) == "AWAITING_KEY_PASS":
-        await update.message.reply_text("⏳ Pehle <b>storepass keypass alias</b> text message bhejo (ya sirf storepass).", parse_mode=constants.ParseMode.HTML)
+        await update.message.reply_text("⏳ First send the <b>storepass keypass alias</b> as a text message (or just storepass).", parse_mode=constants.ParseMode.HTML)
         return
 
     err = check_daily_limit(update.effective_user.id)
@@ -1230,7 +1230,7 @@ async def cmd_setkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id < 0:
         await update.message.reply_text(
-            "🔐 Custom Signkey sirf <b>private chat</b> mein set ho sakta hai.",
+            "🔐 Custom Signkey can only be set in a <b>private chat</b>.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
@@ -1239,9 +1239,9 @@ async def cmd_setkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     KEY_TEMP_DATA.pop(cid, None)
     await update.message.reply_text(
         "🔐 <b>Custom Signing Key Setup</b>\n\n"
-        "Step 1: Apna <code>release.jks</code> / <code>.keystore</code> file send karo.\n\n"
-        "⚠️ Note: Ye key GitHub ke <b>encrypted secret</b> mein save hogi aur <b>sirf aapke</b> "
-        "APK Sign / Build jobs mein use hogi.",
+        "Step 1: Send your <code>release.jks</code> / <code>.keystore</code> file.\n\n"
+        "⚠️ Note: This key is stored in a GitHub <b>encrypted secret</b> and is only used for <b>your</b> "
+        "APK Sign / Build jobs.",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -1256,12 +1256,12 @@ async def cmd_delkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     KEY_STATE.pop(cid, None)
     KEY_TEMP_DATA.pop(cid, None)
     if chat_id < 0:
-        await update.message.reply_text("❌ Private chat mein custom key set nahi hai.", parse_mode=constants.ParseMode.HTML)
+        await update.message.reply_text("❌ No custom key is set (private chat only).", parse_mode=constants.ParseMode.HTML)
         return
     ok, err = await github_delete_repo_secret(f"SIGNKEY_{chat_id}")
     if ok:
         await update.message.reply_text(
-            "🗑️ <b>Custom Signkey delete ho gayi!</b>\nAb signing debug keystore se hogi.",
+            "🗑️ <b>Custom Signkey deleted!</b>\nSigning will now use the debug keystore.",
             parse_mode=constants.ParseMode.HTML,
         )
     else:
@@ -1273,33 +1273,33 @@ async def handle_setkey_file(update: Update, context: ContextTypes.DEFAULT_TYPE,
     fname = (doc.file_name or "").lower()
     if not fname.endswith((".jks", ".keystore", ".bks", ".key")):
         await update.message.reply_text(
-            "❌ Ye keystore file nahi lagti. <code>.jks</code> ya <code>.keystore</code> file send karo.",
+            "❌ That doesn't look like a keystore. Send a <code>.jks</code> or <code>.keystore</code> file.",
             parse_mode=constants.ParseMode.HTML,
         )
         return
     size = doc.file_size or 0
     if size <= 0 or size > 500 * 1024:
-        await update.message.reply_text("❌ Keystore file empty hai ya bahut badi (max 500 KB).", parse_mode=constants.ParseMode.HTML)
+        await update.message.reply_text("❌ Keystore file is empty or too large (max 500 KB).", parse_mode=constants.ParseMode.HTML)
         return
     try:
         tf = await doc.get_file()
         data = await tf.download_as_bytearray()
     except Exception as e:
-        await update.message.reply_text("❌ Keystore download fail: " + str(e))
+        await update.message.reply_text("❌ Keystore download failed: " + str(e))
         return
     import base64
     b64 = base64.b64encode(bytes(data)).decode("ascii")
     if len(b64) > 60000:
-        await update.message.reply_text("❌ Keystore 60KB base64 se badi hai (GitHub secret limit 64KB). Chhota keystore use karo.")
+        await update.message.reply_text("❌ Keystore is larger than 60KB base64 (GitHub secret limit 64KB). Use a smaller keystore.")
         return
     KEY_TEMP_DATA[chat_id] = {"keystore_b64": b64}
     KEY_STATE[chat_id] = "AWAITING_KEY_PASS"
     await update.message.reply_text(
-        "✅ Keystore receive ho gaya!\n\n"
-        "Step 2: Ek message mein <b>storepass</b> likho, phir agle message mein <b>keypass</b>, "
-        "phir <b>alias</b>.\n"
-        "Ya ek hi message mein 3 values space se: <code>storepass keypass alias</code>\n\n"
-        "Alias chhoda to default <code>androiddebugkey</code> le liya jayega.",
+        "✅ Keystore received!\n\n"
+        "Step 2: Send <b>storepass</b> in one message, then <b>keypass</b> in the next, "
+        "then <b>alias</b>.\n"
+        "Or send all 3 values in one message separated by spaces: <code>storepass keypass alias</code>\n\n"
+        "If you skip the alias, the default <code>androiddebugkey</code> will be used.",
         parse_mode=constants.ParseMode.HTML,
     )
 
@@ -1321,22 +1321,22 @@ async def handle_key_text_message(update: Update, context: ContextTypes.DEFAULT_
         alias = "androiddebugkey"
     else:
         await update.message.reply_text(
-            "❌ Format galat hai. Ek baar fir se: <code>storepass keypass alias</code> (ya sirf storepass).",
+            "❌ Invalid format. Try again: <code>storepass keypass alias</code> (or just storepass).",
             parse_mode=constants.ParseMode.HTML,
         )
         return
     temp = KEY_TEMP_DATA.pop(chat_id, {})
     if not temp.get("keystore_b64"):
         KEY_STATE.pop(chat_id, None)
-        await update.message.reply_text("❌ Keystore data mila nahi. /setkey dobara karo.")
+        await update.message.reply_text("❌ Keystore data not found. Run /setkey again.")
         return
     info = {"keystore_b64": temp["keystore_b64"], "storepass": storepass, "keypass": keypass, "alias": alias}
     ok, err = await github_set_repo_secret(f"SIGNKEY_{chat_id}", json.dumps(info))
     KEY_STATE.pop(chat_id, None)
     if ok:
         await update.message.reply_text(
-            "✅ <b>Custom Signkey set ho gayi!</b>\n"
-            "🔐 Ab aapke <b>APK Sign</b> aur <b>APK Build</b> jobs isi key se sign honge.\n"
+            "✅ <b>Custom Signkey set!</b>\n"
+            "🔐 Your <b>APK Sign</b> and <b>APK Build</b> jobs will now use this key.\n"
             "🗑️ Delete: <code>/delkey</code>",
             parse_mode=constants.ParseMode.HTML,
         )
