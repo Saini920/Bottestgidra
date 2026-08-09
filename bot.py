@@ -1296,10 +1296,14 @@ async def handle_setkey_file(update: Update, context: ContextTypes.DEFAULT_TYPE,
     KEY_STATE[chat_id] = "AWAITING_KEY_PASS"
     await update.message.reply_text(
         "✅ Keystore received!\n\n"
-        "Step 2: Send <b>storepass</b> in one message, then <b>keypass</b> in the next, "
-        "then <b>alias</b>.\n"
-        "Or send all 3 values in one message separated by spaces: <code>storepass keypass alias</code>\n\n"
-        "If you skip the alias, the default <code>androiddebugkey</code> will be used.",
+        "Step 2: Now send the keystore's <b>storepass</b> — the REAL password you set "
+        "when you created this keystore file.\n\n"
+        "Send it alone in one message (recommended).\n"
+        "Example: if your password is <code>abc123</code>, just send <code>abc123</code>.\n\n"
+        "⚠️ Do NOT send the word <code>storepass</code> — send your own password.\n"
+        "Only if your keypass and alias are different, send all three values on one line "
+        "in this order: storepass, keypass, alias.\n"
+        "(If skipped, keypass = your storepass, and the alias is auto-detected.)",
         parse_mode=constants.ParseMode.HTML,
     )
 
