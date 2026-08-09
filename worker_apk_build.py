@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -14,6 +15,8 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import httpx
+
+from worker_cc_compile import CC_EXTENSIONS, CPP_EXTENSIONS, find_ndk_bin
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("worker_apk_build")
@@ -33,12 +36,20 @@ REPORT_TOKEN = BOT_TOKEN
 SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
 R8_JAR = os.environ.get("PAYLOAD_R8_JAR", "")
 KOTLINC_ROOT = os.environ.get("PAYLOAD_KOTLINC", "")
+KEYSTORE_JSON = os.environ.get("PAYLOAD_KEYSTORE", "")
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 JAVA_EXTENSIONS = {".java"}
 KOTLIN_EXTENSIONS = {".kt"}
 MAX_SRC_FILES_FREE = 50
 MAX_SRC_FILES_PREMIUM = 200
+MAX_CC_FILES = 200
+
+ABI_CLANG_NAMES = {
+    "arm64-v8a": ["aarch64-linux-android24-clang", "aarch64-linux-android-clang"],
+    "armeabi-v7a": ["armv7a-linux-androideabi24-clang", "armv7a-linux-androideabi-clang"],
+    "x86_64": ["x86_64-linux-android24-clang", "x86_64-linux-android-clang"],
+}
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -509,11 +520,31 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         if not dex_files:
             raise ValueError("d8 produced no .dex output.")
 
+    cc_so = {}
+    cc_c_files = find_inputs(extract_dir, CC_EXTENSIONS)
+    cc_cpp_files = find_inputs(extract_dir, CPP_EXTENSIONS)
+    if cc_c_files or cc_cpp_files:
+        if not IS_ADMIN and (len(cc_c_files) + len(cc_cpp_files)) > MAX_CC_FILES:
+            raise ValueError(f"Too many C/C++ source files: {len(cc_c_files) + len(cc_cpp_files)} — max {MAX_CC_FILES} allowed.")
+        main_src = [f for f in cc_c_files + cc_cpp_files if Path(f).stem.lower() == "main"]
+        if main_src:
+            lib_name = "main"
+        else:
+            first = (cc_cpp_files or cc_c_files)[0]
+            lib_name = Path(first).stem
+        lib_name = re.sub(r"[^A-Za-z0-9_.-]", "_", lib_name) or "native"
+        await on_progress(75, "⚙️ Compiling C/C++ sources (NDK)...")
+        cc_so = await compile_cc_sources(cc_c_files, cc_cpp_files, work_dir, on_progress, lib_name)
+        if not cc_so:
+            raise ValueError("C/C++ sources found but no .so could be compiled (NDK clang missing).")
+
     await on_progress(80, "📦 Assembling APK...")
     unsigned_apk = work_dir / "unsigned.apk"
     extra = {}
     for d in dex_files:
         extra[d.name] = d
+    for abi, so_path in cc_so.items():
+        extra[str(Path("lib") / abi / f"lib{lib_name}.so")] = so_path
     if jni_dir and jni_dir.is_dir():
         for so in sorted(jni_dir.rglob("*.so")):
             rel = so.relative_to(jni_dir)
@@ -523,9 +554,16 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     aligned = work_dir / "aligned.apk"
     await run_tool([zipalign, "-p", "-f", "4", str(unsigned_apk), str(aligned)], on_progress, "zipalign")
     await on_progress(88, "🔏 Signing APK...")
-    keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
+    ks_info = get_custom_keystore(work_dir)
+    if ks_info:
+        keystore, storepass, keypass, alias = ks_info
+        await on_progress(88, "🔏 Using your custom signing key...")
+    else:
+        keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
+        storepass, keypass, alias = "android", "android", "androiddebugkey"
     signed_apk = work_dir / "signed.apk"
-    await run_tool([apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
+    await run_tool([apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
+                    "--ks-key-alias", alias,
                     "--min-sdk-version", str(min_sdk), "--out", str(signed_apk), str(aligned)], on_progress, "apksigner")
     await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
     await on_progress(95, "✅ APK built!")
@@ -539,6 +577,72 @@ def make_keystore(path: Path) -> Path:
                 "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
                 "-dname", "CN=Android Debug,O=Android,C=US"], check=True, capture_output=True)
     return path
+
+
+def get_custom_keystore(work_dir: Path):
+    if not KEYSTORE_JSON:
+        return None
+    try:
+        info = json.loads(KEYSTORE_JSON)
+        b64 = info.get("keystore_b64") or info.get("b64") or ""
+        if not b64:
+            return None
+        ks_path = work_dir / "custom.keystore"
+        ks_path.write_bytes(base64.b64decode(b64))
+        if not ks_path.exists() or ks_path.stat().st_size == 0:
+            return None
+        return ks_path, info.get("storepass", "android"), info.get("keypass", "android"), info.get("alias", "androiddebugkey")
+    except Exception as e:
+        log.warning("Failed to parse custom keystore: %s", e)
+        return None
+
+
+def find_clang_for(ndk_bin: str, abi: str):
+    for base in ABI_CLANG_NAMES.get(abi, []):
+        c = os.path.join(ndk_bin, base)
+        if os.path.exists(c):
+            return c, os.path.join(ndk_bin, base + "++")
+    return "", ""
+
+
+async def compile_cc_sources(c_files: list, cpp_files: list, work_dir: Path, on_progress, lib_name: str) -> dict:
+    ndk_bin = find_ndk_bin()
+    if not ndk_bin:
+        raise ValueError("Android NDK not found on the runner (C/C++ sources present).")
+    results = {}
+    for abi in ABI_CLANG_NAMES:
+        clang, clangxx = find_clang_for(ndk_bin, abi)
+        if not clang:
+            log.warning("NDK clang for %s not found, skipping", abi)
+            continue
+        out_so = work_dir / f"lib_{abi}_{lib_name}.so"
+        await on_progress(0, f"⚙️ Compiling C/C++ → {abi} .so...")
+        if c_files and not cpp_files:
+            await run_tool([clang, "-shared", "-fPIC", "-O2", "-std=c11", "-o", str(out_so)] + c_files, on_progress, f"clang {abi}")
+        elif cpp_files and not c_files:
+            await run_tool([clangxx, "-shared", "-fPIC", "-O2", "-std=c++17", "-o", str(out_so)] + cpp_files, on_progress, f"clang++ {abi}")
+        else:
+            obj_dir = work_dir / f"obj_{abi}"
+            obj_dir.mkdir(exist_ok=True)
+            objs = []
+            for i, f in enumerate(c_files):
+                obj = obj_dir / f"c_{i}.o"
+                await run_tool([clang, "-c", "-fPIC", "-O2", "-std=c11", "-o", str(obj), f], on_progress, f"clang {abi}")
+                if not obj.exists():
+                    raise RuntimeError(f"clang produced no object file for {f}")
+                objs.append(str(obj))
+            for i, f in enumerate(cpp_files):
+                obj = obj_dir / f"cpp_{i}.o"
+                await run_tool([clangxx, "-c", "-fPIC", "-O2", "-std=c++17", "-o", str(obj), f], on_progress, f"clang++ {abi}")
+                if not obj.exists():
+                    raise RuntimeError(f"clang++ produced no object file for {f}")
+                objs.append(str(obj))
+            if not objs:
+                raise ValueError("No object files produced from C/C++ sources.")
+            await run_tool([clangxx, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, f"link {abi}")
+        if out_so.exists():
+            results[abi] = out_so
+    return results
 
 
 class TolerantZipFile(zipfile.ZipFile):

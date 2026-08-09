@@ -45,6 +45,8 @@ ALLOWED_USERS = [u.strip() for u in os.environ.get("ALLOWED_USER_IDS", "").split
 PENDING_REQUESTS = set()
 ADMIN_STATE = {}  # {user_id: state_str}
 ADMIN_TEMP_DATA = {}
+KEY_STATE = {}  # {chat_id: state_str}
+KEY_TEMP_DATA = {}  # {chat_id: {"keystore_b64": ...}}
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Saini920/Bottestgidra")
@@ -708,6 +710,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• <code>/help</code> — View all commands and bot description.\n"
         "• <code>/profile</code> — View your profile, daily remaining quota, and server stats.\n"
         "• <code>/myid</code> — Display your Telegram User ID.\n"
+        "• <code>/setkey</code> — Set your custom signing key (release.jks) for APK Sign/Build\n"
+        "• <code>/delkey</code> — Delete your custom signing key\n"
         f"{admin_section}\n\n"
         "⭐ <b>PREMIUM SUBSCRIPTION BENEFITS (₹99):</b>\n"
         "• 🆓 <b>Free Quota:</b> 30 files / day — .so/.dex ≤30 MB, APK/ZIP ≤200 MB\n"
@@ -725,8 +729,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• 🧩 <b>Smali Decode:</b> .dex or ZIP with multiple .dex → Smali Code (Free: up to 3 .dex, Premium: up to 10 .dex per ZIP)\n"
         "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (⭐ Premium only)\n"
         "• ⚙️ <b>C/C++ Compile:</b> .c / .cpp / ZIP → Android ARM64 .so (⭐ Premium only)\n"
-        "• 📦 <b>APK Build (Source):</b> Real source ZIP → signed + unsigned APK (Java/Kotlin, ⭐ Premium)\n"
-        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, choose Android 5–16) (⭐ Premium)\n"
+        "• 📦 <b>APK Build (Source):</b> Real source ZIP → signed + unsigned APK (Java/Kotlin + NDK C/C++ → multi-ABI .so, ⭐ Premium)\n"
+        "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, choose Android 5–16, use your custom key if set) (⭐ Premium)\n"
         "• 📄 <b>PDF → TXT:</b> Convert PDF (or ZIP of PDFs) → plain text (Free ≤30 MB, Premium ≤300 MB)\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
@@ -840,6 +844,62 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     return resp.status_code in (204, 200), resp.status_code, resp.text[:300]
 
 
+def github_api_headers():
+    return {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "ghidra-bot",
+    }
+
+
+async def github_repo_public_key():
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/public-key",
+            headers=github_api_headers(),
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"GitHub public-key endpoint failed (HTTP {resp.status_code}): {resp.text[:200]}")
+        d = resp.json()
+        return d.get("key"), d.get("key_id")
+
+
+async def github_set_repo_secret(name: str, value: str):
+    try:
+        import base64
+        import nacl.bindings
+    except ImportError:
+        return False, "PyNaCl install nahi hai Railway par — naya code deploy/redeploy karke dobara try karo."
+    try:
+        key, key_id = await github_repo_public_key()
+        if not key:
+            return False, "Repo public key nahi mili."
+        sealed = nacl.bindings.crypto_box_seal(value.encode("utf-8"), base64.b64decode(key))
+        encrypted_value = base64.b64encode(sealed).decode("utf-8")
+    except Exception as e:
+        return False, f"Encryption failed: {e}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.put(
+            f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/{name}",
+            headers=github_api_headers(),
+            json={"encrypted_value": encrypted_value, "key_id": key_id},
+        )
+    if resp.status_code in (201, 204):
+        return True, ""
+    return False, f"GitHub ne secret reject kiya (HTTP {resp.status_code}): {resp.text[:200]}"
+
+
+async def github_delete_repo_secret(name: str):
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.delete(
+            f"https://api.github.com/repos/{GITHUB_REPO}/actions/secrets/{name}",
+            headers=github_api_headers(),
+        )
+    if resp.status_code in (204, 200):
+        return True, ""
+    return False, f"GitHub delete failed (HTTP {resp.status_code}): {resp.text[:200]}"
+
+
 async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_file_path: str = "", is_admin: bool = False, engine: str = "ghidra", file_id: str = "", is_premium: bool = False):
     if status.message_id in CANCELLED_JOBS:
         CANCELLED_JOBS.remove(status.message_id)
@@ -932,6 +992,14 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     doc = msg.document
     if doc is None:
         await msg.reply_text("📄 Send a file (document) — EXE, DLL, SO, ELF, APK etc.")
+        return
+
+    chat_id = str(update.effective_chat.id)
+    if KEY_STATE.get(chat_id) == "AWAITING_KEY_FILE":
+        await handle_setkey_file(update, context, doc)
+        return
+    if KEY_STATE.get(chat_id) == "AWAITING_KEY_PASS":
+        await update.message.reply_text("⏳ Pehle <b>storepass keypass alias</b> text message bhejo (ya sirf storepass).", parse_mode=constants.ParseMode.HTML)
         return
 
     err = check_daily_limit(update.effective_user.id)
@@ -1152,6 +1220,128 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra", file_id=file_id)
     except Exception as e:
         await status.edit_text("❌ File processing failed: " + str(e))
+
+
+async def cmd_setkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_allowed(user.id):
+        await reply_denied(update.message, user.id)
+        return
+    chat_id = update.effective_chat.id
+    if chat_id < 0:
+        await update.message.reply_text(
+            "🔐 Custom Signkey sirf <b>private chat</b> mein set ho sakta hai.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+    cid = str(chat_id)
+    KEY_STATE[cid] = "AWAITING_KEY_FILE"
+    KEY_TEMP_DATA.pop(cid, None)
+    await update.message.reply_text(
+        "🔐 <b>Custom Signing Key Setup</b>\n\n"
+        "Step 1: Apna <code>release.jks</code> / <code>.keystore</code> file send karo.\n\n"
+        "⚠️ Note: Ye key GitHub ke <b>encrypted secret</b> mein save hogi aur <b>sirf aapke</b> "
+        "APK Sign / Build jobs mein use hogi.",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+async def cmd_delkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_allowed(user.id):
+        await reply_denied(update.message, user.id)
+        return
+    chat_id = update.effective_chat.id
+    cid = str(chat_id)
+    KEY_STATE.pop(cid, None)
+    KEY_TEMP_DATA.pop(cid, None)
+    if chat_id < 0:
+        await update.message.reply_text("❌ Private chat mein custom key set nahi hai.", parse_mode=constants.ParseMode.HTML)
+        return
+    ok, err = await github_delete_repo_secret(f"SIGNKEY_{chat_id}")
+    if ok:
+        await update.message.reply_text(
+            "🗑️ <b>Custom Signkey delete ho gayi!</b>\nAb signing debug keystore se hogi.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(f"❌ Delete failed: {err}", parse_mode=constants.ParseMode.HTML)
+
+
+async def handle_setkey_file(update: Update, context: ContextTypes.DEFAULT_TYPE, doc):
+    chat_id = str(update.effective_chat.id)
+    fname = (doc.file_name or "").lower()
+    if not fname.endswith((".jks", ".keystore", ".bks", ".key")):
+        await update.message.reply_text(
+            "❌ Ye keystore file nahi lagti. <code>.jks</code> ya <code>.keystore</code> file send karo.",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+    size = doc.file_size or 0
+    if size <= 0 or size > 500 * 1024:
+        await update.message.reply_text("❌ Keystore file empty hai ya bahut badi (max 500 KB).", parse_mode=constants.ParseMode.HTML)
+        return
+    try:
+        tf = await doc.get_file()
+        data = await tf.download_as_bytearray()
+    except Exception as e:
+        await update.message.reply_text("❌ Keystore download fail: " + str(e))
+        return
+    import base64
+    b64 = base64.b64encode(bytes(data)).decode("ascii")
+    if len(b64) > 60000:
+        await update.message.reply_text("❌ Keystore 60KB base64 se badi hai (GitHub secret limit 64KB). Chhota keystore use karo.")
+        return
+    KEY_TEMP_DATA[chat_id] = {"keystore_b64": b64}
+    KEY_STATE[chat_id] = "AWAITING_KEY_PASS"
+    await update.message.reply_text(
+        "✅ Keystore receive ho gaya!\n\n"
+        "Step 2: Ek message mein <b>storepass</b> likho, phir agle message mein <b>keypass</b>, "
+        "phir <b>alias</b>.\n"
+        "Ya ek hi message mein 3 values space se: <code>storepass keypass alias</code>\n\n"
+        "Alias chhoda to default <code>androiddebugkey</code> le liya jayega.",
+        parse_mode=constants.ParseMode.HTML,
+    )
+
+
+async def handle_key_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    if KEY_STATE.get(chat_id) != "AWAITING_KEY_PASS":
+        return
+    text = (update.message.text or "").strip()
+    parts = text.split()
+    if len(parts) == 3:
+        storepass, keypass, alias = parts
+    elif len(parts) == 2:
+        storepass, keypass = parts
+        alias = "androiddebugkey"
+    elif len(parts) == 1:
+        storepass = parts[0]
+        keypass = storepass
+        alias = "androiddebugkey"
+    else:
+        await update.message.reply_text(
+            "❌ Format galat hai. Ek baar fir se: <code>storepass keypass alias</code> (ya sirf storepass).",
+            parse_mode=constants.ParseMode.HTML,
+        )
+        return
+    temp = KEY_TEMP_DATA.pop(chat_id, {})
+    if not temp.get("keystore_b64"):
+        KEY_STATE.pop(chat_id, None)
+        await update.message.reply_text("❌ Keystore data mila nahi. /setkey dobara karo.")
+        return
+    info = {"keystore_b64": temp["keystore_b64"], "storepass": storepass, "keypass": keypass, "alias": alias}
+    ok, err = await github_set_repo_secret(f"SIGNKEY_{chat_id}", json.dumps(info))
+    KEY_STATE.pop(chat_id, None)
+    if ok:
+        await update.message.reply_text(
+            "✅ <b>Custom Signkey set ho gayi!</b>\n"
+            "🔐 Ab aapke <b>APK Sign</b> aur <b>APK Build</b> jobs isi key se sign honge.\n"
+            "🗑️ Delete: <code>/delkey</code>",
+            parse_mode=constants.ParseMode.HTML,
+        )
+    else:
+        await update.message.reply_text(f"❌ Save failed: {err}", parse_mode=constants.ParseMode.HTML)
 
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1937,6 +2127,9 @@ def main():
     app.add_handler(CommandHandler("setlimit", cmd_setlimit))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("active", cmd_active))
+    app.add_handler(CommandHandler("setkey", cmd_setkey))
+    app.add_handler(CommandHandler("delkey", cmd_delkey))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_key_text_message), group=-1)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text_message))
     app.add_handler(MessageHandler(filters.ATTACHMENT, handle_file))
     app.add_handler(CallbackQueryHandler(handle_engine_choice, pattern="^engine_"))
