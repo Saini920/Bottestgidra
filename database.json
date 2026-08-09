@@ -32,7 +32,7 @@
     },
     "7251749429": {
       "date": "2026-08-09",
-      "count": 26
+      "count": 27
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -40,7 +40,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 158,
+  "total_files": 159,
   "active_jobs": {
     "1411": {
       "user_id": "7251749429",
@@ -553,8 +553,8 @@
       "filename": "multistream_updated.zip",
       "engine": "apkbuild",
       "started": 1786263422.7825203,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31303150686,
+      "run_status": "completed"
     }
   }
 }
