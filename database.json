@@ -32,7 +32,7 @@
     },
     "7251749429": {
       "date": "2026-08-09",
-      "count": 32
+      "count": 33
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -40,7 +40,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 164,
+  "total_files": 165,
   "active_jobs": {
     "1411": {
       "user_id": "7251749429",
@@ -625,8 +625,8 @@
       "filename": "project_updated.zip",
       "engine": "apkbuild",
       "started": 1786266683.4856715,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31305310852,
+      "run_status": "completed"
     }
   }
 }
