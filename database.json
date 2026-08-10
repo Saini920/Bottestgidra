@@ -7,7 +7,12 @@
     "7433238917"
   ],
   "banned": [],
-  "subscriptions": {},
+  "subscriptions": {
+    "8052864919": {
+      "expires_at": "2029-05-05",
+      "daily_limit": 99
+    }
+  },
   "names": {
     "8052864919": "Codex (@nextsjs)",
     "7249511572": "OpAbhi\u270c\ufe0f (@OpAbhi01)",
@@ -853,8 +858,8 @@
       "filename": "libEarnToDie2.so",
       "engine": "ghidra",
       "started": 1786348767.1539826,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31368114664,
+      "run_status": "completed"
     }
   }
 }
