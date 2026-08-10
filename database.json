@@ -32,7 +32,7 @@
     },
     "7251749429": {
       "date": "2026-08-10",
-      "count": 4
+      "count": 5
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -40,7 +40,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 184,
+  "total_files": 185,
   "active_jobs": {
     "1411": {
       "user_id": "7251749429",
@@ -841,8 +841,8 @@
       "filename": "update v1.zip",
       "engine": "apkbuild",
       "started": 1786333457.7209468,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31353427528,
+      "run_status": "completed"
     }
   }
 }
