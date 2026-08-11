@@ -36,8 +36,8 @@
       "count": 1
     },
     "7251749429": {
-      "date": "2026-08-10",
-      "count": 6
+      "date": "2026-08-11",
+      "count": 1
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 186,
+  "total_files": 187,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -56,8 +56,8 @@
       "filename": "arm64-v8a.zip",
       "engine": "ghidra",
       "started": 1786378796.2000675,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31408380227,
+      "run_status": "completed"
     }
   }
 }
