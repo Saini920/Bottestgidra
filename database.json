@@ -37,7 +37,7 @@
     },
     "7251749429": {
       "date": "2026-08-11",
-      "count": 6
+      "count": 7
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 192,
+  "total_files": 193,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -105,7 +105,7 @@
       "engine": "apktool",
       "started": 1786436478.4483263,
       "run_id": 31472831593,
-      "run_status": "queued"
+      "run_status": "in_progress"
     },
     "1761": {
       "user_id": "7251749429",
@@ -116,8 +116,8 @@
       "filename": "Snaptube_7.62.0.76250110.apk",
       "engine": "jadx",
       "started": 1786436485.9681234,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31472838300,
+      "run_status": "in_progress"
     }
   }
 }
