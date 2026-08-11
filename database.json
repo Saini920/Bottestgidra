@@ -37,7 +37,7 @@
     },
     "7251749429": {
       "date": "2026-08-11",
-      "count": 2
+      "count": 3
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 188,
+  "total_files": 189,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -68,8 +68,8 @@
       "filename": "Telegram Bot Free Hosting_1.0.9_apks.apk",
       "engine": "apktool",
       "started": 1786417642.8290238,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31454452417,
+      "run_status": "in_progress"
     },
     "1749": {
       "user_id": "7251749429",
@@ -80,8 +80,8 @@
       "filename": "Telegram Bot Free Hosting_1.0.9_apks.apk",
       "engine": "jadx",
       "started": 1786417651.7584293,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31454457899,
+      "run_status": "in_progress"
     }
   }
 }
