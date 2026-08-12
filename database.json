@@ -37,7 +37,7 @@
     },
     "7251749429": {
       "date": "2026-08-12",
-      "count": 3
+      "count": 4
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 196,
+  "total_files": 197,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -152,8 +152,8 @@
       "filename": "SnapTube VIP v7.58.0.81050915 Modded by @Getmodpcs.apk",
       "engine": "apktool",
       "started": 1786514713.6296859,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31568723973,
+      "run_status": "in_progress"
     },
     "1773": {
       "user_id": "7251749429",
@@ -164,8 +164,8 @@
       "filename": "SnapTube VIP v7.58.0.81050915 Modded by @Getmodpcs.apk",
       "engine": "jadx",
       "started": 1786514722.5243099,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31568733111,
+      "run_status": "in_progress"
     }
   }
 }
