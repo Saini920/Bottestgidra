@@ -32,7 +32,7 @@
       "count": 2
     },
     "8052864919": {
-      "date": "2026-08-03",
+      "date": "2026-08-12",
       "count": 1
     },
     "7251749429": {
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 199,
+  "total_files": 200,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -200,8 +200,8 @@
       "filename": "libGETMODPC.so",
       "engine": "ghidra",
       "started": 1786521154.1469586,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31575826934,
+      "run_status": "completed"
     }
   }
 }
