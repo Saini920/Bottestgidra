@@ -37,7 +37,7 @@
     },
     "7251749429": {
       "date": "2026-08-12",
-      "count": 7
+      "count": 8
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 201,
+  "total_files": 202,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -224,8 +224,8 @@
       "filename": "libjiagu.so",
       "engine": "ghidra",
       "started": 1786536758.5831037,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31595365238,
+      "run_status": "in_progress"
     }
   }
 }
