@@ -37,7 +37,7 @@
     },
     "7251749429": {
       "date": "2026-08-12",
-      "count": 5
+      "count": 6
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 198,
+  "total_files": 199,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -177,7 +177,7 @@
       "engine": "ghidra",
       "started": 1786514823.5927138,
       "run_id": 31568838107,
-      "run_status": "in_progress"
+      "run_status": "completed"
     },
     "1779": {
       "user_id": "7251749429",
@@ -188,8 +188,8 @@
       "filename": "xproject .zip",
       "engine": "smaliextract",
       "started": 1786517592.3637116,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31571720324,
+      "run_status": "completed"
     }
   }
 }
