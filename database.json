@@ -36,8 +36,8 @@
       "count": 1
     },
     "7251749429": {
-      "date": "2026-08-12",
-      "count": 14
+      "date": "2026-08-13",
+      "count": 1
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 208,
+  "total_files": 209,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -285,7 +285,7 @@
       "engine": "apktool",
       "started": 1786546082.2569478,
       "run_id": 31608784914,
-      "run_status": "queued"
+      "run_status": "completed"
     },
     "1801": {
       "user_id": "7251749429",
@@ -296,8 +296,8 @@
       "filename": "Muka_1.9.2.0.apk",
       "engine": "jadx",
       "started": 1786546090.2409818,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31608793555,
+      "run_status": "completed"
     },
     "1803": {
       "user_id": "7251749429",
@@ -308,8 +308,8 @@
       "filename": "arm64-v8a.zip",
       "engine": "ghidra",
       "started": 1786546102.1317601,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31608811740,
+      "run_status": "completed"
     }
   }
 }
