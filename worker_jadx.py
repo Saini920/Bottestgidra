@@ -70,6 +70,9 @@ def tg(method: str, **params):
 def edit(text: str, parse_mode: str = None, keep_button: bool = True):
     if CANCELLED["v"]:
         return
+    notify_app(text)
+    if not BOT_TOKEN or not CHAT_ID or BOT_TOKEN == "app_direct_mode":
+        return
     params = {"chat_id": CHAT_ID, "message_id": MESSAGE_ID, "text": text}
     if parse_mode:
         params["parse_mode"] = parse_mode
@@ -351,7 +354,7 @@ def report_extra_count(extra: int):
 
 
 async def main():
-    if not BOT_TOKEN or not CHAT_ID:
+    if not JOB_ID and (not BOT_TOKEN or not CHAT_ID):
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
 
