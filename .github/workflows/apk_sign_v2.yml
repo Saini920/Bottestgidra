@@ -2,7 +2,7 @@ name: apk-sign
 run-name: apksign-${{ github.event.client_payload.chat_id }}-${{ github.event.client_payload.message_id }}
 on:
   repository_dispatch:
-    types: [apk-sign]
+    types: [apk-sign, apksign-job]
 
 permissions:
   actions: write

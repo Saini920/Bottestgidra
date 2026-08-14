@@ -2,7 +2,7 @@ name: pdf-to-txt
 run-name: pdftxt-${{ github.event.client_payload.chat_id }}-${{ github.event.client_payload.message_id }}
 on:
   repository_dispatch:
-    types: [pdf-to-txt]
+    types: [pdf-to-txt, pdf-txt-job]
 
 permissions:
   actions: write

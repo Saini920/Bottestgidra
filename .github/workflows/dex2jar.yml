@@ -3,7 +3,7 @@ run-name: dex2jar-${{ github.event.client_payload.chat_id }}-${{ github.event.cl
 # re-register: workflow was stuck in deleted state after history reset
 on:
   repository_dispatch:
-    types: [decompile-dex2jar]
+    types: [decompile-dex2jar, dex2jar-job]
 
 permissions:
   actions: write

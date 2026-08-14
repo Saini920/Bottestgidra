@@ -3,7 +3,7 @@ run-name: job-${{ github.event.client_payload.chat_id }}-${{ github.event.client
 # re-register: workflow was stuck in deleted state after history reset
 on:
   repository_dispatch:
-    types: [decompile-apktool]
+    types: [decompile-apktool, apktool-job]
 
 permissions:
   actions: write

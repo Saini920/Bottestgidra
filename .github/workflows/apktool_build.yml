@@ -3,7 +3,7 @@ run-name: job-${{ github.event.client_payload.chat_id }}-${{ github.event.client
 
 on:
   repository_dispatch:
-    types: [compile-apktool]
+    types: [compile-apktool, apktool-build-job]
 
 jobs:
   build:

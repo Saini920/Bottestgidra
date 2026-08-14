@@ -2,7 +2,7 @@ name: cc-compile
 run-name: cccompile-${{ github.event.client_payload.chat_id }}-${{ github.event.client_payload.message_id }}
 on:
   repository_dispatch:
-    types: [cc-compile]
+    types: [cc-compile, cccompile-job]
 
 permissions:
   actions: write

@@ -2,7 +2,7 @@ name: dex-compile
 run-name: dexcompile-${{ github.event.action == 'dex-compile-java' && 'java' || 'smali' }}-${{ github.event.client_payload.chat_id }}-${{ github.event.client_payload.message_id }}
 on:
   repository_dispatch:
-    types: [dex-compile-smali, dex-compile-java]
+    types: [dex-compile-smali, dex-compile-java, dexcompile-job]
 
 permissions:
   actions: write

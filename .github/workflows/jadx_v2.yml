@@ -3,7 +3,7 @@ run-name: jadx-${{ github.event.client_payload.chat_id }}-${{ github.event.clien
 # re-register: workflow was stuck in deleted state after history reset
 on:
   repository_dispatch:
-    types: [decompile-jadx]
+    types: [decompile-jadx, jadx-job]
 
 permissions:
   actions: write
