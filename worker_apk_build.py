@@ -869,6 +869,18 @@ async def main():
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
             got_file = False
+            
+            if file_id and not TG_FILE_PATH:
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        gf = await client.get(f"{API}/getFile?file_id={file_id}")
+                        if gf.status_code == 200:
+                            g_data = gf.json()
+                            if g_data.get("ok"):
+                                TG_FILE_PATH = g_data["result"].get("file_path", "")
+                except Exception as e:
+                    log.warning("getFile error: %s", e)
+
             if TG_FILE_PATH:
                 try:
                     filename = FILENAME or "download"
@@ -888,11 +900,13 @@ async def main():
                                     if total:
                                         pct = min(100, int(done * 100 / total))
                                         await on_dl(pct)
-                    got_file = True
+                    if dest.exists() and dest.stat().st_size > 0:
+                        got_file = True
                 except Exception as http_err:
                     if not file_id:
                         raise
                     log.warning("HTTP download failed, falling back to MTProto: %s", http_err)
+
             if not got_file and file_id:
                 filename = FILENAME or "download"
                 dl_method[0] = "📥 Downloading via MTProto (Pyrogram)..."
@@ -922,17 +936,22 @@ async def main():
                 if proc.returncode != 0:
                     err_tail = "\n".join(dl_logs[-8:]) or "no output"
                     raise ValueError(f"MTProto Download failed with code {proc.returncode}: {err_tail}")
-                got_file = True
-            if not got_file:
+                if dest.exists() and dest.stat().st_size > 0:
+                    got_file = True
+
+            if not got_file and FILE_URL:
                 filename = await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
+                if dest.exists() and dest.stat().st_size > 0:
+                    got_file = True
         except Exception as e:
             await send_error_log(work_dir, e, "Download failed")
             return
 
-        size = dest.stat().st_size
-        if size == 0:
-            edit("❌ Downloaded file is empty.", keep_button=False)
+        if not dest.exists() or dest.stat().st_size == 0:
+            edit("❌ Downloaded file is empty (0 bytes).", keep_button=False)
             return
+
+        size = dest.stat().st_size
         if size > MAX_DOWNLOAD_MB * 1024 * 1024 and not IS_ADMIN:
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return

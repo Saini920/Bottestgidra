@@ -68,7 +68,7 @@ async def main():
     raw_chat = os.environ.get("PAYLOAD_CHAT_ID", "").strip()
     chat_id = int(raw_chat) if raw_chat.lstrip("-").isdigit() else 0
 
-    raw_orig = os.environ.get("PAYLOAD_ORIGINAL_MESSAGE_ID", "").strip()
+    raw_orig = os.environ.get("PAYLOAD_ORIGINAL_MESSAGE_ID", "").strip() or os.environ.get("PAYLOAD_MESSAGE_ID", "").strip()
     orig_msg_id = int(raw_orig) if raw_orig.isdigit() else 0
 
     dest_path = sys.argv[1] if len(sys.argv) > 1 else "/tmp/input_file"
@@ -78,8 +78,6 @@ async def main():
         sys.exit(1)
 
     # Stable session pool: the same file_id always maps to the same session name.
-    # NOTE: python's built-in hash() is randomized per process (PYTHONHASHSEED),
-    # so hashlib is required for a stable name across runs.
     pool_id = int(hashlib.md5(file_id.encode("utf-8")).hexdigest(), 16) % 5
     session_name = f"worker_session_pool_{pool_id}"
     app = Client(session_name, api_id=api_id, api_hash=api_hash, bot_token=bot_token, workdir=SESSION_DIR)
@@ -100,16 +98,23 @@ async def main():
         try:
             async with app:
                 if chat_id and orig_msg_id:
-                    msg = await app.get_messages(chat_id, orig_msg_id)
-                    if msg and msg.document:
+                    try:
+                        msg = await app.get_messages(chat_id, orig_msg_id)
+                    except Exception as me:
+                        print(f"get_messages error: {me}", flush=True)
+                        msg = None
+                    if msg and (msg.document or msg.video or msg.audio or msg.photo):
                         await robust_download(app, msg, dest_path)
                     else:
-                        print("Failed to fetch message or no document found. Trying fallback...", flush=True)
+                        print("Message document not found. Trying download by file_id...", flush=True)
                         await robust_download(app, file_id, dest_path)
                 else:
                     await robust_download(app, file_id, dest_path)
-            print("Download complete.", flush=True)
-            return
+            if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+                print(f"Download complete: {os.path.getsize(dest_path)} bytes.", flush=True)
+                return
+            else:
+                print("Warning: downloaded file is 0 bytes, retrying...", flush=True)
         except FloodWait as e:
             last_error = e
             wait = min(int(e.value) + 5, 900)
