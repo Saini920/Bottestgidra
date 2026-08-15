@@ -465,10 +465,52 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
 
     manifest = extract_dir / "AndroidManifest.xml"
     if not manifest.exists():
-        m2 = sorted(extract_dir.rglob("AndroidManifest.xml"))
-        if not m2:
-            raise ValueError("No AndroidManifest.xml found in the ZIP (standard source layout required).")
-        manifest = m2[0]
+        m2 = [p for p in extract_dir.rglob("*") if p.is_file() and p.name.lower() == "androidmanifest.xml"]
+        if m2:
+            manifest = m2[0]
+        else:
+            # Auto-generate a standard AndroidManifest.xml if not found in the ZIP
+            pkg = "com.example.app"
+            main_activity = ""
+            for p in sorted(extract_dir.rglob("*.java")) + sorted(extract_dir.rglob("*.kt")):
+                try:
+                    t = p.read_text(errors="replace")
+                    pm = re.search(r"package\s+([a-zA-Z0-9_.]+)", t)
+                    if pm:
+                        pkg = pm.group(1).strip()
+                    if "Activity" in p.name or "onCreate" in t:
+                        cls_m = re.search(r"class\s+([a-zA-Z0-9_]+)", t)
+                        if cls_m:
+                            main_activity = f".{cls_m.group(1)}"
+                    if pkg and main_activity:
+                        break
+                except Exception:
+                    pass
+
+            manifest = extract_dir / "AndroidManifest.xml"
+            act_xml = ""
+            if main_activity:
+                act_xml = f"""
+        <activity android:name="{main_activity}" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>"""
+            
+            manifest_content = f"""<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="{pkg}">
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+    <application
+        android:label="App"
+        android:allowBackup="true"
+        android:supportsRtl="true">
+        {act_xml}
+    </application>
+</manifest>
+"""
+            manifest.write_text(manifest_content.strip(), encoding="utf-8")
     mp = parse_manifest(manifest)
     if not mp["package"]:
         mp["package"] = ensure_manifest_package(manifest, extract_dir)
@@ -478,6 +520,12 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         if r.is_dir() and any(r.iterdir()):
             if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in r.parts):
                 res_dirs.append(r)
+
+    if not res_dirs:
+        dummy_res = work_dir / "default_res"
+        (dummy_res / "values").mkdir(parents=True, exist_ok=True)
+        (dummy_res / "values" / "strings.xml").write_text('<resources><string name="app_name">App</string></resources>', encoding="utf-8")
+        res_dirs.append(dummy_res)
 
     assets_dirs = []
     for a in sorted(extract_dir.rglob("assets")):
