@@ -366,7 +366,7 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON:
+    if not KEYSTORE_JSON or os.environ.get("PAYLOAD_USE_CUSTOM_KEYSTORE") != "true":
         return None
     try:
         info = json.loads(KEYSTORE_JSON)
