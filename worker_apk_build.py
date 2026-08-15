@@ -469,14 +469,25 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         else:
             target_dir = extract_dir
         
+        if not gradlew:
+            try:
+                await on_progress(22, "⚙️ Setting up Gradle wrapper (8.10.2)...")
+                await run_tool(["gradle", "wrapper", "--gradle-version", "8.10.2"], on_progress, "gradle wrapper", cwd=str(target_dir))
+                cand = target_dir / "gradlew"
+                if cand.is_file():
+                    gradlew = cand
+            except Exception as e:
+                log.warning("gradle wrapper generation failed: %s", e)
+
         cmd = []
         if gradlew:
             os.chmod(gradlew, 0o755)
-            cmd = ["./gradlew", "assembleDebug"]
+            cmd = ["./gradlew", "assembleDebug", "--no-daemon"]
         else:
-            cmd = ["gradle", "assembleDebug"]
+            cmd = ["gradle", "assembleDebug", "--no-daemon"]
             
         try:
+            await on_progress(28, "🚀 Compiling APK with Gradle...")
             await run_tool(cmd, on_progress, "gradle", cwd=str(target_dir))
         except Exception as e:
             raise ValueError(f"Gradle build failed: {e}")
