@@ -53,6 +53,25 @@ def notify_app(message: str, title: str = None):
     except Exception:
         pass
 
+def upload_result_for_app(file_to_send: Path):
+    if not JOB_ID or not file_to_send or not file_to_send.exists():
+        return
+    try:
+        with open(file_to_send, 'rb') as f:
+            r = httpx.post(
+                'https://catbox.moe/user/api.php',
+                data={'reqtype': 'fileupload'},
+                files={'fileToUpload': (file_to_send.name, f, 'application/octet-stream')},
+                timeout=180
+            )
+            if r.status_code == 200 and r.text.startswith('http'):
+                notify_app(f'FINAL_ZIP_URL:{r.text.strip()}')
+                return
+    except Exception as e:
+        log.warning('App result upload to catbox failed: %s', e)
+    notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+
+
 
 def tg(method: str, **params):
     try:
@@ -382,7 +401,7 @@ async def main():
             edit("✅ Compilation complete! ZIP file delivered. 🔥", keep_button=False)
             
             if JOB_ID:
-                notify_app("FINAL_ZIP_URL:telegram_direct_upload")
+                upload_result_for_app(signed_apk)
         except Exception as e:
             edit(f"❌ Result ZIP ready, but upload failed: {e}", keep_button=False)
 

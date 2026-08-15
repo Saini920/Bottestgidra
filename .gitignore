@@ -23,6 +23,7 @@ tmp/
 temp/
 *.zip
 *.bin
+*.error.txt
 
 # Virtual environments
 venv/

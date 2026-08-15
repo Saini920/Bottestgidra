@@ -81,6 +81,25 @@ def notify_app(message: str, title: str = None):
     except Exception as e:
         log.warning("Ntfy failed: %s", e)
 
+def upload_result_for_app(file_to_send: Path):
+    if not JOB_ID or not file_to_send or not file_to_send.exists():
+        return
+    try:
+        with open(file_to_send, 'rb') as f:
+            r = httpx.post(
+                'https://catbox.moe/user/api.php',
+                data={'reqtype': 'fileupload'},
+                files={'fileToUpload': (file_to_send.name, f, 'application/octet-stream')},
+                timeout=180
+            )
+            if r.status_code == 200 and r.text.startswith('http'):
+                notify_app(f'FINAL_ZIP_URL:{r.text.strip()}')
+                return
+    except Exception as e:
+        log.warning('App result upload to catbox failed: %s', e)
+    notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+
+
 
 def tg(method: str, **params):
     try:
@@ -877,7 +896,7 @@ async def main():
             await upload_document(unsigned_apk, f"✅ <b>Unsigned APK</b> built from source — Powered By @R3V_X")
             edit("✅ APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
             if JOB_ID:
-                notify_app("FINAL_ZIP_URL:telegram_direct_upload")
+                upload_result_for_app(signed_apk)
         except Exception as e:
             await send_error_log(work_dir, e, "Result upload failed")
     finally:
