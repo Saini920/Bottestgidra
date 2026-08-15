@@ -24,7 +24,10 @@ FILENAME = os.environ.get("PAYLOAD_FILENAME", "download")
 JOB_ID = os.environ.get("PAYLOAD_JOB_ID", "")
 IS_ADMIN = os.environ.get("PAYLOAD_IS_ADMIN", "False").lower() == "true"
 IS_PREMIUM = os.environ.get("PAYLOAD_IS_PREMIUM", "False").lower() == "true"
-MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
+MIN_SDK = os.environ.get("PAYLOAD_MIN_SDK", "")
+MAX_SDK = os.environ.get("PAYLOAD_MAX_SDK", "")
+KEYSTORE_JSON = os.environ.get("PAYLOAD_CUSTOM_KEYSTORE_JSON") or os.environ.get("PAYLOAD_KEYSTORE", "")
+MAX_DOWNLOAD_MB = 1000 if IS_ADMIN else 200
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
@@ -206,9 +209,13 @@ async def main():
         last = [-100.0]
 
         dl_method = ["📥 Downloading ZIP..."]
+        last_dl_time = [0.0]
         async def on_dl(pct: float):
-            if pct < last[0] or (pct - last[0] < 2.0 and pct < 100.0): return
+            now = time.time()
+            if pct < 100.0 and (pct < last[0] or ((pct - last[0] < 5.0) and (now - last_dl_time[0] < 3.0))):
+                return
             last[0] = pct
+            last_dl_time[0] = now
             edit(f"{dl_method[0]}\n\n{progress_bar(pct)}")
 
         try:
@@ -349,13 +356,49 @@ async def main():
         align_proc = await asyncio.create_subprocess_exec("zipalign", "-p", "4", str(unsigned_apk), str(aligned_apk))
         await align_proc.communicate()
         
-        # Sign
-        ks_path = "/opt/debug.keystore"
-        if os.path.exists(ks_path):
-            sign_proc = await asyncio.create_subprocess_exec("apksigner", "sign", "--ks", ks_path, "--ks-pass", "pass:android", str(aligned_apk))
+        ks_info = get_custom_keystore(work_dir)
+        min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
+        max_sdk = str(MAX_SDK) if str(MAX_SDK).isdigit() else ""
+        
+        sign_proc = None
+        if ks_info:
+            keystore, storepass, keypass, alias, ks_type = ks_info
+            edit("🔏 Signing APK with Custom Keystore...")
+            sign_cmd = ["apksigner", "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
+                        "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
+                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                        "--min-sdk-version", min_sdk]
+            if max_sdk:
+                sign_cmd.extend(["--max-sdk-version", max_sdk])
+            sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
+            
+            if ks_type:
+                sign_cmd = ["apksigner", "sign", "--ks", str(keystore), "--ks-type", ks_type,
+                            "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
+                            "--ks-key-alias", alias, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                            "--min-sdk-version", min_sdk]
+                if max_sdk:
+                    sign_cmd.extend(["--max-sdk-version", max_sdk])
+                sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
+            
+            sign_proc = await asyncio.create_subprocess_exec(*sign_cmd)
+        else:
+            ks_path = "/opt/debug.keystore"
+            if os.path.exists(ks_path):
+                sign_cmd = ["apksigner", "sign", "--ks", ks_path, "--ks-pass", "pass:android",
+                            "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                            "--min-sdk-version", min_sdk]
+                if max_sdk:
+                    sign_cmd.extend(["--max-sdk-version", max_sdk])
+                sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
+                sign_proc = await asyncio.create_subprocess_exec(*sign_cmd)
+        
+        if sign_proc:
             await sign_proc.communicate()
             if align_proc.returncode == 0 and sign_proc.returncode == 0:
-                shutil.copy(aligned_apk, signed_apk)
+                pass
+            else:
+                log.error("Apksigner failed.")
         
         edit("📦 Packaging Signed & Unsigned APKs...")
         safe_name = re.sub(r'[^A-Za-z0-9._-]+', "_", FILENAME)[:60].replace(".zip", "") or "app"
@@ -440,3 +483,55 @@ if __name__ == "__main__":
                 )
             except: pass
 
+
+def inspect_custom_keystore(ks_path: Path, storepass: str):
+    import subprocess
+    cmd = ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass, "-J-Dfile.encoding=utf-8"]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        aliases = []
+        for line in res.stdout.split("\n"):
+            if "PrivateKeyEntry" in line or "trustedCertEntry" in line:
+                aliases.append(line.split(",")[0].strip())
+        ks_type = ""
+        for line in res.stdout.split("\n"):
+            if "Keystore type:" in line:
+                ks_type = line.split(":", 1)[1].strip()
+        return ks_type, aliases, True
+    except subprocess.CalledProcessError as e:
+        log.warning("keytool inspect error: %s", e.stderr)
+        return "", [], False
+
+
+def get_custom_keystore(work_dir: Path):
+    if not KEYSTORE_JSON or os.environ.get("PAYLOAD_USE_CUSTOM_KEYSTORE") != "true":
+        return None
+    try:
+        import json, base64
+        info = json.loads(KEYSTORE_JSON)
+        b64 = info.get("keystore_b64") or info.get("b64") or ""
+        if not b64:
+            return None
+        ks_path = work_dir / "custom.keystore"
+        ks_path.write_bytes(base64.b64decode(b64))
+        if not ks_path.exists() or ks_path.stat().st_size == 0:
+            return None
+        storepass = info.get("storepass", "android")
+        keypass = info.get("keypass", storepass)
+        alias = (info.get("alias") or "").strip()
+        ks_type, aliases, ok = inspect_custom_keystore(ks_path, storepass)
+        if not ok:
+            raise ValueError(
+                "Custom signing key: keystore password (storepass) is incorrect. "
+                "Run /setkey again with the correct storepass."
+            )
+        if alias and alias not in aliases and aliases:
+            alias = aliases[0]
+        if not alias and aliases:
+            alias = aliases[0]
+        return ks_path, storepass, keypass, alias or "androiddebugkey", ks_type
+    except ValueError:
+        raise
+    except Exception as e:
+        log.warning("Failed to parse custom keystore: %s", e)
+        return None

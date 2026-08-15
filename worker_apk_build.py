@@ -36,7 +36,7 @@ REPORT_TOKEN = BOT_TOKEN
 SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
 R8_JAR = os.environ.get("PAYLOAD_R8_JAR", "")
 KOTLINC_ROOT = os.environ.get("PAYLOAD_KOTLINC", "")
-KEYSTORE_JSON = os.environ.get("PAYLOAD_KEYSTORE", "")
+KEYSTORE_JSON = os.environ.get("PAYLOAD_CUSTOM_KEYSTORE_JSON") or os.environ.get("PAYLOAD_KEYSTORE", "")
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 JAVA_EXTENSIONS = {".java"}
@@ -254,14 +254,15 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
                         if total:
                             pct = min(100, int(downloaded * 100 / total))
                             await on_progress(pct)
+                await on_progress(100)
                 return filename
         raise ValueError("Could not download file from this link.")
 
 
-async def run_tool(cmd: list, on_progress, label: str, timeout: int = 86400, progress_stall: int = 1800):
+async def run_tool(cmd: list, on_progress, label: str, timeout: int = 86400, progress_stall: int = 1800, cwd: str = None):
     log.info("Running: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=cwd
     )
     out_lines = []
 
@@ -428,6 +429,40 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     with zipfile.ZipFile(input_path, "r") as zf:
         zf.extractall(extract_dir)
 
+    build_mode = os.environ.get("PAYLOAD_BUILD_MODE", "manifest")
+    if build_mode == "gradle":
+        await on_progress(20, "🚀 Building using Gradle...")
+        # Find directory with gradlew or build.gradle
+        gradlew = None
+        for g in sorted(extract_dir.rglob("gradlew")):
+            if g.is_file():
+                gradlew = g
+                break
+        
+        target_dir = gradlew.parent if gradlew else extract_dir
+        
+        cmd = []
+        if gradlew:
+            os.chmod(gradlew, 0o755)
+            cmd = ["./gradlew", "assembleDebug"]
+        else:
+            cmd = ["gradle", "assembleDebug"]
+            
+        try:
+            await run_tool(cmd, on_progress, "gradle", cwd=str(target_dir))
+        except Exception as e:
+            raise ValueError(f"Gradle build failed: {e}")
+            
+        found_apk = apks[-1]
+        unsigned_apk = work_dir / "unsigned.apk"
+        signed_apk = work_dir / "signed.apk"
+        import shutil
+        shutil.copy2(found_apk, unsigned_apk)
+        shutil.copy2(found_apk, signed_apk)
+        await on_progress(95, "✅ APK built using Gradle!")
+        return signed_apk, unsigned_apk
+
+
     manifest = extract_dir / "AndroidManifest.xml"
     if not manifest.exists():
         m2 = sorted(extract_dir.rglob("AndroidManifest.xml"))
@@ -438,21 +473,39 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     if not mp["package"]:
         mp["package"] = ensure_manifest_package(manifest, extract_dir)
 
-    res_dir = find_dir(extract_dir, ["res", "app/res"])
-    assets_dir = find_dir(extract_dir, ["assets", "app/assets"])
-    jni_dir = find_dir(extract_dir, ["jniLibs", "app/src/main/jniLibs", "libs"])
-    libs_dir = find_dir(extract_dir, ["libs", "app/libs"])
+    res_dirs = []
+    for r in sorted(extract_dir.rglob("res")):
+        if r.is_dir() and any(r.iterdir()):
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in r.parts):
+                res_dirs.append(r)
 
-    src_dirs = []
-    for n in ["src", "java", "app/src/main/java", "app/src", "kotlin", "kt", "app/src/main/kotlin", "app/src/main/kt", "app/src/main"]:
-        d = extract_dir / n
-        if d.is_dir():
-            src_dirs.append(d)
+    assets_dirs = []
+    for a in sorted(extract_dir.rglob("assets")):
+        if a.is_dir() and any(a.iterdir()):
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in a.parts):
+                assets_dirs.append(a)
+
+    jni_dirs = []
+    for j in sorted(extract_dir.rglob("jniLibs")) + sorted(extract_dir.rglob("libs")):
+        if j.is_dir() and any(j.rglob("*.so")):
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in j.parts):
+                jni_dirs.append(j)
+
+    libs_dirs = []
+    for l in sorted(extract_dir.rglob("libs")):
+        if l.is_dir() and any(l.rglob("*.jar")):
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in l.parts):
+                libs_dirs.append(l)
+
     java_files = []
     kt_files = []
-    for d in src_dirs:
-        java_files += find_inputs(d, JAVA_EXTENSIONS)
-        kt_files += find_inputs(d, KOTLIN_EXTENSIONS)
+    for p in sorted(extract_dir.rglob("*")):
+        if p.is_file():
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in p.parts):
+                if p.suffix.lower() in JAVA_EXTENSIONS:
+                    java_files.append(str(p))
+                elif p.suffix.lower() in KOTLIN_EXTENSIONS:
+                    kt_files.append(str(p))
     java_files = sorted(set(java_files))
     kt_files = sorted(set(kt_files))
 
@@ -474,10 +527,12 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     package = mp["package"] or "com.example.app"
 
     await on_progress(25, "📦 Compiling resources (aapt2)...")
-    compiled_res = None
-    if res_dir and any(res_dir.rglob("*")):
-        compiled_res = work_dir / "compiled_res.zip"
-        await run_tool([aapt2, "compile", "--dir", str(res_dir), "-o", str(compiled_res)], on_progress, "aapt2 compile")
+    compiled_res_list = []
+    for idx, r_dir in enumerate(res_dirs):
+        c_res = work_dir / f"compiled_res_{idx}.zip"
+        await run_tool([aapt2, "compile", "--dir", str(r_dir), "-o", str(c_res)], on_progress, f"aapt2 compile res_{idx}")
+        if c_res.exists():
+            compiled_res_list.append(str(c_res))
 
     gen_dir = work_dir / "gen"
     gen_dir.mkdir(exist_ok=True)
@@ -485,15 +540,16 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     link_cmd = [aapt2, "link", "-o", str(base_apk), "-I", android_jar, "--manifest", str(manifest),
                 "--java", str(gen_dir),
                 "--min-sdk-version", str(min_sdk),
-                "--target-sdk-version", str(target_sdk)]
+                "--target-sdk-version", str(target_sdk),
+                "--auto-add-overlay"]
     if mp["version_code"]:
         link_cmd += ["--version-code", str(mp["version_code"])]
     if mp["version_name"]:
         link_cmd += ["--version-name", mp["version_name"]]
-    if assets_dir and assets_dir.is_dir():
-        link_cmd += ["-A", str(assets_dir)]
-    if compiled_res and compiled_res.exists():
-        link_cmd += [str(compiled_res)]
+    for a_dir in assets_dirs:
+        link_cmd += ["-A", str(a_dir)]
+    for c_res in compiled_res_list:
+        link_cmd += [c_res]
     await run_tool(link_cmd, on_progress, "aapt2 link")
     if not base_apk.exists():
         raise ValueError("aapt2 link produced no APK (check AndroidManifest.xml).")
@@ -581,10 +637,11 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         extra[d.name] = d
     for abi, so_path in cc_so.items():
         extra[str(Path("lib") / abi / f"lib{lib_name}.so")] = so_path
-    if jni_dir and jni_dir.is_dir():
-        for so in sorted(jni_dir.rglob("*.so")):
-            rel = so.relative_to(jni_dir)
-            extra[str(Path("lib") / rel)] = so
+    if jni_dirs:
+        for j_dir in jni_dirs:
+            for so in sorted(j_dir.rglob("*.so")):
+                rel = so.relative_to(j_dir)
+                extra[str(Path("lib") / rel)] = so
     _merge_apk(base_apk, unsigned_apk, extra)
 
     aligned = work_dir / "aligned.apk"
@@ -641,7 +698,7 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON:
+    if not KEYSTORE_JSON or os.environ.get("PAYLOAD_USE_CUSTOM_KEYSTORE") != "true":
         return None
     try:
         info = json.loads(KEYSTORE_JSON)
@@ -780,10 +837,27 @@ async def upload_document(path: Path, caption: str):
             raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
 
 
+async def poll_cancel_commands():
+    if not JOB_ID:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", f"https://ntfy.sh/{JOB_ID}_cmd/raw") as response:
+                async for line in response.aiter_lines():
+                    if "cancel" in line.lower() or "stop" in line.lower():
+                        log.info("Cancellation received from user via app/notification!")
+                        CANCELLED["v"] = True
+                        break
+    except Exception as e:
+        pass
+
+
 async def main():
     if not JOB_ID and (not BOT_TOKEN or not CHAT_ID):
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
+
+    cancel_task = asyncio.create_task(poll_cancel_commands())
 
     edit("🟢 Job started! Preparing APK Build engine on cloud server...", parse_mode="HTML")
 
@@ -797,9 +871,13 @@ async def main():
         last = [-100.0]
 
         dl_method = ["📥 Downloading file..."]
+        last_dl_time = [0.0]
         async def on_dl(pct: float):
-            if pct < last[0] or (pct - last[0] < 2.0 and pct < 100.0): return
+            now = time.time()
+            if pct < 100.0 and (pct < last[0] or ((pct - last[0] < 5.0) and (now - last_dl_time[0] < 3.0))):
+                return
             last[0] = pct
+            last_dl_time[0] = now
             edit(f"{dl_method[0]}\n\n{progress_bar(pct)}")
 
         try:

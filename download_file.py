@@ -16,19 +16,23 @@ class DownloadStallError(Exception):
 async def robust_download(app, media, dest_path):
     import time
     last_progress_time = time.time()
+    last_print_time = 0.0
 
     async def progress_cb(current, total):
-        nonlocal last_progress_time
-        last_progress_time = time.time()
+        nonlocal last_progress_time, last_print_time
+        now = time.time()
+        last_progress_time = now
         if total > 0:
             pct = current * 100.0 / total
-            print(f"PROGRESS:{pct:.2f}", flush=True)
+            if now - last_print_time >= 3.0 or current >= total:
+                last_print_time = now
+                print(f"PROGRESS:{pct:.2f}", flush=True)
 
     async def watchdog():
         while True:
             await asyncio.sleep(5)
-            if time.time() - last_progress_time > 45:
-                print("ERROR: Download connection stalled for 45 seconds!", flush=True)
+            if time.time() - last_progress_time > 120:
+                print("ERROR: Download connection stalled for 120 seconds!", flush=True)
                 return  # signals a stall
 
     watchdog_task = asyncio.create_task(watchdog())
@@ -41,7 +45,7 @@ async def robust_download(app, media, dest_path):
         )
         if watchdog_task in done:
             main_task.cancel()
-            raise DownloadStallError("Download connection stalled for 45 seconds")
+            raise DownloadStallError("Download connection stalled for 120 seconds")
         if main_task not in done:
             main_task.cancel()
             raise TimeoutError("Download timed out after 60 minutes")

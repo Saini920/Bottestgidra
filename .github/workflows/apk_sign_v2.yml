@@ -87,8 +87,10 @@ jobs:
           PAYLOAD_REPORT_URL: ${{ github.event.client_payload.report_url }}
           PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
           PAYLOAD_MIN_SDK: ${{ github.event.client_payload.min_sdk }}
+          PAYLOAD_MAX_SDK: ${{ github.event.client_payload.max_sdk }}
           PAYLOAD_KEYSTORE: ${{ secrets[format('SIGNKEY_{0}', github.event.client_payload.chat_id)] }}
           PAYLOAD_USE_CUSTOM_KEYSTORE: ${{ github.event.client_payload.use_custom_keystore }}
+          PAYLOAD_CUSTOM_KEYSTORE_JSON: ${{ github.event.client_payload.custom_keystore_json }}
           PAYLOAD_SDK_ROOT: ${{ env.SDK_ROOT }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}

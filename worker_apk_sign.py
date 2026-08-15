@@ -33,7 +33,8 @@ REPORT_URL = os.environ.get("PAYLOAD_REPORT_URL", "")
 REPORT_TOKEN = BOT_TOKEN
 SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
 MIN_SDK = os.environ.get("PAYLOAD_MIN_SDK", "")
-KEYSTORE_JSON = os.environ.get("PAYLOAD_KEYSTORE", "")
+MAX_SDK = os.environ.get("PAYLOAD_MAX_SDK", "")
+KEYSTORE_JSON = os.environ.get("PAYLOAD_CUSTOM_KEYSTORE_JSON") or os.environ.get("PAYLOAD_KEYSTORE", "")
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -423,24 +424,36 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     ks_info = get_custom_keystore(work_dir)
     signed = work_dir / "signed.apk"
     min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
+    max_sdk = str(MAX_SDK) if str(MAX_SDK).isdigit() else ""
+    
     if ks_info:
         keystore, storepass, keypass, alias, ks_type = ks_info
         await on_progress(55, "🔏 Using your custom signing key...")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
                     "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                    "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)]
+                    "--min-sdk-version", min_sdk]
+        if max_sdk:
+            sign_cmd.extend(["--max-sdk-version", max_sdk])
+        sign_cmd.extend(["--out", str(signed), str(aligned)])
+        
         if ks_type:
             sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-type", ks_type,
                         "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
                         "--ks-key-alias", alias, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                        "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)]
+                        "--min-sdk-version", min_sdk]
+            if max_sdk:
+                sign_cmd.extend(["--max-sdk-version", max_sdk])
+            sign_cmd.extend(["--out", str(signed), str(aligned)])
     else:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                    "--min-sdk-version", min_sdk, "--out", str(signed), str(aligned)]
-    await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+ (v1+v2)...")
+                    "--min-sdk-version", min_sdk]
+        if max_sdk:
+            sign_cmd.extend(["--max-sdk-version", max_sdk])
+        sign_cmd.extend(["--out", str(signed), str(aligned)])
+    await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+{f' to {max_sdk}' if max_sdk else ''} (v1+v2)...")
     await run_tool(sign_cmd, on_progress, "apksigner")
     await on_progress(80, "🔏 Verifying signature...")
     await run_tool([apksigner, "verify", "-v", str(signed)], on_progress, "apksigner verify")
@@ -467,9 +480,13 @@ async def main():
         last = [-100.0]
 
         dl_method = ["📥 Downloading APK..."]
+        last_dl_time = [0.0]
         async def on_dl(pct: float):
-            if pct < last[0] or (pct - last[0] < 2.0 and pct < 100.0): return
+            now = time.time()
+            if pct < 100.0 and (pct < last[0] or ((pct - last[0] < 5.0) and (now - last_dl_time[0] < 3.0))):
+                return
             last[0] = pct
+            last_dl_time[0] = now
             edit(f"{dl_method[0]}\n\n{progress_bar(pct)}")
 
         try:
