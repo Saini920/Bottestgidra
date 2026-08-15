@@ -509,10 +509,6 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     java_files = sorted(set(java_files))
     kt_files = sorted(set(kt_files))
 
-    max_files = MAX_SRC_FILES_PREMIUM if IS_PREMIUM else MAX_SRC_FILES_FREE
-    if not IS_ADMIN and (len(java_files) + len(kt_files)) > max_files:
-        raise ValueError(f"Too many source files: {len(java_files) + len(kt_files)} — max {max_files} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-
     aapt2 = get_tool(sdk, "aapt2")
     zipalign = get_tool(sdk, "zipalign")
     apksigner = get_tool(sdk, "apksigner")
@@ -616,8 +612,6 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     cc_c_files = find_inputs(extract_dir, CC_EXTENSIONS)
     cc_cpp_files = find_inputs(extract_dir, CPP_EXTENSIONS)
     if cc_c_files or cc_cpp_files:
-        if not IS_ADMIN and (len(cc_c_files) + len(cc_cpp_files)) > MAX_CC_FILES:
-            raise ValueError(f"Too many C/C++ source files: {len(cc_c_files) + len(cc_cpp_files)} — max {MAX_CC_FILES} allowed.")
         main_src = [f for f in cc_c_files + cc_cpp_files if Path(f).stem.lower() == "main"]
         if main_src:
             lib_name = "main"
@@ -795,20 +789,7 @@ def _merge_apk(base_apk: Path, out_apk: Path, extra: dict):
 
 
 def check_zip_limits(file_path: Path):
-    if IS_ADMIN:
-        return
-    if Path(FILENAME).suffix.lower() != ".zip":
-        return
-    with zipfile.ZipFile(file_path) as zf:
-        names = zf.namelist()
-    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
-    apks = sum(1 for n in names if n.lower().endswith(".apk"))
-    max_so_dex = 5 if IS_PREMIUM else 1
-    max_apk = 2 if IS_PREMIUM else 1
-    if so_dex > max_so_dex:
-        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-    if apks > max_apk:
-        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    return
 
 
 async def upload_document(path: Path, caption: str):

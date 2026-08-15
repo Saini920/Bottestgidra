@@ -326,10 +326,6 @@ async def compile_smali_to_dex(input_path: Path, work_dir: Path, on_progress) ->
     if not smali_sources:
         raise ValueError("No .smali files found in the input.")
 
-    max_files = MAX_SMALI_FILES_PREMIUM if IS_PREMIUM else MAX_SMALI_FILES_FREE
-    if not IS_ADMIN and len(smali_sources) > max_files:
-        raise ValueError(f"Too many .smali files: {len(smali_sources)} — max {max_files} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-
     dex_path = work_dir / "classes.dex"
     assemble_root = input_path if input_path.is_dir() else input_path.parent
     cmd = ["java", "-Xmx8G", "-jar", SMALI_JAR, "assemble", str(assemble_root), "-o", str(dex_path)]
@@ -388,10 +384,6 @@ async def compile_java_to_dex(input_path: Path, work_dir: Path, on_progress) -> 
                 raise ValueError("No .java or .jar files found in the directory.")
     else:
         raise ValueError("Unsupported input for Java → DEX compile.")
-
-    max_files = MAX_SMALI_FILES_PREMIUM if IS_PREMIUM else MAX_SMALI_FILES_FREE
-    if not IS_ADMIN and len(java_files) > max_files:
-        raise ValueError(f"Too many .java files: {len(java_files)} — max {max_files} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
 
     if java_files:
         classes_dir = work_dir / "classes"
@@ -542,20 +534,7 @@ def _jar_dir(src_dir: Path, out_jar: Path) -> Path:
 
 
 def check_zip_limits(file_path: Path):
-    if IS_ADMIN:
-        return
-    if Path(FILENAME).suffix.lower() != ".zip":
-        return
-    with zipfile.ZipFile(file_path) as zf:
-        names = zf.namelist()
-    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
-    apks = sum(1 for n in names if n.lower().endswith(".apk"))
-    max_so_dex = 5 if IS_PREMIUM else 1
-    max_apk = 2 if IS_PREMIUM else 1
-    if so_dex > max_so_dex:
-        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-    if apks > max_apk:
-        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    return
 
 
 async def main():

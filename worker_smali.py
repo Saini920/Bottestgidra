@@ -241,9 +241,6 @@ def collect_dex_inputs(file_path: Path, work_dir: Path) -> list:
             dex_entries = [n for n in zf.namelist() if n.lower().endswith(".dex")]
         if not dex_entries:
             raise ValueError("No .dex files found in the ZIP archive.")
-        max_dex = MAX_DEX_PREMIUM if IS_PREMIUM else MAX_DEX_FREE
-        if not IS_ADMIN and len(dex_entries) > max_dex:
-            raise ValueError(f"ZIP contains {len(dex_entries)} .dex files — max {max_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
         extract_dir = work_dir / "dex_input"
         extract_dir.mkdir(exist_ok=True)
         with zipfile.ZipFile(file_path, "r") as zf:
@@ -314,20 +311,7 @@ async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start
 
 
 def check_zip_limits(file_path: Path):
-    if IS_ADMIN:
-        return
-    if Path(FILENAME).suffix.lower() != ".zip":
-        return
-    with zipfile.ZipFile(file_path) as zf:
-        names = zf.namelist()
-    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
-    apks = sum(1 for n in names if n.lower().endswith(".apk"))
-    max_so_dex = 5 if IS_PREMIUM else 1
-    max_apk = 2 if IS_PREMIUM else 1
-    if so_dex > max_so_dex:
-        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-    if apks > max_apk:
-        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    return
     if Path(FILENAME).suffix.lower() != ".zip":
         return 0
     with zipfile.ZipFile(file_path) as zf:
