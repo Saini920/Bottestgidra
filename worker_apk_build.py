@@ -504,14 +504,12 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         zipalign = get_tool(sdk, "zipalign")
         apksigner = get_tool(sdk, "apksigner")
 
-        stripped = work_dir / "stripped.apk"
-        await asyncio.to_thread(strip_old_signatures, found_apk, stripped)
         aligned = work_dir / "aligned.apk"
         if zipalign:
             await on_progress(88, "🔏 Aligning APK (zipalign)...")
-            await run_tool([zipalign, "-p", "-f", "4", str(stripped), str(aligned)], on_progress, "zipalign")
+            await run_tool([zipalign, "-p", "-f", "4", str(found_apk), str(aligned)], on_progress, "zipalign")
         else:
-            shutil.copy2(stripped, aligned)
+            shutil.copy2(found_apk, aligned)
 
         await on_progress(90, "🔏 Signing APK...")
         signed_apk = work_dir / "signed.apk"
@@ -868,11 +866,14 @@ def strip_old_signatures(input_apk: Path, out_apk: Path):
     drop = re.compile(r"^META-INF/.*\.(RSA|DSA|EC|SF)$", re.IGNORECASE)
     try:
         with TolerantZipFile(input_apk) as zin:
-            with zipfile.ZipFile(out_apk, "w", zipfile.ZIP_DEFLATED) as zout:
+            with zipfile.ZipFile(out_apk, "w") as zout:
                 for item in zin.infolist():
                     if drop.match(item.filename) or item.filename.upper() == "META-INF/MANIFEST.MF":
                         continue
-                    zout.writestr(item, zin.read(item.filename))
+                    compress_type = item.compress_type
+                    if item.filename.endswith(".so") or item.filename == "resources.arsc":
+                        compress_type = zipfile.ZIP_STORED
+                    zout.writestr(item, zin.read(item.filename), compress_type=compress_type)
     except Exception as e:
         import shutil
         shutil.copy2(input_apk, out_apk)

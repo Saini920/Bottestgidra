@@ -331,13 +331,17 @@ def strip_old_signatures(input_apk: Path, out_apk: Path):
     drop = re.compile(r"^META-INF/.*\.(RSA|DSA|EC|SF)$", re.IGNORECASE)
     try:
         with TolerantZipFile(input_apk) as zin:
-            with zipfile.ZipFile(out_apk, "w", zipfile.ZIP_DEFLATED) as zout:
+            with zipfile.ZipFile(out_apk, "w") as zout:
                 for item in zin.infolist():
                     if drop.match(item.filename) or item.filename.upper() == "META-INF/MANIFEST.MF":
                         continue
-                    zout.writestr(item, zin.read(item.filename))
-    except (zipfile.BadZipFile, zipfile.LargeZipFile, OSError, RuntimeError, NotImplementedError) as e:
-        raise ValueError(f"Could not read APK archive: {e}")
+                    compress_type = item.compress_type
+                    if item.filename.endswith(".so") or item.filename == "resources.arsc":
+                        compress_type = zipfile.ZIP_STORED
+                    zout.writestr(item, zin.read(item.filename), compress_type=compress_type)
+    except Exception as e:
+        import shutil
+        shutil.copy2(input_apk, out_apk)
 
 
 def make_keystore(path: Path) -> Path:
