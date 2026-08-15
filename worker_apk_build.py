@@ -447,10 +447,12 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     
     if build_mode == "manifest":
         pass
-    elif build_mode == "gradle" or has_gradle:
+    elif build_mode == "gradle":
         build_mode = "gradle"
+    elif build_mode in ("auto", ""):
+        build_mode = "gradle" if has_gradle else "manifest"
     else:
-        build_mode = "manifest"
+        build_mode = "gradle" if has_gradle else "manifest"
 
     if build_mode == "gradle":
         await on_progress(20, "🚀 Building using Gradle...")
