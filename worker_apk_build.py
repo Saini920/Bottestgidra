@@ -429,16 +429,25 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     with zipfile.ZipFile(input_path, "r") as zf:
         zf.extractall(extract_dir)
 
-    build_mode = os.environ.get("PAYLOAD_BUILD_MODE", "manifest")
+    build_mode = os.environ.get("PAYLOAD_BUILD_MODE", "")
+    
+    gradlew = None
+    for g in sorted(extract_dir.rglob("gradlew")):
+        if g.is_file():
+            gradlew = g
+            break
+            
+    has_gradle = bool(gradlew) or any(extract_dir.rglob("build.gradle")) or any(extract_dir.rglob("build.gradle.kts"))
+    
+    if build_mode == "gradle" or (not build_mode and has_gradle) or build_mode == "manifest":
+        if build_mode == "gradle" or has_gradle:
+            build_mode = "gradle"
+        else:
+            build_mode = "manifest"
+
     if build_mode == "gradle":
         await on_progress(20, "🚀 Building using Gradle...")
         # Find directory with gradlew or build.gradle
-        gradlew = None
-        for g in sorted(extract_dir.rglob("gradlew")):
-            if g.is_file():
-                gradlew = g
-                break
-        
         target_dir = gradlew.parent if gradlew else extract_dir
         
         cmd = []
@@ -453,7 +462,11 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         except Exception as e:
             raise ValueError(f"Gradle build failed: {e}")
             
+        apks = sorted(target_dir.rglob("*.apk"))
+        if not apks:
+            raise ValueError("Gradle build completed but no .apk files were found in the project.")
         found_apk = apks[-1]
+        
         unsigned_apk = work_dir / "unsigned.apk"
         signed_apk = work_dir / "signed.apk"
         import shutil
@@ -572,11 +585,20 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     kt_files = []
     for p in sorted(extract_dir.rglob("*")):
         if p.is_file():
-            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in p.parts):
-                if p.suffix.lower() in JAVA_EXTENSIONS:
-                    java_files.append(str(p))
-                elif p.suffix.lower() in KOTLIN_EXTENSIONS:
-                    kt_files.append(str(p))
+            if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in p.parts):
+                continue
+            is_test = False
+            for idx, part in enumerate(p.parts):
+                if part == "src" and idx + 1 < len(p.parts) and p.parts[idx+1] in ("test", "androidTest"):
+                    is_test = True
+                    break
+            if is_test:
+                continue
+            
+            if p.suffix.lower() in JAVA_EXTENSIONS:
+                java_files.append(str(p))
+            elif p.suffix.lower() in KOTLIN_EXTENSIONS:
+                kt_files.append(str(p))
     java_files = sorted(set(java_files))
     kt_files = sorted(set(kt_files))
 
