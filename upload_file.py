@@ -52,8 +52,10 @@ async def main():
     for attempt in range(3):
         try:
             async with app:
-                await app.send_document(chat_id=chat_target, document=file_path, caption=caption, progress=progress)
+                me = await app.get_me()
+                msg = await app.send_document(chat_id=chat_target, document=file_path, caption=caption, progress=progress)
             print("Upload complete.", flush=True)
+            print(f"UPLOAD_SUCCESS:{me.id}:{msg.id}", flush=True)
             return
         except FloodWait as e:
             last_error = e

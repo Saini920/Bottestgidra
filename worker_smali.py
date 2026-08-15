@@ -67,7 +67,6 @@ def upload_result_for_app(file_to_send: Path):
     if not JOB_ID or not file_to_send or not file_to_send.exists():
         return
 
-    # 1. Deliver to user Telegram Chat via Bot API
     target_chat = CHAT_ID if CHAT_ID and CHAT_ID != '0' and not str(CHAT_ID).startswith('app_') else ''
     bot_tok = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
     if bot_tok and bot_tok != 'app_direct_mode' and target_chat:
@@ -92,14 +91,18 @@ def upload_result_for_app(file_to_send: Path):
                                     direct_tg_url = f'https://api.telegram.org/file/bot{bot_tok}/{f_path}'
                                     notify_app(f'FINAL_ZIP_URL:{direct_tg_url}')
                                     return
+                        
+                        msg_id = res_json['result'].get('message_id')
+                        bot_user = httpx.get(f'https://api.telegram.org/bot{bot_tok}/getMe', timeout=10).json()
+                        if bot_user.get('ok') and msg_id:
+                            bot_id = bot_user['result']['id']
+                            notify_app(f'FINAL_ZIP_URL:telegram_msg:{bot_id}:{msg_id}')
+                            return
                         notify_app('FINAL_ZIP_URL:telegram_direct_upload')
                         return
-                else:
-                    log.warning('Bot sendDocument returned %d: %s', r.status_code, r.text)
         except Exception as e:
             log.warning('Telegram Bot upload failed: %s', e)
 
-    # 2. Try MTProto Pyrogram upload to user Telegram Saved Messages
     api_id_val = os.environ.get('API_ID', '').strip()
     api_hash_val = os.environ.get('API_HASH', '').strip()
     tg_dest = target_chat if target_chat else 'me'
@@ -110,27 +113,16 @@ def upload_result_for_app(file_to_send: Path):
             proc = subprocess.run(cmd, timeout=300, capture_output=True, text=True)
             if proc.returncode == 0:
                 log.info('Uploaded to Telegram MTProto successfully: %s', proc.stdout)
+                for line in proc.stdout.splitlines():
+                    if line.startswith('UPLOAD_SUCCESS:'):
+                        parts = line.split(':')
+                        if len(parts) >= 3:
+                            notify_app(f'FINAL_ZIP_URL:telegram_msg:{parts[1]}:{parts[2]}')
+                            return
                 notify_app('FINAL_ZIP_URL:telegram_direct_upload')
                 return
-            else:
-                log.warning('upload_file.py failed with code %d: %s', proc.returncode, proc.stderr or proc.stdout)
         except Exception as e:
             log.warning('MTProto upload in upload_result_for_app failed: %s', e)
-
-    # 3. Direct upload fallback to catbox
-    try:
-        with open(file_to_send, 'rb') as f:
-            r = httpx.post(
-                'https://catbox.moe/user/api.php',
-                data={'reqtype': 'fileupload'},
-                files={'fileToUpload': (file_to_send.name, f, 'application/octet-stream')},
-                timeout=180
-            )
-            if r.status_code == 200 and r.text.startswith('http'):
-                notify_app(f'FINAL_ZIP_URL:{r.text.strip()}')
-                return
-    except Exception as e:
-        log.warning('App result upload to catbox failed: %s', e)
 
     notify_app('FINAL_ZIP_URL:telegram_direct_upload')
 
