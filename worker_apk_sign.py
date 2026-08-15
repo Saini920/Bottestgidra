@@ -572,7 +572,7 @@ async def main():
         if JOB_ID:
             upload_result_for_app(signed)
 
-        if BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
+        elif BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
             try:
                 http_ok = False
                 if signed.stat().st_size <= 50 * 1024 * 1024:

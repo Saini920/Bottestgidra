@@ -452,7 +452,7 @@ async def main():
         if JOB_ID:
             upload_result_for_app(zip_path)
 
-        if BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
+        elif BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
             try:
                 http_ok = False
                 MAX_HTTP_UPLOAD = 50 * 1024 * 1024

@@ -907,7 +907,7 @@ async def main():
         if JOB_ID:
             upload_result_for_app(signed_apk)
 
-        if BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
+        elif BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
             try:
                 await upload_document(signed_apk, f"✅ <b>Signed APK</b> built from source — Powered By @R3V_X")
                 edit("📤 Sending unsigned APK...")
