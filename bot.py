@@ -813,22 +813,26 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
     client_payload = {
         "chat_id": str(chat_id),
         "message_id": str(message_id),
-        "original_message_id": str(original_msg_id),
         "filename": filename,
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
         "is_premium": str(is_premium),
-        "file_id": file_id,
-        "min_sdk": min_sdk,
     }
+    if original_msg_id and original_msg_id != message_id:
+        client_payload["original_message_id"] = str(original_msg_id)
+    if min_sdk:
+        client_payload["min_sdk"] = str(min_sdk)
+    if file_id:
+        client_payload["file_id"] = file_id
+    elif tg_file_path:
+        client_payload["tg_file_path"] = tg_file_path
+    elif file_url:
+        client_payload["file_url"] = file_url
+
     custom_key = db.data.get("signkeys", {}).get(str(chat_id))
     if custom_key:
         client_payload["custom_keystore_json"] = json.dumps(custom_key)
-        client_payload["use_custom_keystore"] = "true"
-    if tg_file_path:
-        client_payload["tg_file_path"] = tg_file_path
-    else:
-        client_payload["file_url"] = file_url
+
     payload = {"event_type": event_type, "client_payload": client_payload}
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
