@@ -426,6 +426,7 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
     max_sdk = str(MAX_SDK) if str(MAX_SDK).isdigit() else ""
     
+    ks_success = False
     if ks_info:
         keystore, storepass, keypass, alias, ks_type = ks_info
         await on_progress(55, "🔏 Using your custom signing key...")
@@ -446,7 +447,17 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
             if max_sdk:
                 sign_cmd.extend(["--max-sdk-version", max_sdk])
             sign_cmd.extend(["--out", str(signed), str(aligned)])
-    else:
+        
+        try:
+            await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+{f' to {max_sdk}' if max_sdk else ''} (v1+v2)...")
+            await run_tool(sign_cmd, on_progress, "apksigner")
+            ks_success = True
+        except Exception as e:
+            log.warning("Custom keystore signing failed: %s", e)
+            await on_progress(55, "⚠️ Custom keystore failed (Wrong Password?). Falling back to debug key...")
+            ks_success = False
+            
+    if not ks_success:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
@@ -454,8 +465,9 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
         if max_sdk:
             sign_cmd.extend(["--max-sdk-version", max_sdk])
         sign_cmd.extend(["--out", str(signed), str(aligned)])
-    await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+{f' to {max_sdk}' if max_sdk else ''} (v1+v2)...")
-    await run_tool(sign_cmd, on_progress, "apksigner")
+        await on_progress(60, f"🔏 Signing APK for Android {min_sdk}+{f' to {max_sdk}' if max_sdk else ''} (v1+v2)...")
+        await run_tool(sign_cmd, on_progress, "apksigner")
+
     await on_progress(80, "🔏 Verifying signature...")
     await run_tool([apksigner, "verify", "-v", str(signed)], on_progress, "apksigner verify")
     await on_progress(90, "✅ APK signed!")

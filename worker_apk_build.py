@@ -727,6 +727,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     await on_progress(88, "🔏 Signing APK...")
     signed_apk = work_dir / "signed.apk"
     ks_info = get_custom_keystore(work_dir)
+    ks_success = False
     if ks_info:
         keystore, storepass, keypass, alias, ks_type = ks_info
         await on_progress(88, "🔏 Using your custom signing key...")
@@ -738,14 +739,23 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         if ks_type:
             sign_cmd.extend(["--ks-type", ks_type])
         sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
-    else:
+        try:
+            await run_tool(sign_cmd, on_progress, "apksigner")
+            ks_success = True
+        except Exception as e:
+            log.warning("Custom keystore signing failed: %s", e)
+            await on_progress(88, "⚠️ Custom keystore failed (Wrong Password?). Falling back to debug key...")
+            ks_success = False
+
+    if not ks_success:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
         if min_sdk:
             sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
         sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
-    await run_tool(sign_cmd, on_progress, "apksigner")
+        await run_tool(sign_cmd, on_progress, "apksigner")
+        
     await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
     await on_progress(95, "✅ APK built!")
     return signed_apk, aligned

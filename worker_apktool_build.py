@@ -374,7 +374,7 @@ async def main():
         min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
         max_sdk = str(MAX_SDK) if str(MAX_SDK).isdigit() else ""
         
-        sign_proc = None
+        ks_success = False
         if ks_info:
             keystore, storepass, keypass, alias, ks_type = ks_info
             edit("🔏 Signing APK with Custom Keystore...")
@@ -384,34 +384,38 @@ async def main():
                         "--min-sdk-version", min_sdk]
             if max_sdk:
                 sign_cmd.extend(["--max-sdk-version", max_sdk])
-            sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
             
             if ks_type:
-                sign_cmd = ["apksigner", "sign", "--ks", str(keystore), "--ks-type", ks_type,
-                            "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
-                            "--ks-key-alias", alias, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                            "--min-sdk-version", min_sdk]
-                if max_sdk:
-                    sign_cmd.extend(["--max-sdk-version", max_sdk])
-                sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
+                sign_cmd.extend(["--ks-type", ks_type])
+            sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
             
-            sign_proc = await asyncio.create_subprocess_exec(*sign_cmd)
-        else:
-            ks_path = "/opt/debug.keystore"
-            if os.path.exists(ks_path):
-                sign_cmd = ["apksigner", "sign", "--ks", ks_path, "--ks-pass", "pass:android",
-                            "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
-                            "--min-sdk-version", min_sdk]
-                if max_sdk:
-                    sign_cmd.extend(["--max-sdk-version", max_sdk])
-                sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
-                sign_proc = await asyncio.create_subprocess_exec(*sign_cmd)
-        
-        if sign_proc:
-            await sign_proc.communicate()
-            if align_proc.returncode == 0 and sign_proc.returncode == 0:
-                pass
+            sign_proc = await asyncio.create_subprocess_exec(
+                *sign_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+            )
+            out, _ = await sign_proc.communicate()
+            if sign_proc.returncode == 0:
+                ks_success = True
             else:
+                log.warning("Custom signing failed: %s", out.decode(errors="replace"))
+                edit("⚠️ Custom keystore failed (Wrong Password?). Falling back to debug key...")
+                ks_success = False
+
+        if not ks_success:
+            ks_path = "/opt/debug.keystore"
+            if not os.path.exists(ks_path):
+                import subprocess as sp
+                sp.run(["keytool", "-genkeypair", "-keystore", ks_path, "-storepass", "android", "-keypass", "android",
+                        "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
+                        "-dname", "CN=Android Debug,O=Android,C=US"], check=True)
+            sign_cmd = ["apksigner", "sign", "--ks", ks_path, "--ks-pass", "pass:android", "--key-pass", "pass:android",
+                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                        "--min-sdk-version", min_sdk]
+            if max_sdk:
+                sign_cmd.extend(["--max-sdk-version", max_sdk])
+            sign_cmd.extend(["--out", str(signed_apk), str(aligned_apk)])
+            sign_proc = await asyncio.create_subprocess_exec(*sign_cmd)
+            await sign_proc.communicate()
+            if sign_proc.returncode != 0:
                 log.error("Apksigner failed.")
         
         edit("📦 Packaging Signed & Unsigned APKs...")
