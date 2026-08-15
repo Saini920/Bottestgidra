@@ -515,11 +515,32 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     if not mp["package"]:
         mp["package"] = ensure_manifest_package(manifest, extract_dir)
 
+    VALID_RES_PREFIXES = (
+        "anim", "animator", "color", "drawable", "font", "interpolator",
+        "layout", "menu", "mipmap", "navigation", "raw", "transition", "values", "xml"
+    )
+
+    def is_valid_android_res_dir(r_path: Path) -> bool:
+        if not r_path.is_dir():
+            return False
+        # If inside any 'assets' folder, it belongs to assets!
+        if any(part.lower() == "assets" for part in r_path.parts):
+            return False
+        if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in r_path.parts):
+            return False
+        subdirs = [p.name.lower() for p in r_path.iterdir() if p.is_dir()]
+        if not subdirs:
+            return any(p.suffix.lower() in (".xml", ".png", ".jpg", ".webp", ".9.png") for p in r_path.iterdir() if p.is_file())
+        for s in subdirs:
+            base_type = s.split("-")[0]
+            if base_type in VALID_RES_PREFIXES:
+                return True
+        return False
+
     res_dirs = []
     for r in sorted(extract_dir.rglob("res")):
-        if r.is_dir() and any(r.iterdir()):
-            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in r.parts):
-                res_dirs.append(r)
+        if is_valid_android_res_dir(r):
+            res_dirs.append(r)
 
     if not res_dirs:
         dummy_res = work_dir / "default_res"
@@ -530,7 +551,9 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     assets_dirs = []
     for a in sorted(extract_dir.rglob("assets")):
         if a.is_dir() and any(a.iterdir()):
-            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in a.parts):
+            if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in a.parts):
+                continue
+            if not any(a != ex and str(a).startswith(str(ex)) for ex in assets_dirs):
                 assets_dirs.append(a)
 
     jni_dirs = []
@@ -574,7 +597,19 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     compiled_res_list = []
     for idx, r_dir in enumerate(res_dirs):
         c_res = work_dir / f"compiled_res_{idx}.zip"
-        await run_tool([aapt2, "compile", "--dir", str(r_dir), "-o", str(c_res)], on_progress, f"aapt2 compile res_{idx}")
+        try:
+            await run_tool([aapt2, "compile", "--dir", str(r_dir), "-o", str(c_res)], on_progress, f"aapt2 compile res_{idx}")
+            if c_res.exists():
+                compiled_res_list.append(str(c_res))
+        except Exception as res_err:
+            log.warning("Skipping non-standard resource directory %s: %s", r_dir, res_err)
+
+    if not compiled_res_list:
+        fallback_res = work_dir / "fallback_res"
+        (fallback_res / "values").mkdir(parents=True, exist_ok=True)
+        (fallback_res / "values" / "strings.xml").write_text('<resources><string name="app_name">App</string></resources>', encoding="utf-8")
+        c_res = work_dir / "compiled_res_fallback.zip"
+        await run_tool([aapt2, "compile", "--dir", str(fallback_res), "-o", str(c_res)], on_progress, "aapt2 compile fallback_res")
         if c_res.exists():
             compiled_res_list.append(str(c_res))
 
