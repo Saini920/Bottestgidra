@@ -37,7 +37,7 @@
     },
     "7251749429": {
       "date": "2026-08-15",
-      "count": 15
+      "count": 16
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -45,7 +45,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 257,
+  "total_files": 258,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -884,8 +884,8 @@
       "filename": "GhidraStudio_Android_App (1).zip",
       "engine": "apkbuild",
       "started": 1786781038.476844,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31873551885,
+      "run_status": "completed"
     }
   }
 }
