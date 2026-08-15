@@ -20,28 +20,39 @@ async def main():
     api_id = int(raw_api) if raw_api.isdigit() else 0
     api_hash = os.environ.get("API_HASH", "").strip()
     bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    if bot_token == "app_direct_mode":
+        bot_token = ""
 
     raw_chat = os.environ.get("PAYLOAD_CHAT_ID", "").strip()
-    chat_id = int(raw_chat) if raw_chat.lstrip("-").isdigit() else 0
-
     file_path = sys.argv[1] if len(sys.argv) > 1 else ""
     caption = sys.argv[2] if len(sys.argv) > 2 else ""
+    if len(sys.argv) > 3 and sys.argv[3].strip():
+        raw_chat = sys.argv[3].strip()
 
-    if not api_id or not api_hash or not bot_token or not chat_id or not file_path:
-        print("Missing credentials or file_path for MTProto upload.")
+    chat_target = raw_chat
+    if raw_chat.lstrip("-").isdigit():
+        chat_target = int(raw_chat)
+    elif raw_chat in ("me", "self", "", "app_direct_mode") or raw_chat.startswith("app_"):
+        chat_target = "me"
+
+    if not api_id or not api_hash or not file_path:
+        print("Missing API_ID, API_HASH, or file_path for MTProto upload.")
         sys.exit(1)
 
     pool_id = int(hashlib.md5(file_path.encode("utf-8")).hexdigest(), 16) % 5
     session_name = f"worker_upload_pool_{pool_id}"
-    app = Client(session_name, api_id=api_id, api_hash=api_hash, bot_token=bot_token, workdir=SESSION_DIR)
+    kwargs = {"api_id": api_id, "api_hash": api_hash, "workdir": SESSION_DIR}
+    if bot_token:
+        kwargs["bot_token"] = bot_token
+    app = Client(session_name, **kwargs)
 
-    print(f"Uploading file to chat_id {chat_id} via MTProto (Pyrogram)...", flush=True)
+    print(f"Uploading file to chat {chat_target} via MTProto (Pyrogram)...", flush=True)
 
     last_error = None
     for attempt in range(3):
         try:
             async with app:
-                await app.send_document(chat_id=int(chat_id), document=file_path, caption=caption, progress=progress)
+                await app.send_document(chat_id=chat_target, document=file_path, caption=caption, progress=progress)
             print("Upload complete.", flush=True)
             return
         except FloodWait as e:

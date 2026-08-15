@@ -75,6 +75,7 @@ def notify_app(message: str, title: str = None):
 def upload_result_for_app(file_to_send: Path):
     if not JOB_ID or not file_to_send or not file_to_send.exists():
         return
+    # 1. Try direct upload to catbox
     try:
         with open(file_to_send, 'rb') as f:
             r = httpx.post(
@@ -88,6 +89,25 @@ def upload_result_for_app(file_to_send: Path):
                 return
     except Exception as e:
         log.warning('App result upload to catbox failed: %s', e)
+
+    # 2. Try MTProto Pyrogram upload to user Telegram Saved Messages
+    target_chat = CHAT_ID if CHAT_ID and CHAT_ID != '0' and not str(CHAT_ID).startswith('app_') else 'me'
+    api_id_val = os.environ.get('API_ID', '').strip()
+    api_hash_val = os.environ.get('API_HASH', '').strip()
+    if api_id_val and api_hash_val:
+        try:
+            import subprocess
+            cmd = [sys.executable, 'upload_file.py', str(file_to_send), f'✅ Result for Job {JOB_ID}', str(target_chat)]
+            proc = subprocess.run(cmd, timeout=300, capture_output=True, text=True)
+            if proc.returncode == 0:
+                log.info('Uploaded to Telegram MTProto successfully: %s', proc.stdout)
+                notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+                return
+            else:
+                log.warning('upload_file.py failed with code %d: %s', proc.returncode, proc.stderr or proc.stdout)
+        except Exception as e:
+            log.warning('MTProto upload in upload_result_for_app failed: %s', e)
+
     notify_app('FINAL_ZIP_URL:telegram_direct_upload')
 
 
