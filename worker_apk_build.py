@@ -649,19 +649,19 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         await on_progress(88, "🔏 Using your custom signing key...")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
                     "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
-                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
-                    "--out", str(signed_apk), str(aligned)]
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
         if min_sdk:
             sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
         if ks_type:
             sign_cmd.extend(["--ks-type", ks_type])
+        sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
     else:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
-                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
-                    "--out", str(signed_apk), str(aligned)]
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
         if min_sdk:
             sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
+        sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
     await run_tool(sign_cmd, on_progress, "apksigner")
     await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
     await on_progress(95, "✅ APK built!")
