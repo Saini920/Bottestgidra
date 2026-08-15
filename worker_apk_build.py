@@ -151,14 +151,6 @@ def upload_result_for_app(file_to_send: Path):
         log.warning('App result upload to catbox failed: %s', e)
 
     notify_app('FINAL_ZIP_URL:telegram_direct_upload')
-                return
-            else:
-                log.warning('upload_file.py failed with code %d: %s', proc.returncode, proc.stderr or proc.stdout)
-        except Exception as e:
-            log.warning('MTProto upload in upload_result_for_app failed: %s', e)
-
-    notify_app('FINAL_ZIP_URL:telegram_direct_upload')
-
 
 
 def tg(method: str, **params):
