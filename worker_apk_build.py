@@ -933,7 +933,8 @@ async def main():
             if tg_file_path:
                 try:
                     filename = FILENAME or "download"
-                    tg_url = tg_file_path if tg_file_path.startswith("http") else f"{API}/file/{tg_file_path}"
+                    file_api = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
+                    tg_url = tg_file_path if tg_file_path.startswith("http") else f"{file_api}/{tg_file_path}"
                     async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
                         async with client.stream("GET", tg_url) as resp:
                             resp.raise_for_status()

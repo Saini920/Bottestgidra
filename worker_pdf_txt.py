@@ -491,11 +491,25 @@ async def main():
 
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
+            tg_file_path = TG_FILE_PATH
             got_file = False
-            if TG_FILE_PATH:
+            
+            if file_id and not tg_file_path:
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        gf = await client.get(f"{API}/getFile?file_id={file_id}")
+                        if gf.status_code == 200:
+                            g_data = gf.json()
+                            if g_data.get("ok"):
+                                tg_file_path = g_data["result"].get("file_path", "")
+                except Exception as e:
+                    log.warning("getFile error: %s", e)
+
+            if tg_file_path:
                 try:
                     filename = FILENAME or "download"
-                    tg_url = TG_FILE_PATH if TG_FILE_PATH.startswith("http") else f"{API}/file/{TG_FILE_PATH}"
+                    file_api = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
+                    tg_url = tg_file_path if tg_file_path.startswith("http") else f"{file_api}/{tg_file_path}"
                     async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
                         async with client.stream("GET", tg_url) as resp:
                             resp.raise_for_status()

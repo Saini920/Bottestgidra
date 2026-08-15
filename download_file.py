@@ -77,7 +77,30 @@ async def main():
         print("Missing credentials or file_id for MTProto download.")
         sys.exit(1)
 
-    # Stable session pool: the same file_id always maps to the same session name.
+    # 1. First attempt: Direct Bot API HTTP getFile download (Fast, zero MTProto errors for <= 20MB files)
+    try:
+        import httpx
+        api_url = f"https://api.telegram.org/bot{bot_token}/getFile?file_id={file_id}"
+        with httpx.Client(timeout=30.0) as client:
+            r = client.get(api_url)
+            if r.status_code == 200:
+                res = r.json()
+                if res.get("ok"):
+                    fp = res["result"].get("file_path", "")
+                    if fp:
+                        dl_url = f"https://api.telegram.org/file/bot{bot_token}/{fp}"
+                        with client.stream("GET", dl_url) as stream_resp:
+                            if stream_resp.status_code == 200:
+                                with open(dest_path, "wb") as f_out:
+                                    for chunk in stream_resp.iter_bytes(65536):
+                                        f_out.write(chunk)
+                                if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
+                                    print(f"Direct Bot API HTTP download succeeded: {os.path.getsize(dest_path)} bytes.", flush=True)
+                                    return
+    except Exception as http_ex:
+        print(f"Direct HTTP getFile download skipped/failed: {http_ex}, trying MTProto...", flush=True)
+
+    # 2. MTProto download via Pyrogram for large files
     pool_id = int(hashlib.md5(file_id.encode("utf-8")).hexdigest(), 16) % 5
     session_name = f"worker_session_pool_{pool_id}"
     app = Client(session_name, api_id=api_id, api_hash=api_hash, bot_token=bot_token, workdir=SESSION_DIR)
@@ -97,19 +120,28 @@ async def main():
     for attempt in range(5):
         try:
             async with app:
+                media_msg = None
                 if chat_id and orig_msg_id:
-                    try:
-                        msg = await app.get_messages(chat_id, orig_msg_id)
-                    except Exception as me:
-                        print(f"get_messages error: {me}", flush=True)
-                        msg = None
-                    if msg and (msg.document or msg.video or msg.audio or msg.photo):
-                        await robust_download(app, msg, dest_path)
-                    else:
-                        print("Message document not found. Trying download by file_id...", flush=True)
-                        await robust_download(app, file_id, dest_path)
+                    for mid in [orig_msg_id, orig_msg_id - 1, orig_msg_id + 1, orig_msg_id - 2, orig_msg_id - 3]:
+                        if mid <= 0:
+                            continue
+                        try:
+                            m = await app.get_messages(chat_id, mid)
+                            if m and (m.document or m.video or m.audio or m.photo):
+                                media_msg = m
+                                break
+                            if m and m.reply_to_message and (m.reply_to_message.document or m.reply_to_message.video or m.reply_to_message.audio or m.reply_to_message.photo):
+                                media_msg = m.reply_to_message
+                                break
+                        except Exception:
+                            pass
+
+                if media_msg:
+                    await robust_download(app, media_msg, dest_path)
                 else:
+                    print("Message document not found. Trying download by file_id...", flush=True)
                     await robust_download(app, file_id, dest_path)
+
             if os.path.exists(dest_path) and os.path.getsize(dest_path) > 0:
                 print(f"Download complete: {os.path.getsize(dest_path)} bytes.", flush=True)
                 return
