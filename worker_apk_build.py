@@ -553,8 +553,9 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     class_dirs = []
     cp_parts = [android_jar]
     lib_jars = []
-    if libs_dir and libs_dir.is_dir():
-        lib_jars = find_inputs(libs_dir, {".jar"})
+    if libs_dirs:
+        for l_dir in libs_dirs:
+            lib_jars += find_inputs(l_dir, {".jar"})
         cp_parts += lib_jars
 
     if kt_files:
