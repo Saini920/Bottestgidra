@@ -351,18 +351,34 @@ def make_keystore(path: Path) -> Path:
 def inspect_custom_keystore(ks_path: Path, storepass: str):
     try:
         proc = subprocess.run(
-            ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass],
+            ["keytool", "-list", "-v", "-keystore", str(ks_path), "-storepass", storepass],
             capture_output=True, text=True, timeout=60,
         )
         out = proc.stdout + proc.stderr
     except Exception as e:
         log.warning("keytool inspect failed: %s", e)
         return "", [], True
-    m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out)
+
+    m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out, re.I)
     ks_type = m.group(1).lower() if m else ""
-    aliases = re.findall(r"^\s*([^\s,]+),\s+[^\n]*PrivateKeyEntry", out, re.M)
+    
+    aliases = []
+    for line in out.splitlines():
+        line_s = line.strip()
+        m_alias = re.search(r"Alias name:\s*(.+)", line_s, re.I)
+        if m_alias:
+            a = m_alias.group(1).strip()
+            if a and a not in aliases:
+                aliases.append(a)
+        elif "," in line_s and any(k in line_s.lower() for k in ["privatekey", "keyentry", "entry"]):
+            a = line_s.split(",")[0].strip()
+            if a and a not in aliases:
+                aliases.append(a)
+
     if proc.returncode != 0:
-        return "", [], False
+        if "password" in out.lower() or "tampered" in out.lower() or "integrity" in out.lower():
+            return "", [], False
+        return ks_type, aliases, True
     return ks_type, aliases, True
 
 

@@ -487,11 +487,55 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         found_apk = apks[-1]
         
         unsigned_apk = work_dir / "unsigned.apk"
-        signed_apk = work_dir / "signed.apk"
         import shutil
         shutil.copy2(found_apk, unsigned_apk)
-        shutil.copy2(found_apk, signed_apk)
-        await on_progress(95, "✅ APK built using Gradle!")
+
+        zipalign = get_tool(sdk, "zipalign")
+        apksigner = get_tool(sdk, "apksigner")
+
+        stripped = work_dir / "stripped.apk"
+        await asyncio.to_thread(strip_old_signatures, found_apk, stripped)
+        aligned = work_dir / "aligned.apk"
+        if zipalign:
+            await on_progress(88, "🔏 Aligning APK (zipalign)...")
+            await run_tool([zipalign, "-p", "-f", "4", str(stripped), str(aligned)], on_progress, "zipalign")
+        else:
+            shutil.copy2(stripped, aligned)
+
+        await on_progress(90, "🔏 Signing APK...")
+        signed_apk = work_dir / "signed.apk"
+        ks_info = get_custom_keystore(work_dir)
+        ks_success = False
+        if ks_info and apksigner:
+            keystore, storepass, keypass, alias, ks_type = ks_info
+            await on_progress(90, f"🔏 Using your custom signing key (alias: {alias})...")
+            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
+                        "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
+                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
+            if ks_type:
+                sign_cmd.extend(["--ks-type", ks_type])
+            sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
+            try:
+                await run_tool(sign_cmd, on_progress, "apksigner")
+                ks_success = True
+            except Exception as e:
+                log.warning("Custom keystore signing failed: %s", e)
+                await on_progress(90, "⚠️ Custom keystore failed. Falling back to debug key...")
+                ks_success = False
+
+        if not ks_success and apksigner:
+            keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
+            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
+                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
+                        "--out", str(signed_apk), str(aligned)]
+            await run_tool(sign_cmd, on_progress, "apksigner")
+        elif not apksigner:
+            shutil.copy2(found_apk, signed_apk)
+
+        if apksigner and signed_apk.exists():
+            await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
+
+        await on_progress(95, "✅ APK built and signed!")
         return signed_apk, unsigned_apk
 
 
@@ -802,6 +846,27 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     return signed_apk, aligned
 
 
+class TolerantZipFile(zipfile.ZipFile):
+    def _RealGetContents(self):
+        super()._RealGetContents()
+        for zinfo in self.filelist:
+            zinfo._end_offset = None
+
+
+def strip_old_signatures(input_apk: Path, out_apk: Path):
+    drop = re.compile(r"^META-INF/.*\.(RSA|DSA|EC|SF)$", re.IGNORECASE)
+    try:
+        with TolerantZipFile(input_apk) as zin:
+            with zipfile.ZipFile(out_apk, "w", zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    if drop.match(item.filename) or item.filename.upper() == "META-INF/MANIFEST.MF":
+                        continue
+                    zout.writestr(item, zin.read(item.filename))
+    except Exception as e:
+        import shutil
+        shutil.copy2(input_apk, out_apk)
+
+
 def make_keystore(path: Path) -> Path:
     import subprocess as sp
     if not path.exists():
@@ -812,21 +877,36 @@ def make_keystore(path: Path) -> Path:
 
 
 def inspect_custom_keystore(ks_path: Path, storepass: str):
-    cmd = ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    ks_type = ""
+    try:
+        proc = subprocess.run(
+            ["keytool", "-list", "-v", "-keystore", str(ks_path), "-storepass", storepass],
+            capture_output=True, text=True, timeout=60,
+        )
+        out = proc.stdout + proc.stderr
+    except Exception as e:
+        log.warning("keytool inspect failed: %s", e)
+        return "", [], True
+
+    m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out, re.I)
+    ks_type = m.group(1).lower() if m else ""
+    
     aliases = []
-    for line in proc.stdout.splitlines():
-        if "keystore type:" in line.lower():
-            parts = line.split(":")
-            if len(parts) >= 2:
-                ks_type = parts[1].strip()
-        if "," in line and ("entry" in line.lower() or "keyentry" in line.lower()):
-            alias = line.split(",")[0].strip()
-            if alias:
-                aliases.append(alias)
+    for line in out.splitlines():
+        line_s = line.strip()
+        m_alias = re.search(r"Alias name:\s*(.+)", line_s, re.I)
+        if m_alias:
+            a = m_alias.group(1).strip()
+            if a and a not in aliases:
+                aliases.append(a)
+        elif "," in line_s and any(k in line_s.lower() for k in ["privatekey", "keyentry", "entry"]):
+            a = line_s.split(",")[0].strip()
+            if a and a not in aliases:
+                aliases.append(a)
+
     if proc.returncode != 0:
-        return "", [], False
+        if "password" in out.lower() or "tampered" in out.lower() or "integrity" in out.lower():
+            return "", [], False
+        return ks_type, aliases, True
     return ks_type, aliases, True
 
 

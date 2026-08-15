@@ -504,24 +504,35 @@ if __name__ == "__main__":
 
 def inspect_custom_keystore(ks_path: Path, storepass: str):
     import subprocess
-    cmd = ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass, "-J-Dfile.encoding=utf-8"]
+    cmd = ["keytool", "-list", "-v", "-keystore", str(ks_path), "-storepass", storepass, "-J-Dfile.encoding=utf-8"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        ks_type = ""
-        aliases = []
-        for line in res.stdout.splitlines():
-            if "keystore type:" in line.lower():
-                parts = line.split(":")
-                if len(parts) >= 2:
-                    ks_type = parts[1].strip()
-            if "," in line and ("entry" in line.lower() or "keyentry" in line.lower()):
-                alias = line.split(",")[0].strip()
-                if alias:
-                    aliases.append(alias)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        out = res.stdout + res.stderr
+    except Exception as e:
+        log.warning("keytool inspect error: %s", e)
+        return "", [], True
+
+    m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out, re.I)
+    ks_type = m.group(1).lower() if m else ""
+    
+    aliases = []
+    for line in out.splitlines():
+        line_s = line.strip()
+        m_alias = re.search(r"Alias name:\s*(.+)", line_s, re.I)
+        if m_alias:
+            a = m_alias.group(1).strip()
+            if a and a not in aliases:
+                aliases.append(a)
+        elif "," in line_s and any(k in line_s.lower() for k in ["privatekey", "keyentry", "entry"]):
+            a = line_s.split(",")[0].strip()
+            if a and a not in aliases:
+                aliases.append(a)
+
+    if res.returncode != 0:
+        if "password" in out.lower() or "tampered" in out.lower() or "integrity" in out.lower():
+            return "", [], False
         return ks_type, aliases, True
-    except subprocess.CalledProcessError as e:
-        log.warning("keytool inspect error: %s", e.stderr)
-        return "", [], False
+    return ks_type, aliases, True
 
 
 def get_custom_keystore(work_dir: Path):

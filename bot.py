@@ -1325,11 +1325,11 @@ async def handle_key_text_message(update: Update, context: ContextTypes.DEFAULT_
         storepass, keypass, alias = parts
     elif len(parts) == 2:
         storepass, keypass = parts
-        alias = "androiddebugkey"
+        alias = ""
     elif len(parts) == 1:
         storepass = parts[0]
         keypass = storepass
-        alias = "androiddebugkey"
+        alias = ""
     else:
         await update.message.reply_text(
             "❌ Invalid format. Try again: <code>storepass keypass alias</code> (or just storepass).",
