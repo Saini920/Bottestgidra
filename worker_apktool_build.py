@@ -57,60 +57,30 @@ def upload_result_for_app(file_to_send: Path):
     if not JOB_ID or not file_to_send or not file_to_send.exists():
         return
 
-    target_chat = CHAT_ID if CHAT_ID and CHAT_ID != '0' and not str(CHAT_ID).startswith('app_') else ''
-    bot_tok = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
-    if bot_tok and bot_tok != 'app_direct_mode' and target_chat:
-        try:
-            with open(file_to_send, 'rb') as f:
-                r = httpx.post(
-                    f'https://api.telegram.org/bot{bot_tok}/sendDocument',
-                    data={'chat_id': target_chat, 'caption': f'✅ Decompiled Result for Job {JOB_ID} — Ghidra Studio'},
-                    files={'document': (file_to_send.name, f, 'application/octet-stream')},
-                    timeout=180
-                )
-                if r.status_code == 200:
-                    res_json = r.json()
-                    if res_json.get('ok'):
-                        doc = res_json['result'].get('document', {})
-                        file_id = doc.get('file_id')
-                        if file_id:
-                            get_f = httpx.get(f'https://api.telegram.org/bot{bot_tok}/getFile?file_id={file_id}', timeout=30)
-                            if get_f.status_code == 200 and get_f.json().get('ok'):
-                                f_path = get_f.json()['result'].get('file_path')
-                                if f_path:
-                                    direct_tg_url = f'https://api.telegram.org/file/bot{bot_tok}/{f_path}'
-                                    notify_app(f'FINAL_ZIP_URL:{direct_tg_url}')
-                                    return
-                        
-                        msg_id = res_json['result'].get('message_id')
-                        bot_user = httpx.get(f'https://api.telegram.org/bot{bot_tok}/getMe', timeout=10).json()
-                        if bot_user.get('ok') and msg_id:
-                            bot_id = bot_user['result']['id']
-                            notify_app(f'FINAL_ZIP_URL:telegram_msg:{bot_id}:{msg_id}')
-                            return
-                        notify_app('FINAL_ZIP_URL:telegram_direct_upload')
-                        return
-        except Exception as e:
-            log.warning('Telegram Bot upload failed: %s', e)
+    target_chat = CHAT_ID if CHAT_ID and CHAT_ID != '0' and not str(CHAT_ID).startswith('app_') else 'me'
 
     api_id_val = os.environ.get('API_ID', '').strip()
     api_hash_val = os.environ.get('API_HASH', '').strip()
-    tg_dest = target_chat if target_chat else 'me'
+    bot_tok = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
+    
     if api_id_val and api_hash_val:
         try:
             import subprocess
-            cmd = [sys.executable, 'upload_file.py', str(file_to_send), f'✅ Result for Job {JOB_ID}', str(tg_dest)]
+            cmd = [sys.executable, 'upload_file.py', str(file_to_send), f'✅ Result for Job {JOB_ID}', str(target_chat)]
             proc = subprocess.run(cmd, timeout=300, capture_output=True, text=True)
             if proc.returncode == 0:
                 log.info('Uploaded to Telegram MTProto successfully: %s', proc.stdout)
                 for line in proc.stdout.splitlines():
                     if line.startswith('UPLOAD_SUCCESS:'):
                         parts = line.split(':')
-                        if len(parts) >= 3:
-                            notify_app(f'FINAL_ZIP_URL:telegram_msg:{parts[1]}:{parts[2]}')
+                        if len(parts) >= 2:
+                            bot_username = parts[1]
+                            notify_app(f'FINAL_ZIP_URL:telegram_deeplink:{bot_username}')
                             return
                 notify_app('FINAL_ZIP_URL:telegram_direct_upload')
                 return
+            else:
+                log.warning('MTProto upload failed with code %d: %s', proc.returncode, proc.stderr)
         except Exception as e:
             log.warning('MTProto upload in upload_result_for_app failed: %s', e)
 

@@ -40,9 +40,11 @@ async def main():
         sys.exit(1)
 
     pool_id = int(hashlib.md5(file_path.encode("utf-8")).hexdigest(), 16) % 5
-    session_name = f"worker_session_pool_{pool_id}"
-    kwargs = {"api_id": api_id, "api_hash": api_hash, "workdir": SESSION_DIR}
-    if bot_token:
+    session_name = ":memory:" if bot_token else f"worker_session_pool_{pool_id}"
+    kwargs = {"api_id": api_id, "api_hash": api_hash}
+    if not bot_token:
+        kwargs["workdir"] = SESSION_DIR
+    else:
         kwargs["bot_token"] = bot_token
     app = Client(session_name, **kwargs)
 
@@ -55,7 +57,7 @@ async def main():
                 me = await app.get_me()
                 msg = await app.send_document(chat_id=chat_target, document=file_path, caption=caption, progress=progress)
             print("Upload complete.", flush=True)
-            print(f"UPLOAD_SUCCESS:{me.id}:{msg.id}", flush=True)
+            print(f"UPLOAD_SUCCESS:{me.username if me.username else me.id}:{msg.id}", flush=True)
             return
         except FloodWait as e:
             last_error = e
