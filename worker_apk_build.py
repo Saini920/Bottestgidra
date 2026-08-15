@@ -1012,11 +1012,18 @@ class TolerantZipFile(zipfile.ZipFile):
 
 def _merge_apk(base_apk: Path, out_apk: Path, extra: dict):
     with TolerantZipFile(base_apk) as zin:
-        with zipfile.ZipFile(out_apk, "w", zipfile.ZIP_DEFLATED) as zout:
+        with zipfile.ZipFile(out_apk, "w") as zout:
             for item in zin.infolist():
-                zout.writestr(item, zin.read(item.filename))
+                c_type = item.compress_type
+                if item.filename.endswith(".so") or item.filename == "resources.arsc":
+                    c_type = zipfile.ZIP_STORED
+                zout.writestr(item, zin.read(item.filename), compress_type=c_type)
             for arc, src in extra.items():
-                zout.write(str(src), str(arc))
+                arc_str = str(arc)
+                c_type = zipfile.ZIP_DEFLATED
+                if arc_str.endswith(".so") or arc_str == "resources.arsc":
+                    c_type = zipfile.ZIP_STORED
+                zout.write(str(src), arc_str, compress_type=c_type)
 
 
 def check_zip_limits(file_path: Path):
