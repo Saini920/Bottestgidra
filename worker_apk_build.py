@@ -432,23 +432,40 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     build_mode = os.environ.get("PAYLOAD_BUILD_MODE", "")
     
     gradlew = None
+    build_gradle = None
     for g in sorted(extract_dir.rglob("gradlew")):
         if g.is_file():
             gradlew = g
             break
             
-    has_gradle = bool(gradlew) or any(extract_dir.rglob("build.gradle")) or any(extract_dir.rglob("build.gradle.kts"))
+    for b in sorted(extract_dir.rglob("build.gradle")) + sorted(extract_dir.rglob("build.gradle.kts")):
+        if b.is_file():
+            build_gradle = b
+            break
+            
+    has_gradle = bool(gradlew) or bool(build_gradle)
     
-    if build_mode == "gradle" or (not build_mode and has_gradle) or build_mode == "manifest":
-        if build_mode == "gradle" or has_gradle:
-            build_mode = "gradle"
-        else:
-            build_mode = "manifest"
+    if build_mode == "manifest":
+        pass
+    elif build_mode == "gradle" or has_gradle:
+        build_mode = "gradle"
+    else:
+        build_mode = "manifest"
 
     if build_mode == "gradle":
         await on_progress(20, "🚀 Building using Gradle...")
-        # Find directory with gradlew or build.gradle
-        target_dir = gradlew.parent if gradlew else extract_dir
+        if gradlew:
+            target_dir = gradlew.parent
+        elif build_gradle:
+            # If no gradlew, use the root project folder that contains build.gradle
+            # It's better to find settings.gradle to ensure it's the root project
+            settings = [p for p in extract_dir.rglob("settings.gradle*") if p.is_file()]
+            if settings:
+                target_dir = settings[0].parent
+            else:
+                target_dir = build_gradle.parent
+        else:
+            target_dir = extract_dir
         
         cmd = []
         if gradlew:
