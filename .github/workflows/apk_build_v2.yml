@@ -144,6 +144,7 @@ jobs:
           PAYLOAD_KEYSTORE: ${{ secrets[format('SIGNKEY_{0}', github.event.client_payload.chat_id)] }}
           PAYLOAD_USE_CUSTOM_KEYSTORE: ${{ github.event.client_payload.use_custom_keystore }}
           PAYLOAD_CUSTOM_KEYSTORE_JSON: ${{ github.event.client_payload.custom_keystore_json }}
+          PAYLOAD_BUILD_MODE: ${{ github.event.client_payload.build_mode }}
           PAYLOAD_SDK_ROOT: ${{ env.SDK_ROOT }}
           PAYLOAD_R8_JAR: /opt/r8.jar
           PAYLOAD_KOTLINC: /opt/kotlinc
