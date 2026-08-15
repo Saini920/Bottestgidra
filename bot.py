@@ -300,6 +300,9 @@ def build_apk_chooser(job_id, job, is_premium):
 def engine_display_label(engine):
     if engine in ENGINE_LABELS:
         return ENGINE_LABELS[engine]
+    if engine.startswith("apkbuild-"):
+        mode = engine.split("-")[1].capitalize()
+        return f"📦 APK Build ({mode})"
     if engine.startswith("apksign-"):
         return f"🔏 APK Signer (Android {engine.split('-')[1]})"
     if not engine:
@@ -437,6 +440,39 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             is_premium = uid in ADMIN_IDS or uid in db.data["subscriptions"]
             text, keyboard = build_apk_chooser(job_id, job, is_premium)
             await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+        return
+
+    if data.startswith("build_apk_mode_"):
+        job_id = data.split("build_apk_mode_")[1]
+        job = PENDING_JOBS.get(job_id)
+        if job:
+            uid = str(user.id)
+            if uid not in ADMIN_IDS and uid not in db.data["subscriptions"]:
+                await query.edit_message_text(
+                    "🔒 <b>Premium Only!</b>\n\n"
+                    "This engine is available for <b>Premium subscribers</b> only.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
+                    ])
+                )
+                return
+            await query.answer("Choose Build Mode", show_alert=False)
+            await query.edit_message_text(
+                "📦 <b>Build APK (Source Code)</b>\n\n"
+                "Select how you want to compile and build this project:\n\n"
+                "• ⚡ <b>Auto (Smart Auto-Detect):</b> Detects Gradle or AndroidManifest.xml automatically *(Recommended)*\n"
+                "• 🐘 <b>Gradle Build:</b> Builds using Gradle wrapper (<code>./gradlew assembleDebug</code> / Jetpack Compose)\n"
+                "• 📄 <b>AndroidManifest.xml:</b> Fast Native Compiler (aapt2 + javac/kotlinc + d8)\n\n"
+                "Choose an option:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚡ Auto (Smart Auto-Detect)", callback_data=f"engine_apkbuild-auto_{job_id}")],
+                    [InlineKeyboardButton("🐘 Gradle Build (build.gradle)", callback_data=f"engine_apkbuild-gradle_{job_id}")],
+                    [InlineKeyboardButton("📄 AndroidManifest.xml (Native)", callback_data=f"engine_apkbuild-manifest_{job_id}")],
+                    [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                ])
+            )
         return
 
     if data.startswith("limit_"):
@@ -807,7 +843,7 @@ def get_report_url() -> str:
     return (base + "/internal/count") if base else ""
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, min_sdk: str = ""):
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, min_sdk: str = "", build_mode: str = ""):
     if not GITHUB_TOKEN:
         return False, 0, "GITHUB_TOKEN env missing"
     client_payload = {
@@ -822,6 +858,8 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         client_payload["original_message_id"] = str(original_msg_id)
     if min_sdk:
         client_payload["min_sdk"] = str(min_sdk)
+    if build_mode:
+        client_payload["build_mode"] = str(build_mode)
     if file_id:
         client_payload["file_id"] = file_id
     elif tg_file_path:
@@ -922,6 +960,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         )
         return
     min_sdk = ""
+    build_mode = ""
     if engine == "jadx":
         event_type = "decompile-jadx"
     elif engine == "dex2jar":
@@ -940,8 +979,12 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "dex-compile-java"
     elif engine == "cccompile":
         event_type = "cc-compile"
-    elif engine == "apkbuild":
+    elif engine == "apkbuild" or engine.startswith("apkbuild-"):
         event_type = "apk-source-build"
+        if "-" in engine:
+            build_mode = engine.split("-")[1]
+        else:
+            build_mode = "auto"
     elif engine == "apksign" or engine.startswith("apksign-"):
         event_type = "apk-sign"
         min_sdk = engine.split("-")[1] if "-" in engine else ""
@@ -951,7 +994,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-job"
         
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
-    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, min_sdk)
+    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, min_sdk, build_mode)
     if not ok:
         await status.edit_text(
             "❌ GitHub trigger failed (HTTP <code>{code}</code>).\n"
@@ -1170,7 +1213,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 btn_so = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
             if is_premium or user_id in ADMIN_IDS:
-                btn_build_src = InlineKeyboardButton("📦 Build APK (Source)", callback_data=f"engine_apkbuild_{job_id}")
+                btn_build_src = InlineKeyboardButton("📦 Build APK (Source)", callback_data=f"build_apk_mode_{job_id}")
             else:
                 btn_build_src = InlineKeyboardButton("🔒 Build APK (Premium Only)", callback_data="buy_sub")
             pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
@@ -1766,7 +1809,16 @@ def parse_run_name(run_name: str):
     return m.group(1), m.group(2), m.group(3)
 
 
-ENGINE_LABELS = {"job": "🐉 Ghidra", "ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer", "pdftxt": "📄 PDF → TXT"}
+ENGINE_LABELS = {
+    "job": "🐉 Ghidra", "ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar",
+    "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "apktool-build": "⚒️ Apktool Build",
+    "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract",
+    "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX",
+    "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)",
+    "apkbuild-auto": "⚡ APK Build (Auto)", "apkbuild-gradle": "🐘 APK Build (Gradle)",
+    "apkbuild-manifest": "📄 APK Build (Manifest)",
+    "apksign": "🔏 APK Signer", "pdftxt": "📄 PDF → TXT"
+}
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
