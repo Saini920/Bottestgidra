@@ -821,6 +821,10 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "file_id": file_id,
         "min_sdk": min_sdk,
     }
+    custom_key = db.data.get("signkeys", {}).get(str(chat_id))
+    if custom_key:
+        client_payload["custom_keystore_json"] = json.dumps(custom_key)
+        client_payload["use_custom_keystore"] = "true"
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
     else:
@@ -1255,17 +1259,16 @@ async def cmd_delkey(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cid = str(chat_id)
     KEY_STATE.pop(cid, None)
     KEY_TEMP_DATA.pop(cid, None)
+    db.data.get("signkeys", {}).pop(cid, None)
+    db.save()
     if chat_id < 0:
         await update.message.reply_text("❌ No custom key is set (private chat only).", parse_mode=constants.ParseMode.HTML)
         return
-    ok, err = await github_delete_repo_secret(f"SIGNKEY_{chat_id}")
-    if ok:
-        await update.message.reply_text(
-            "🗑️ <b>Custom Signkey deleted!</b>\nSigning will now use the debug keystore.",
-            parse_mode=constants.ParseMode.HTML,
-        )
-    else:
-        await update.message.reply_text(f"❌ Delete failed: {err}", parse_mode=constants.ParseMode.HTML)
+    await github_delete_repo_secret(f"SIGNKEY_{chat_id}")
+    await update.message.reply_text(
+        "🗑️ <b>Custom Signkey deleted!</b>\nSigning will now use the debug keystore.",
+        parse_mode=constants.ParseMode.HTML,
+    )
 
 
 async def handle_setkey_file(update: Update, context: ContextTypes.DEFAULT_TYPE, doc):
@@ -1290,7 +1293,7 @@ async def handle_setkey_file(update: Update, context: ContextTypes.DEFAULT_TYPE,
     import base64
     b64 = base64.b64encode(bytes(data)).decode("ascii")
     if len(b64) > 60000:
-        await update.message.reply_text("❌ Keystore is larger than 60KB base64 (GitHub secret limit 64KB). Use a smaller keystore.")
+        await update.message.reply_text("❌ Keystore is larger than 60KB base64. Use a smaller keystore.")
         return
     KEY_TEMP_DATA[chat_id] = {"keystore_b64": b64}
     KEY_STATE[chat_id] = "AWAITING_KEY_PASS"
@@ -1335,17 +1338,16 @@ async def handle_key_text_message(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("❌ Keystore data not found. Run /setkey again.")
         return
     info = {"keystore_b64": temp["keystore_b64"], "storepass": storepass, "keypass": keypass, "alias": alias}
-    ok, err = await github_set_repo_secret(f"SIGNKEY_{chat_id}", json.dumps(info))
+    db.data.setdefault("signkeys", {})[chat_id] = info
+    db.save()
+    await github_set_repo_secret(f"SIGNKEY_{chat_id}", json.dumps(info))
     KEY_STATE.pop(chat_id, None)
-    if ok:
-        await update.message.reply_text(
-            "✅ <b>Custom Signkey set!</b>\n"
-            "🔐 Your <b>APK Sign</b> and <b>APK Build</b> jobs will now use this key.\n"
-            "🗑️ Delete: <code>/delkey</code>",
-            parse_mode=constants.ParseMode.HTML,
-        )
-    else:
-        await update.message.reply_text(f"❌ Save failed: {err}", parse_mode=constants.ParseMode.HTML)
+    await update.message.reply_text(
+        "✅ <b>Custom Signkey set!</b>\n"
+        "🔐 Your <b>APK Sign</b> and <b>APK Build</b> jobs will now use this key.\n"
+        "🗑️ Delete: <code>/delkey</code>",
+        parse_mode=constants.ParseMode.HTML,
+    )
 
 
 async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):

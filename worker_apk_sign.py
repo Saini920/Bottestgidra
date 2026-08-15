@@ -367,7 +367,7 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON or os.environ.get("PAYLOAD_USE_CUSTOM_KEYSTORE") != "true":
+    if not KEYSTORE_JSON or not KEYSTORE_JSON.strip():
         return None
     try:
         info = json.loads(KEYSTORE_JSON)
@@ -431,7 +431,7 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
         await on_progress(55, "🔏 Using your custom signing key...")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
                     "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
-                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
                     "--min-sdk-version", min_sdk]
         if max_sdk:
             sign_cmd.extend(["--max-sdk-version", max_sdk])
@@ -440,7 +440,8 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
         if ks_type:
             sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-type", ks_type,
                         "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
-                        "--ks-key-alias", alias, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                        "--ks-key-alias", alias,
+                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
                         "--min-sdk-version", min_sdk]
             if max_sdk:
                 sign_cmd.extend(["--max-sdk-version", max_sdk])
@@ -448,7 +449,7 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     else:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
-                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true",
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
                     "--min-sdk-version", min_sdk]
         if max_sdk:
             sign_cmd.extend(["--max-sdk-version", max_sdk])

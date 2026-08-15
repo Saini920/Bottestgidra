@@ -489,14 +489,17 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
     cmd = ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass, "-J-Dfile.encoding=utf-8"]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        aliases = []
-        for line in res.stdout.split("\n"):
-            if "PrivateKeyEntry" in line or "trustedCertEntry" in line:
-                aliases.append(line.split(",")[0].strip())
         ks_type = ""
-        for line in res.stdout.split("\n"):
-            if "Keystore type:" in line:
-                ks_type = line.split(":", 1)[1].strip()
+        aliases = []
+        for line in res.stdout.splitlines():
+            if "keystore type:" in line.lower():
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    ks_type = parts[1].strip()
+            if "," in line and ("entry" in line.lower() or "keyentry" in line.lower()):
+                alias = line.split(",")[0].strip()
+                if alias:
+                    aliases.append(alias)
         return ks_type, aliases, True
     except subprocess.CalledProcessError as e:
         log.warning("keytool inspect error: %s", e.stderr)
@@ -504,7 +507,7 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON or os.environ.get("PAYLOAD_USE_CUSTOM_KEYSTORE") != "true":
+    if not KEYSTORE_JSON or not KEYSTORE_JSON.strip():
         return None
     try:
         import json, base64

@@ -649,16 +649,19 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         await on_progress(88, "🔏 Using your custom signing key...")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
                     "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
-                    "--min-sdk-version", str(min_sdk), "--out", str(signed_apk), str(aligned)]
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
+                    "--out", str(signed_apk), str(aligned)]
+        if min_sdk:
+            sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
         if ks_type:
-            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-type", ks_type,
-                        "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
-                        "--ks-key-alias", alias, "--min-sdk-version", str(min_sdk),
-                        "--out", str(signed_apk), str(aligned)]
+            sign_cmd.extend(["--ks-type", ks_type])
     else:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
-                    "--min-sdk-version", str(min_sdk), "--out", str(signed_apk), str(aligned)]
+                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
+                    "--out", str(signed_apk), str(aligned)]
+        if min_sdk:
+            sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
     await run_tool(sign_cmd, on_progress, "apksigner")
     await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
     await on_progress(95, "✅ APK built!")
@@ -675,25 +678,26 @@ def make_keystore(path: Path) -> Path:
 
 
 def inspect_custom_keystore(ks_path: Path, storepass: str):
-    try:
-        proc = subprocess.run(
-            ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass],
-            capture_output=True, text=True, timeout=60,
-        )
-        out = proc.stdout + proc.stderr
-    except Exception as e:
-        log.warning("keytool inspect failed: %s", e)
-        return "", [], True
-    m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out)
-    ks_type = m.group(1).lower() if m else ""
-    aliases = re.findall(r"^\s*([^\s,]+),\s+[^\n]*PrivateKeyEntry", out, re.M)
+    cmd = ["keytool", "-list", "-keystore", str(ks_path), "-storepass", storepass]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    ks_type = ""
+    aliases = []
+    for line in proc.stdout.splitlines():
+        if "keystore type:" in line.lower():
+            parts = line.split(":")
+            if len(parts) >= 2:
+                ks_type = parts[1].strip()
+        if "," in line and ("entry" in line.lower() or "keyentry" in line.lower()):
+            alias = line.split(",")[0].strip()
+            if alias:
+                aliases.append(alias)
     if proc.returncode != 0:
         return "", [], False
     return ks_type, aliases, True
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON or os.environ.get("PAYLOAD_USE_CUSTOM_KEYSTORE") != "true":
+    if not KEYSTORE_JSON or not KEYSTORE_JSON.strip():
         return None
     try:
         info = json.loads(KEYSTORE_JSON)
