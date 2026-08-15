@@ -890,15 +890,21 @@ async def main():
             return
 
         await on_progress(100, done_msg)
-        try:
-            await upload_document(signed_apk, f"✅ <b>Signed APK</b> built from source — Powered By @R3V_X")
-            edit("📤 Sending unsigned APK...")
-            await upload_document(unsigned_apk, f"✅ <b>Unsigned APK</b> built from source — Powered By @R3V_X")
+        if JOB_ID:
+            upload_result_for_app(signed_apk)
+
+        if BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
+            try:
+                await upload_document(signed_apk, f"✅ <b>Signed APK</b> built from source — Powered By @R3V_X")
+                edit("📤 Sending unsigned APK...")
+                await upload_document(unsigned_apk, f"✅ <b>Unsigned APK</b> built from source — Powered By @R3V_X")
+                edit("✅ APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
+            except Exception as e:
+                log.warning("Telegram upload failed: %s", e)
+                if not JOB_ID:
+                    await send_error_log(work_dir, e, "Result upload failed")
+        else:
             edit("✅ APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
-            if JOB_ID:
-                upload_result_for_app(signed_apk)
-        except Exception as e:
-            await send_error_log(work_dir, e, "Result upload failed")
     finally:
         if TOOL_LOG_FH is not None:
             try:

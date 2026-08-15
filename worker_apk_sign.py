@@ -555,35 +555,39 @@ async def main():
         await on_progress(100, "✅ APK signed!")
         min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
         caption = f"🔏 <b>Re-signed APK</b> (v1+v2, Android {min_sdk}+) — Powered By @R3V_X"
-        try:
-            http_ok = False
-            if signed.stat().st_size <= 50 * 1024 * 1024:
-                try:
-                    with open(signed, "rb") as doc_f:
-                        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-                        data = {"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}
-                        files = {"document": doc_f}
-                        async with httpx.AsyncClient(timeout=300) as client:
-                            resp = await client.post(url, data=data, files=files)
-                            resp.raise_for_status()
-                    http_ok = True
-                except Exception as e:
-                    log.warning("HTTP upload failed, falling back to MTProto: %s", e)
-            if not http_ok:
-                if not os.environ.get("API_ID", "").strip():
-                    raise ValueError("File too large for Bot API (50MB) and no API_ID/API_HASH configured.")
-                proc = await asyncio.create_subprocess_exec(
-                    sys.executable, "upload_file.py", str(signed), caption,
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-                )
-                await proc.wait()
-                if proc.returncode != 0:
-                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
-            edit("✅ APK re-signed and delivered! 🔥", keep_button=False)
-            if JOB_ID:
-                upload_result_for_app(signed_apk)
-        except Exception as e:
-            await send_error_log(work_dir, e, "Result upload failed")
+        if JOB_ID:
+            upload_result_for_app(signed)
+
+        if BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
+            try:
+                http_ok = False
+                if signed.stat().st_size <= 50 * 1024 * 1024:
+                    try:
+                        with open(signed, "rb") as doc_f:
+                            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
+                            data = {"chat_id": CHAT_ID, "caption": caption, "parse_mode": "HTML"}
+                            files = {"document": doc_f}
+                            async with httpx.AsyncClient(timeout=300) as client:
+                                resp = await client.post(url, data=data, files=files)
+                                resp.raise_for_status()
+                        http_ok = True
+                    except Exception as e:
+                        log.warning("HTTP upload failed, falling back to MTProto: %s", e)
+                if not http_ok:
+                    if os.environ.get("API_ID", "").strip() and os.environ.get("API_HASH", "").strip():
+                        proc = await asyncio.create_subprocess_exec(
+                            sys.executable, "upload_file.py", str(signed), caption,
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+                        )
+                        await proc.wait()
+                        if proc.returncode != 0:
+                            log.warning("MTProto Upload failed with code %d", proc.returncode)
+            except Exception as e:
+                log.warning("Telegram upload failed: %s", e)
+                if not JOB_ID:
+                    await send_error_log(work_dir, e, "Result upload failed")
+
+        edit("✅ APK re-signed and delivered! 🔥", keep_button=False)
     finally:
         if TOOL_LOG_FH is not None:
             try:
