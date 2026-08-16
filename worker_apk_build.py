@@ -746,10 +746,13 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         if "apktool.yml" in files:
             target_apktool_dir = Path(root)
             break
-        if "AndroidManifest.xml" in files and any(d.startswith("smali") for d in dirs):
+        if "AndroidManifest.xml" in files and ("res" in dirs or any(d.startswith("smali") for d in dirs) or "lib" in dirs or "assets" in dirs):
             target_apktool_dir = Path(root)
             break
         if any(d.startswith("smali") for d in dirs):
+            target_apktool_dir = Path(root)
+            break
+        if "AndroidManifest.xml" in files:
             target_apktool_dir = Path(root)
             break
 
@@ -757,18 +760,20 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     has_smali = bool(smali_dirs) or bool(target_apktool_dir)
     java_kt_files = [p for p in sorted(extract_dir.rglob("*")) if p.is_file() and p.suffix.lower() in (JAVA_EXTENSIONS | KOTLIN_EXTENSIONS)]
     has_java_kt = bool(java_kt_files)
+    has_apktool_project = bool(target_apktool_dir) or bool(smali_dirs) or (extract_dir / "AndroidManifest.xml").exists()
 
     # Determine Build Mode
     build_mode = PAYLOAD_BUILD_MODE
     if build_mode in ("auto", ""):
         if has_gradle:
             build_mode = "gradle"
-        elif target_apktool_dir or has_smali:
+        elif has_apktool_project:
+            # Match Telegram Bot behavior 100%: Rebuild using full Apktool Engine (produces full 80+ MB APK)
             build_mode = "apktool"
         elif has_java_kt:
             build_mode = "manifest"
         else:
-            build_mode = "apktool" if (has_smali or (extract_dir / "AndroidManifest.xml").exists()) else "manifest"
+            build_mode = "apktool" if has_apktool_project else "manifest"
 
     log.info("Selected APK build mode: %s (has_gradle=%s, has_apktool=%s, has_smali=%s, has_java_kt=%s)",
              build_mode, has_gradle, bool(target_apktool_dir), has_smali, has_java_kt)
@@ -838,7 +843,10 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             await run_tool(gradle_cmd, on_progress, "gradle assembleDebug", cwd=str(target_dir))
         except Exception as ge:
             log.warning("Gradle build error: %s", ge)
-            if has_java_kt:
+            if has_apktool_project:
+                await on_progress(35, "⚠️ Gradle assemble failed. Rebuilding with Apktool...")
+                build_mode = "apktool"
+            elif has_java_kt:
                 await on_progress(35, "⚠️ Gradle assemble failed. Falling back to Native Engine...")
                 build_mode = "manifest"
             else:
@@ -850,7 +858,10 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             debug_apks = [p for p in apks if "-debug" in p.name.lower() or "app-debug" in p.name.lower()]
             found_apk = debug_apks[-1] if debug_apks else (apks[-1] if apks else None)
             if not found_apk:
-                if has_java_kt:
+                if has_apktool_project:
+                    log.info("No APK from Gradle, trying Apktool...")
+                    build_mode = "apktool"
+                elif has_java_kt:
                     log.info("No APK from Gradle, trying Native Engine...")
                     build_mode = "manifest"
                 else:
@@ -859,10 +870,10 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                 return await finalize_apk_signing(found_apk, work_dir, on_progress, sdk)
 
     # =========================================================================
-    # 2. APKTOOL / SMALI BUILD MODE
+    # 2. APKTOOL / SMALI BUILD MODE (MATCHES TELEGRAM BOT BUILD 100%)
     # =========================================================================
     if build_mode == "apktool":
-        await on_progress(25, "🔧 Rebuilding APK with Apktool engine...")
+        await on_progress(25, "🔨 Rebuilding APK with Apktool Engine (Full Project Build)...")
         apktool_dir = target_apktool_dir if target_apktool_dir else extract_dir
         ensure_apktool_yml(apktool_dir)
         unsigned_apk = work_dir / "apktool_unsigned.apk"
@@ -882,7 +893,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                     return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
             except Exception as ae:
                 log.warning("Apktool build failed: %s", ae)
-                if has_java_kt and not has_smali:
+                if has_java_kt:
                     await on_progress(35, "⚠️ Apktool failed. Falling back to Native Engine...")
                     build_mode = "manifest"
                 else:
@@ -1180,24 +1191,37 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                 rel = so.relative_to(j_dir)
                 extra[str(Path("lib") / rel)] = so
 
-    # Prebuilt .so libraries from archive
+    # Prebuilt .so libraries from archive (collect all native binaries)
     for so in sorted(extract_dir.rglob("*.so")):
         if so.is_file() and not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in so.parts):
-            parent_name = so.parent.name
-            if parent_name in ("arm64-v8a", "armeabi-v7a", "x86", "x86_64"):
-                arc_path = str(Path("lib") / parent_name / so.name)
+            try:
+                rel = so.relative_to(extract_dir)
+                rel_str = str(rel).replace("\\", "/")
+                if not rel_str.startswith("lib/"):
+                    parent_name = so.parent.name
+                    if parent_name in ("arm64-v8a", "armeabi-v7a", "x86", "x86_64", "armeabi", "mips", "mips64"):
+                        arc_path = f"lib/{parent_name}/{so.name}"
+                    else:
+                        arc_path = f"lib/arm64-v8a/{so.name}"
+                else:
+                    arc_path = rel_str
                 if arc_path not in extra:
                     extra[arc_path] = so
+            except Exception:
+                pass
 
     # Prebuilt assets from archive
     for a_dir in sorted(extract_dir.rglob("assets")):
-        if a_dir.is_dir() and not any(part in ("build", ".gradle", "bin", "out", "target") for part in a_dir.parts):
+        if a_dir.is_dir() and not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in a_dir.parts):
             for af in sorted(a_dir.rglob("*")):
                 if af.is_file():
-                    rel = af.relative_to(a_dir)
-                    arc_path = str(Path("assets") / rel)
-                    if arc_path not in extra:
-                        extra[arc_path] = af
+                    try:
+                        rel = af.relative_to(a_dir)
+                        arc_path = str(Path("assets") / rel).replace("\\", "/")
+                        if arc_path not in extra:
+                            extra[arc_path] = af
+                    except Exception:
+                        pass
 
     _merge_apk(base_apk, unsigned_apk, extra)
     return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
