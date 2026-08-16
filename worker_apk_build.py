@@ -967,6 +967,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
 
 async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, sdk):
     """Zipalign and sign the APK with custom keystore or debug key."""
+    global CUSTOM_KEY_ERROR
     zipalign = get_tool(sdk, "zipalign")
     apksigner = get_tool(sdk, "apksigner")
 
@@ -991,6 +992,8 @@ async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, 
     if ks_info and apksigner:
         keystore, storepass, keypass, alias, ks_type = ks_info
         await on_progress(92, f"🔏 Signing with custom key (alias: {alias})...")
+        
+        # Attempt 1: Standard apksigner command
         sign_cmd = [
             apksigner, "sign", "--ks", str(keystore),
             "--ks-pass", f"pass:{storepass}",
@@ -1003,13 +1006,30 @@ async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, 
         if ks_type:
             sign_cmd.extend(["--ks-type", ks_type])
         sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
+        
         try:
             await run_tool(sign_cmd, on_progress, "apksigner custom key")
             ks_success = True
-        except Exception as e:
-            log.warning("Custom keystore signing failed: %s", e)
-            CUSTOM_KEY_ERROR = CUSTOM_KEY_ERROR or f"apksigner rejected the custom key: {e}"
-            await on_progress(92, "⚠️ Custom key rejected by apksigner. Falling back to debug key...")
+        except Exception as e1:
+            log.warning("Custom keystore signing attempt 1 failed: %s", e1)
+            # Attempt 2: Without --ks-type (auto format detection)
+            try:
+                sign_cmd2 = [
+                    apksigner, "sign", "--ks", str(keystore),
+                    "--ks-pass", f"pass:{storepass}",
+                    "--key-pass", f"pass:{keypass or storepass}",
+                    "--ks-key-alias", alias,
+                    "--v1-signing-enabled", "true",
+                    "--v2-signing-enabled", "true",
+                    "--v3-signing-enabled", "true",
+                    "--out", str(signed_apk), str(aligned)
+                ]
+                await run_tool(sign_cmd2, on_progress, "apksigner custom key retry")
+                ks_success = True
+            except Exception as e2:
+                log.warning("Custom keystore signing attempt 2 failed: %s", e2)
+                CUSTOM_KEY_ERROR = str(e1)[:250]
+                await on_progress(92, "⚠️ Custom key rejected by apksigner. Falling back to debug key...")
     elif custom_requested:
         edit(
             "⚠️ <b>Custom key was requested but could not be used:</b>\n\n"

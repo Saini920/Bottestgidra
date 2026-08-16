@@ -230,6 +230,7 @@ def send_document(file_path: Path, caption: str, filename: str):
     return resp.json()
 
 async def main():
+    global CUSTOM_KEY_ERROR
     if not JOB_ID and (not BOT_TOKEN or not CHAT_ID):
         sys.exit(1)
 

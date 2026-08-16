@@ -439,6 +439,7 @@ def get_custom_keystore(work_dir: Path):
 
 
 async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
+    global CUSTOM_KEY_ERROR
     await on_progress(20, "🔏 Validating APK...")
     try:
         with TolerantZipFile(input_apk) as zf:
