@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 .git/
+
+# Web app is deployed separately (its own Dockerfile/service)
+web/

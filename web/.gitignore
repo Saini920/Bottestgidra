@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Env & secrets
+.env
+*.session
+sessions/
+secret.key
+
+# Runtime data
+data.db
+*.db
+uploads/
+tmp/
+temp/
+
+# OS/IDE
+.DS_Store

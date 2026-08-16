@@ -17,6 +17,7 @@ value.txt
 approved_users.json
 *.log
 *.sqlite3
+*.db
 
 # Temporary & Working directories
 tmp/
