@@ -1323,8 +1323,10 @@ async def main():
                 await proc.wait()
                 if proc.returncode != 0:
                     err_tail = "\n".join(dl_logs[-8:]) or "no output"
-                    raise ValueError(f"MTProto Download failed with code {proc.returncode}: {err_tail}")
-                if dest.exists() and dest.stat().st_size > 0:
+                    if not FILE_URL:
+                        raise ValueError(f"MTProto Download failed with code {proc.returncode}: {err_tail}")
+                    log.warning("MTProto download failed (falling back to FILE_URL): %s", err_tail)
+                elif dest.exists() and dest.stat().st_size > 0:
                     got_file = True
 
             if not got_file and FILE_URL:

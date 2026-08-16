@@ -121,22 +121,34 @@ async def main():
         try:
             async with app:
                 media_msg = None
-                if chat_id and orig_msg_id:
-                    for mid in [orig_msg_id, orig_msg_id - 1, orig_msg_id + 1, orig_msg_id - 2, orig_msg_id - 3]:
-                        if mid <= 0:
-                            continue
+                if chat_id:
+                    if orig_msg_id:
+                        for offset in [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5]:
+                            mid = orig_msg_id + offset
+                            if mid <= 0:
+                                continue
+                            try:
+                                m = await app.get_messages(chat_id, mid)
+                                if m and (m.document or m.video or m.audio or m.photo):
+                                    media_msg = m
+                                    break
+                                if m and m.reply_to_message and (m.reply_to_message.document or m.reply_to_message.video or m.reply_to_message.audio or m.reply_to_message.photo):
+                                    media_msg = m.reply_to_message
+                                    break
+                            except Exception:
+                                pass
+
+                    if not media_msg:
                         try:
-                            m = await app.get_messages(chat_id, mid)
-                            if m and (m.document or m.video or m.audio or m.photo):
-                                media_msg = m
-                                break
-                            if m and m.reply_to_message and (m.reply_to_message.document or m.reply_to_message.video or m.reply_to_message.audio or m.reply_to_message.photo):
-                                media_msg = m.reply_to_message
-                                break
-                        except Exception:
-                            pass
+                            async for m in app.get_chat_history(chat_id, limit=15):
+                                if m and (m.document or m.video or m.audio or m.photo):
+                                    media_msg = m
+                                    break
+                        except Exception as he:
+                            print(f"get_chat_history error: {he}", flush=True)
 
                 if media_msg:
+                    print(f"Found media message id {media_msg.id} in chat {chat_id}, downloading...", flush=True)
                     await robust_download(app, media_msg, dest_path)
                 else:
                     print("Message document not found. Trying download by file_id...", flush=True)
