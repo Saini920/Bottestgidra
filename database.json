@@ -41,7 +41,7 @@
     },
     "7251749429": {
       "date": "2026-08-16",
-      "count": 2
+      "count": 3
     },
     "6684870256": {
       "date": "2026-08-06",
@@ -49,7 +49,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 308,
+  "total_files": 309,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -1416,8 +1416,8 @@
       "filename": "App.zip",
       "engine": "apkbuild-auto",
       "started": 1786848501.0648131,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31922747345,
+      "run_status": "completed"
     },
     "2218": {
       "user_id": "7251749429",
@@ -1428,8 +1428,8 @@
       "filename": "App.zip",
       "engine": "apkbuild-manifest",
       "started": 1786848511.700802,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31922753793,
+      "run_status": "completed"
     }
   },
   "signkeys": {
