@@ -397,7 +397,23 @@ async def main():
         if not target_dir:
             target_dir = proj_dir
 
-        ensure_apktool_yml(target_dir)
+        # Apktool can only rebuild decoded APKs (smali + resources). If the project is a
+        # Java/Kotlin source project (Gradle/Android Studio), Apktool cannot compile the
+        # sources and would silently produce a tiny resource-only stub APK (~8 KB) with no
+        # classes.dex — never ship that. Tell the user to use the APK Source Builder engine.
+        smali_dirs = [p for p in sorted(Path(proj_dir).rglob("smali*")) if p.is_dir()]
+        java_kt_files = [p for p in sorted(Path(proj_dir).rglob("*.java")) + sorted(Path(proj_dir).rglob("*.kt")) if p.is_file()]
+        has_apktool_yml = any(p.is_file() and p.name == "apktool.yml" for p in Path(proj_dir).rglob("apktool.yml"))
+        if not smali_dirs and not has_apktool_yml and java_kt_files:
+            edit(
+                "❌ This is a <b>Java/Kotlin source project</b>, not an Apktool/Smali project.\n\n"
+                "Apktool cannot compile Java/Kotlin sources, so it would only produce a tiny "
+                "resource-only stub APK (~8 KB) with no code and no native libraries.\n\n"
+                "Use the <b>📦 APK Build (Source Code)</b> engine instead — it builds the project "
+                "with Gradle and includes all code and native libs.",
+                parse_mode="HTML", keep_button=False
+            )
+            return
 
         unsigned_apk = work_dir / "unsigned.apk"
         cmd = ["java", "-Xmx8G", "-jar", "/opt/apktool/apktool.jar", "b", str(target_dir), "-o", str(unsigned_apk)]
