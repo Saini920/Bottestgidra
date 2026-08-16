@@ -101,6 +101,20 @@ jobs:
           test -f /opt/kotlinc/lib/kotlin-stdlib.jar
           echo "kotlinc ready"
 
+      - name: Cache Apktool
+        id: apktool-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/apktool/apktool.jar
+          key: apktool-2.10.0
+
+      - name: Get Apktool
+        if: steps.apktool-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo mkdir -p /opt/apktool
+          sudo curl -sL -o /opt/apktool/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar || true
+          echo "apktool ready"
+
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -156,6 +170,7 @@ jobs:
           PAYLOAD_SDK_ROOT: ${{ env.SDK_ROOT }}
           PAYLOAD_R8_JAR: /opt/r8.jar
           PAYLOAD_KOTLINC: /opt/kotlinc
+          PAYLOAD_APKTOOL_JAR: /opt/apktool/apktool.jar
           PAYLOAD_NDK_BIN: ${{ env.NDK_BIN }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}

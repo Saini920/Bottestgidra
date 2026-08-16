@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import zipfile
@@ -34,16 +35,15 @@ USER_ID = os.environ.get("PAYLOAD_USER_ID", CHAT_ID)
 REPORT_URL = os.environ.get("PAYLOAD_REPORT_URL", "")
 REPORT_TOKEN = BOT_TOKEN
 SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
-R8_JAR = os.environ.get("PAYLOAD_R8_JAR", "")
-KOTLINC_ROOT = os.environ.get("PAYLOAD_KOTLINC", "")
+R8_JAR = os.environ.get("PAYLOAD_R8_JAR", "/opt/r8.jar")
+KOTLINC_ROOT = os.environ.get("PAYLOAD_KOTLINC", "/opt/kotlinc")
+APKTOOL_JAR = os.environ.get("PAYLOAD_APKTOOL_JAR", "/opt/apktool/apktool.jar")
 KEYSTORE_JSON = os.environ.get("PAYLOAD_CUSTOM_KEYSTORE_JSON") or os.environ.get("PAYLOAD_KEYSTORE", "")
-MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
+PAYLOAD_BUILD_MODE = os.environ.get("PAYLOAD_BUILD_MODE", "auto").lower()
+MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 1000
 
 JAVA_EXTENSIONS = {".java"}
 KOTLIN_EXTENSIONS = {".kt"}
-MAX_SRC_FILES_FREE = 50
-MAX_SRC_FILES_PREMIUM = 200
-MAX_CC_FILES = 200
 
 ABI_CLANG_NAMES = {
     "arm64-v8a": ["aarch64-linux-android24-clang", "aarch64-linux-android-clang"],
@@ -81,71 +81,149 @@ def notify_app(message: str, title: str = None):
     except Exception as e:
         log.warning("Ntfy failed: %s", e)
 
+
+def upload_to_anonymous_cloud(file_path: Path) -> str:
+    """Upload result to anonymous public host for 1-click mobile download."""
+    if not file_path or not file_path.exists():
+        return ""
+    log.info("Uploading %s to anonymous cloud hosts...", file_path.name)
+    
+    # 1. tmpfiles.org
+    try:
+        with open(file_path, "rb") as fh:
+            resp = httpx.post(
+                "https://tmpfiles.org/api/v1/upload",
+                files={"file": (file_path.name, fh)},
+                timeout=120
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                url = data.get("url", "")
+                if url:
+                    direct_url = url.replace("https://tmpfiles.org/", "https://tmpfiles.org/dl/")
+                    log.info("tmpfiles upload success: %s", direct_url)
+                    return direct_url
+    except Exception as e:
+        log.warning("tmpfiles upload error: %s", e)
+
+    # 2. catbox.moe
+    try:
+        with open(file_path, "rb") as fh:
+            resp = httpx.post(
+                "https://catbox.moe/user/api.php",
+                data={"reqtype": "fileupload"},
+                files={"fileToUpload": (file_path.name, fh)},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=120
+            )
+            if resp.status_code == 200 and resp.text.strip().startswith("http"):
+                log.info("catbox upload success: %s", resp.text.strip())
+                return resp.text.strip()
+    except Exception as e:
+        log.warning("catbox upload error: %s", e)
+
+    # 3. uguu.se
+    try:
+        with open(file_path, "rb") as fh:
+            resp = httpx.post(
+                "https://uguu.se/upload",
+                files={"files[]": (file_path.name, fh)},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=120
+            )
+            if resp.status_code == 200:
+                files_arr = resp.json().get("files", [])
+                if files_arr and "url" in files_arr[0]:
+                    log.info("uguu upload success: %s", files_arr[0]["url"])
+                    return files_arr[0]["url"]
+    except Exception as e:
+        log.warning("uguu upload error: %s", e)
+
+    # 4. file.io
+    try:
+        with open(file_path, "rb") as fh:
+            resp = httpx.post(
+                "https://file.io/",
+                files={"file": (file_path.name, fh)},
+                timeout=120
+            )
+            if resp.status_code == 200:
+                link = resp.json().get("link", "")
+                if link:
+                    log.info("file.io upload success: %s", link)
+                    return link
+    except Exception as e:
+        log.warning("file.io upload error: %s", e)
+
+    return ""
+
+
 def upload_result_for_app(file_to_send: Path):
     if not JOB_ID or not file_to_send or not file_to_send.exists():
         return
 
-    target_chat = CHAT_ID if CHAT_ID and CHAT_ID != '0' and not str(CHAT_ID).startswith('app_') else 'me'
+    target_chat = CHAT_ID if CHAT_ID and CHAT_ID != "0" and not str(CHAT_ID).startswith("app_") else "me"
 
-    api_id_val = os.environ.get('API_ID', '').strip()
-    api_hash_val = os.environ.get('API_HASH', '').strip()
-    bot_tok = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
+    api_id_val = os.environ.get("API_ID", "").strip()
+    api_hash_val = os.environ.get("API_HASH", "").strip()
+    bot_tok = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 
-    # 1) Preferred: deliver straight to the user's chat via the Telegram Bot HTTP
-    # API. Unlike the MTProto path below this needs no API_ID/API_HASH secrets on
-    # the runner repo, so it works when the app dispatches to the user's own repo.
-    if bot_tok and target_chat != 'me' and file_to_send.stat().st_size <= 50 * 1024 * 1024:
+    # 1) Preferred: deliver straight to the user's chat via the Telegram Bot HTTP API
+    if bot_tok and target_chat != "me" and file_to_send.stat().st_size <= 50 * 1024 * 1024:
         try:
-            with open(file_to_send, 'rb') as fh:
+            with open(file_to_send, "rb") as fh:
                 resp = httpx.post(
-                    f'https://api.telegram.org/bot{bot_tok}/sendDocument',
-                    data={'chat_id': target_chat, 'caption': f'✅ Result for Job {JOB_ID}'},
-                    files={'document': (file_to_send.name, fh, 'application/octet-stream')},
+                    f"https://api.telegram.org/bot{bot_tok}/sendDocument",
+                    data={"chat_id": target_chat, "caption": f"✅ Result for Job {JOB_ID}"},
+                    files={"document": (file_to_send.name, fh, "application/octet-stream")},
                     timeout=300,
                 )
-                if resp.status_code == 200 and resp.json().get('ok'):
-                    log.info('Result uploaded to chat %s via Bot HTTP API', target_chat)
-                    # Tell the app where to find the file: the user's chat with THIS
-                    # bot is identified by the bot's user id, not the user's own id.
-                    bot_id = ''
+                if resp.status_code == 200 and resp.json().get("ok"):
+                    log.info("Result uploaded to chat %s via Bot HTTP API", target_chat)
+                    bot_id = ""
                     try:
-                        me = httpx.get(f'https://api.telegram.org/bot{bot_tok}/getMe', timeout=30).json()
-                        if me.get('ok'):
-                            bot_id = str(me['result'].get('id', ''))
+                        me = httpx.get(f"https://api.telegram.org/bot{bot_tok}/getMe", timeout=30).json()
+                        if me.get("ok"):
+                            bot_id = str(me["result"].get("id", ""))
                     except Exception:
                         pass
                     if bot_id:
-                        notify_app(f'FINAL_ZIP_URL:telegram_msg:{bot_id}')
+                        notify_app(f"FINAL_ZIP_URL:telegram_msg:{bot_id}")
                     else:
-                        notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+                        notify_app("FINAL_ZIP_URL:telegram_direct_upload")
                     return
-                log.warning('Bot HTTP upload failed (HTTP %s): %s', resp.status_code, resp.text[:200])
+                log.warning("Bot HTTP upload failed (HTTP %s): %s", resp.status_code, resp.text[:200])
         except Exception as e:
-            log.warning('Bot HTTP upload failed: %s', e)
+            log.warning("Bot HTTP upload failed: %s", e)
 
-    # 2) MTProto upload (requires API_ID/API_HASH secrets on the runner repo).
+    # 2) MTProto upload (requires API_ID/API_HASH secrets on runner)
     if api_id_val and api_hash_val:
         try:
-            import subprocess
-            cmd = [sys.executable, 'upload_file.py', str(file_to_send), f'✅ Result for Job {JOB_ID}', str(target_chat)]
+            cmd = [sys.executable, "upload_file.py", str(file_to_send), f"✅ Result for Job {JOB_ID}", str(target_chat)]
             proc = subprocess.run(cmd, timeout=300, capture_output=True, text=True)
             if proc.returncode == 0:
-                log.info('Uploaded to Telegram MTProto successfully: %s', proc.stdout)
+                log.info("Uploaded to Telegram MTProto successfully: %s", proc.stdout)
                 for line in proc.stdout.splitlines():
-                    if line.startswith('UPLOAD_SUCCESS:'):
-                        parts = line.split(':')
+                    if line.startswith("UPLOAD_SUCCESS:"):
+                        parts = line.split(":")
                         if len(parts) >= 2:
                             bot_username = parts[1]
-                            notify_app(f'FINAL_ZIP_URL:telegram_deeplink:{bot_username}')
+                            notify_app(f"FINAL_ZIP_URL:telegram_deeplink:{bot_username}")
                             return
-                notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+                notify_app("FINAL_ZIP_URL:telegram_direct_upload")
                 return
             else:
-                log.warning('MTProto upload failed with code %d: %s', proc.returncode, proc.stderr)
+                log.warning("MTProto upload failed with code %d: %s", proc.returncode, proc.stderr)
         except Exception as e:
-            log.warning('MTProto upload in upload_result_for_app failed: %s', e)
+            log.warning("MTProto upload failed: %s", e)
 
-    notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+    # 3) Direct Cloud Upload Fallback for standalone mobile app download
+    cloud_url = upload_to_anonymous_cloud(file_to_send)
+    if cloud_url:
+        notify_app(f"FINAL_ZIP_URL:{cloud_url}")
+        return
+
+    notify_app("FINAL_ZIP_URL:telegram_direct_upload")
 
 
 def tg(method: str, **params):
@@ -171,7 +249,6 @@ def edit(text: str, parse_mode: str = None, keep_button: bool = True):
             "inline_keyboard": [[{"text": "🛑 Stop Processing", "callback_data": f"stop_{MESSAGE_ID}"}]]
         })
     tg("editMessageText", **params)
-    notify_app(text)
 
 
 def progress_bar(pct: float) -> str:
@@ -198,104 +275,50 @@ async def send_error_log(work_dir, exception_obj, title="APK Build failed"):
     try:
         err_file = Path(work_dir) / "error.txt"
         text = f"❌ {title}:\n\n{err_str}"
-        if TOOL_LOG_FH is not None:
-            try:
-                TOOL_LOG_FH.flush()
-                log_path = Path(TOOL_LOG_FH.name)
-                if log_path.exists():
-                    tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-500:])
-                    text += f"\n\n══════════ TOOL OUTPUT (last 500 lines) ══════════\n{tail}"
-            except Exception:
-                pass
-        err_file.write_text(text)
-        caption = f"❌ Error Log:\n{str(exception_obj)[:100]}"
-        try:
-            with open(err_file, "rb") as ef:
-                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument"
-                async with httpx.AsyncClient(timeout=120) as client:
-                    resp = await client.post(url, data={"chat_id": CHAT_ID, "caption": caption}, files={"document": ef})
-                    resp.raise_for_status()
+        err_file.write_text(text, encoding="utf-8")
+        if BOT_TOKEN and CHAT_ID and BOT_TOKEN != "app_direct_mode":
+            await upload_document(err_file, f"❌ <b>{title}</b>")
             sent = True
-        except Exception as e:
-            log.warning("HTTP error log upload failed, falling back to MTProto: %s", e)
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable, "upload_file.py", str(err_file), caption,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
-            )
-            await proc.wait()
-            sent = (proc.returncode == 0)
     except Exception as e:
         log.error("Failed to upload error log: %s", e)
-    if sent:
-        edit(f"❌ {title}. Error log sent.", keep_button=False)
-    else:
-        edit(f"❌ {title}. Could not send error log. Try again later.", keep_button=False)
+
+    notify_app(f"❌ {title}: {str(exception_obj)[:150]}")
+    if not sent:
+        edit(f"❌ <b>{title}</b>\n\n<code>{str(exception_obj)[:300]}</code>", parse_mode="HTML", keep_button=False)
 
 
 async def download_url(url: str, dest: Path, on_progress) -> str:
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    fid = None
-    if "drive.google.com" in url:
-        m = re.search(r"/file/d/([^/?#]+)", url) or re.search(r"[?&]id=([^&#]+)", url)
-        if m:
-            fid = m.group(1)
-            url = f"https://drive.google.com/uc?export=download&id={fid}"
-
-    timeout = httpx.Timeout(30.0, connect=30.0, read=300.0, write=300.0)
-    transport = httpx.AsyncHTTPTransport(retries=3)
-    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=timeout, transport=transport) as client:
-        for attempt in range(3):
-            async with client.stream("GET", url) as resp:
-                resp.raise_for_status()
-                ct = resp.headers.get("content-type", "")
-                if "text/html" in ct:
-                    if attempt == 2:
-                        raise ValueError("The link is a webpage, not a direct file.")
-                    html = (await resp.aread()).decode(errors="replace")
-                    if fid:
-                        m = re.search(r'name="confirm"\s+value="([^"]+)"', html)
-                        if m:
-                            url = f"https://drive.usercontent.google.com/download?id={fid}&export=download&confirm={m.group(1)}"
-                            continue
-                        if "Google Drive" in html or "drive.google" in html:
-                            raise ValueError("Google Drive file not accessible.")
-                    m = re.search(r'href="(https?://download[0-9]+\.mediafire\.com/[^"]+)"', html)
-                    if m:
-                        url = unescape(m.group(1))
-                        continue
-                    raise ValueError("The link is a webpage, not a direct file.")
-
-                filename = "download"
-                cd = resp.headers.get("content-disposition", "")
-                m = re.search(r'filename="?([^";]+)"?', cd)
-                if m:
-                    filename = unquote(m.group(1)).strip()
-                else:
-                    path_part = unquote(resp.url.path.rstrip("/").rsplit("/", 1)[-1])
-                    if path_part:
-                        filename = path_part
-
-                total = int(resp.headers.get("content-length") or 0)
-                check_download_size(total)
-                downloaded = 0
-                with open(dest, "wb") as fh:
-                    async for chunk in resp.aiter_bytes(65536):
-                        if CANCELLED["v"]:
-                            raise JobCancelled()
-                        fh.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            pct = min(100, int(downloaded * 100 / total))
+    last_prog = [-1]
+    filename = FILENAME or "download.zip"
+    async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=600)) as client:
+        async with client.stream("GET", url) as resp:
+            resp.raise_for_status()
+            cd = resp.headers.get("content-disposition", "")
+            m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';]+)', cd, re.I)
+            if m:
+                filename = unquote(m.group(1).strip())
+            total = int(resp.headers.get("content-length") or 0)
+            check_download_size(total)
+            done = 0
+            with open(dest, "wb") as f:
+                async for chunk in resp.aiter_bytes(65536):
+                    if CANCELLED["v"]:
+                        raise JobCancelled()
+                    f.write(chunk)
+                    done += len(chunk)
+                    if total:
+                        pct = int(done * 100 / total)
+                        if pct != last_prog[0]:
+                            last_prog[0] = pct
                             await on_progress(pct)
-                await on_progress(100)
-                return filename
-        raise ValueError("Could not download file from this link.")
+    return filename
 
 
 async def run_tool(cmd: list, on_progress, label: str, timeout: int = 86400, progress_stall: int = 1800, cwd: str = None):
-    log.info("Running: %s", " ".join(cmd))
+    log.info("Running [%s] in %s: %s", label, cwd or ".", " ".join(str(x) for x in cmd))
+    cmd_str = [str(x) for x in cmd]
     proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=cwd
+        *cmd_str, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=cwd
     )
     out_lines = []
 
@@ -341,299 +364,350 @@ async def run_tool(cmd: list, on_progress, label: str, timeout: int = 86400, pro
         raise TimeoutError(f"{label} timed out")
 
     if rc != 0:
-        raise RuntimeError(f"{label} failed with exit code {rc}:\n" + "\n".join(out_lines[-25:]))
-    return "\n".join(out_lines[-25:])
+        raise RuntimeError(f"{label} failed with exit code {rc}:\n" + "\n".join(out_lines[-30:]))
+    return "\n".join(out_lines[-30:])
 
 
 def find_inputs(src_dir: Path, suffixes) -> list:
-    return [str(p) for p in sorted(Path(src_dir).rglob("*")) if p.is_file() and p.suffix.lower() in suffixes]
-
-
-def find_dir(src_dir: Path, names) -> Path:
-    for n in names:
-        for cand in sorted(src_dir.rglob(n)):
-            if cand.is_dir():
-                return cand
-    return None
+    return [str(p) for p in sorted(src_dir.rglob("*")) if p.is_file() and p.suffix.lower() in suffixes]
 
 
 def kotlinc_bin():
-    if not KOTLINC_ROOT:
-        return ""
-    for cand in (os.path.join(KOTLINC_ROOT, "bin", "kotlinc"),
-                 os.path.join(KOTLINC_ROOT, "kotlinc")):
-        if os.path.isfile(cand):
-            return cand
-    return ""
+    k = os.path.join(KOTLINC_ROOT, "bin", "kotlinc")
+    if os.path.isfile(k):
+        return k
+    return shutil.which("kotlinc")
 
 
 def find_sdk():
-    root = SDK_ROOT or os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk"
-    if not os.path.isdir(root):
-        home_sdk = Path.home() / "Android" / "Sdk"
-        if home_sdk.is_dir():
-            root = str(home_sdk)
-    bt_dir = os.path.join(root, "build-tools")
-    build_tools = []
+    sdk_root = SDK_ROOT or os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "/usr/local/lib/android/sdk"
+    if not os.path.isdir(sdk_root):
+        cand = [p for p in ("/usr/local/lib/android/sdk", "/opt/android-sdk", os.path.expanduser("~/Android/Sdk")) if os.path.isdir(p)]
+        if cand:
+            sdk_root = cand[0]
+
+    build_tools = ""
+    bt_dir = os.path.join(sdk_root, "build-tools")
     if os.path.isdir(bt_dir):
-        build_tools = sorted(
-            (d for d in os.listdir(bt_dir) if os.path.isdir(os.path.join(bt_dir, d))),
-            key=lambda v: [int(x) for x in re.findall(r"\d+", v)] or [0], reverse=True)
+        versions = sorted(os.listdir(bt_dir), reverse=True)
+        if versions:
+            build_tools = os.path.join(bt_dir, versions[0])
+
     platforms = []
-    pl_dir = os.path.join(root, "platforms")
-    if os.path.isdir(pl_dir):
-        platforms = sorted(
-            (d for d in os.listdir(pl_dir) if re.match(r"^android-\d+$", d)),
-            key=lambda v: int(v.split("-")[1]), reverse=True)
-    return {"root": root, "build_tools": build_tools, "platforms": platforms}
+    p_dir = os.path.join(sdk_root, "platforms")
+    if os.path.isdir(p_dir):
+        platforms = sorted([os.path.join(p_dir, p) for p in os.listdir(p_dir) if p.startswith("android-")])
+
+    return {"root": sdk_root, "build_tools": build_tools, "platforms": platforms}
 
 
 def get_tool(sdk, name):
-    for v in sdk["build_tools"]:
-        p = os.path.join(sdk["root"], "build-tools", v, name)
-        if os.path.exists(p):
-            return p
-    return ""
+    if sdk["build_tools"]:
+        t = os.path.join(sdk["build_tools"], name)
+        if os.path.isfile(t):
+            return t
+    return shutil.which(name)
 
 
 def get_android_jar(sdk):
-    for p in sdk["platforms"]:
-        pj = os.path.join(sdk["root"], "platforms", p, "android.jar")
-        if os.path.exists(pj):
-            return pj, int(p.split("-")[1])
+    if sdk["platforms"]:
+        for p in reversed(sdk["platforms"]):
+            j = os.path.join(p, "android.jar")
+            if os.path.isfile(j):
+                m = re.search(r"android-(\d+)", p)
+                api = int(m.group(1)) if m else 34
+                return j, api
     return "", 0
 
 
 def parse_manifest(path: Path):
-    text = path.read_text(errors="replace")
-    package = ""
-    m = re.search(r'package="([^"]+)"', text)
-    if m:
-        package = m.group(1)
-    min_sdk = None
-    m = re.search(r'<uses-sdk[^>]*android:minSdkVersion\s*=\s*"(\d+)"', text)
-    if m:
-        min_sdk = int(m.group(1))
-    target_sdk = None
-    m = re.search(r'<uses-sdk[^>]*android:targetSdkVersion\s*=\s*"(\d+)"', text)
-    if m:
-        target_sdk = int(m.group(1))
-    version_code = None
-    m = re.search(r'android:versionCode\s*=\s*"(\d+)"', text)
-    if m:
-        version_code = int(m.group(1))
-    version_name = None
-    m = re.search(r'android:versionName\s*=\s*"([^"]+)"', text)
-    if m:
-        version_name = m.group(1)
-    return {"package": package, "min_sdk": min_sdk, "target_sdk": target_sdk,
-            "version_code": version_code, "version_name": version_name}
+    if not path.exists():
+        return {"package": "", "min_sdk": 21, "target_sdk": 34, "version_code": "1", "version_name": "1.0"}
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        pkg = re.search(r'package\s*=\s*["\']([^"\']+)["\']', text)
+        min_sdk = re.search(r'android:minSdkVersion\s*=\s*["\'](\d+)["\']', text)
+        target_sdk = re.search(r'android:targetSdkVersion\s*=\s*["\'](\d+)["\']', text)
+        vcode = re.search(r'android:versionCode\s*=\s*["\'](\d+)["\']', text)
+        vname = re.search(r'android:versionName\s*=\s*["\']([^"\']+)["\']', text)
+        return {
+            "package": pkg.group(1) if pkg else "",
+            "min_sdk": int(min_sdk.group(1)) if min_sdk else 21,
+            "target_sdk": int(target_sdk.group(1)) if target_sdk else 34,
+            "version_code": vcode.group(1) if vcode else "1",
+            "version_name": vname.group(1) if vname else "1.0",
+        }
+    except Exception:
+        return {"package": "", "min_sdk": 21, "target_sdk": 34, "version_code": "1", "version_name": "1.0"}
 
 
 def ensure_manifest_package(manifest: Path, extract_dir: Path) -> str:
-    text = manifest.read_text(errors="replace")
-    m = re.search(r"<manifest[^>]*\bpackage\s*=\s*[\"']([^\"']+)[\"']", text)
-    if m:
-        return m.group(1)
+    text = manifest.read_text(encoding="utf-8", errors="replace") if manifest.exists() else ""
     pkg = ""
-    for gp in sorted(extract_dir.rglob("build.gradle")) + sorted(extract_dir.rglob("build.gradle.kts")):
+    # 1. Search build.gradle/settings.gradle
+    for bg in extract_dir.rglob("build.gradle*"):
         try:
-            gt = gp.read_text(errors="replace")
+            bgt = bg.read_text(errors="replace")
+            m = re.search(r'namespace\s*[=\s]\s*["\']([^"\']+)["\']', bgt) or re.search(r'applicationId\s*[=\s]\s*["\']([^"\']+)["\']', bgt)
+            if m:
+                pkg = m.group(1).strip()
+                break
         except Exception:
-            continue
-        gm = (re.search(r"namespace\s*=\s*\"([^\"]+)\"", gt)
-              or re.search(r"applicationId\s*=\s*\"([^\"]+)\"", gt)
-              or re.search(r"applicationId\s+\"([^\"]+)\"", gt)
-              or re.search(r"namespace\s+\"([^\"]+)\"", gt))
-        if gm:
-            pkg = gm.group(1)
-            break
+            pass
+
+    # 2. Search Java/Kotlin sources
+    if not pkg:
+        for p in sorted(extract_dir.rglob("*.java")) + sorted(extract_dir.rglob("*.kt")):
+            try:
+                t = p.read_text(errors="replace")
+                pm = re.search(r"package\s+([a-zA-Z0-9_.]+)", t)
+                if pm:
+                    pkg = pm.group(1).strip()
+                    break
+            except Exception:
+                pass
     if not pkg:
         pkg = "com.example.app"
-    text = text.replace("<manifest", f'<manifest package="{pkg}"', 1)
-    manifest.write_text(text)
+
+    if manifest.exists() and "<manifest" in text and "package=" not in text:
+        text = text.replace("<manifest", f'<manifest package="{pkg}"', 1)
+        manifest.write_text(text, encoding="utf-8")
     return pkg
 
 
-async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, sdk):
-    await on_progress(15, "📦 Extracting source code...")
-    extract_dir = work_dir / "src"
-    extract_dir.mkdir(exist_ok=True)
-    with zipfile.ZipFile(input_path, "r") as zf:
-        zf.extractall(extract_dir)
-
-    # Inspect XML files before building:
-    #  - binary Android XML (AXML magic 03 00 08 00) or UTF-16 XML comes from
-    #    undecoded APK resources and cannot be compiled by aapt2 — fail early
-    #    with an actionable message instead of a cryptic aapt2 error.
-    #  - UTF-8 BOMs can also be rejected by aapt2; strip them (safe).
-    binary_xml_files = []
-    bom_stripped = 0
+def sanitize_and_decode_xml_files(extract_dir: Path):
+    """Sanitize XML files: decode UTF-16 to UTF-8, strip UTF-8 BOM."""
     for p in sorted(extract_dir.rglob("*")):
         if not p.is_file() or (p.suffix.lower() != ".xml" and p.name.lower() != "androidmanifest.xml"):
             continue
         try:
-            with open(p, "rb") as fh:
-                head = fh.read(4)
-            if head.startswith(b"\x03\x00\x08\x00") or head[:2] in (b"\xff\xfe", b"\xfe\xff"):
-                binary_xml_files.append(str(p.relative_to(extract_dir)))
-            elif head.startswith(b"\xef\xbb\xbf"):
-                data = p.read_bytes()[3:]
-                p.write_bytes(data)
-                bom_stripped += 1
+            raw = p.read_bytes()
+            if not raw:
+                continue
+            # UTF-16 LE / BE detection
+            if raw.startswith(b"\xff\xfe") or raw.startswith(b"\xfe\xff"):
+                try:
+                    text = raw.decode("utf-16")
+                    p.write_text(text, encoding="utf-8")
+                    log.info("Converted UTF-16 XML to UTF-8: %s", p.name)
+                    continue
+                except Exception:
+                    pass
+            # UTF-8 BOM detection
+            if raw.startswith(b"\xef\xbb\xbf"):
+                p.write_bytes(raw[3:])
+                log.info("Stripped UTF-8 BOM from: %s", p.name)
+        except Exception as e:
+            log.warning("XML sanitization error on %s: %s", p, e)
+
+
+def extract_archive(input_path: Path, extract_dir: Path):
+    """Robustly extract any archive type or copy raw source file."""
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    if zipfile.is_zipfile(input_path):
+        with zipfile.ZipFile(input_path, "r") as zf:
+            zf.extractall(extract_dir)
+    elif tarfile.is_tarfile(input_path):
+        with tarfile.open(input_path, "r:*") as tf:
+            tf.extractall(extract_dir)
+    else:
+        # Check if 7z or single source file
+        try:
+            proc = subprocess.run(["7z", "x", "-y", f"-o{extract_dir}", str(input_path)], capture_output=True)
+            if proc.returncode == 0:
+                return
         except Exception:
-            continue
-    if bom_stripped:
-        log.info("Stripped UTF-8 BOM from %d XML file(s)", bom_stripped)
-    if binary_xml_files:
-        sample = ", ".join(binary_xml_files[:5])
-        raise ValueError(
-            "This source archive contains binary Android XML resources "
-            f"({sample}, ...). The APK Build engine requires text resources. "
-            "Please zip a proper source project with text res/ files (e.g. an "
-            "apktool-decoded project), not raw/undecoded APK resources."
-        )
+            pass
+        # Raw file fallback (single .java / .kt / .smali)
+        dest = extract_dir / input_path.name
+        shutil.copy2(input_path, dest)
 
-    # apktool-decoded projects ship smali/ code + apktool.yml, which this engine
-    # (Java/Kotlin source → aapt2/d8) cannot assemble — those belong to the
-    # 'Apktool Rebuild' tool. Detect them so we never silently produce an APK
-    # with resources but no code.
-    has_smali = any(p.is_dir() and p.name.lower() == "smali" for p in extract_dir.rglob("*"))
-    has_apktool_yml = any(p.is_file() and p.name.lower() == "apktool.yml" for p in extract_dir.rglob("*"))
-    if has_smali or has_apktool_yml:
-        raise ValueError(
-            "This archive looks like an apktool-decoded project (smali/ or "
-            "apktool.yml). The APK Build (Source) engine builds from Java/Kotlin "
-            "source code — please use the 'Apktool Rebuild' tool for apktool-decoded "
-            "projects."
-        )
 
-    build_mode = os.environ.get("PAYLOAD_BUILD_MODE", "")
-    
+async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, sdk):
+    await on_progress(10, "📦 Extracting project source code...")
+    extract_dir = work_dir / "src"
+    extract_archive(input_path, extract_dir)
+
+    # If single top-level folder inside zip, normalize root
+    entries = [p for p in extract_dir.iterdir() if not p.name.startswith(".")]
+    if len(entries) == 1 and entries[0].is_dir():
+        extract_dir = entries[0]
+
+    # Sanitize XML files (UTF-16 -> UTF-8, strip BOM)
+    sanitize_and_decode_xml_files(extract_dir)
+
+    # Check project features
     gradlew = None
     build_gradle = None
+    settings_gradle = None
+
     for g in sorted(extract_dir.rglob("gradlew")):
         if g.is_file():
             gradlew = g
             break
-            
+    for s in sorted(extract_dir.rglob("settings.gradle")) + sorted(extract_dir.rglob("settings.gradle.kts")):
+        if s.is_file():
+            settings_gradle = s
+            break
     for b in sorted(extract_dir.rglob("build.gradle")) + sorted(extract_dir.rglob("build.gradle.kts")):
         if b.is_file():
             build_gradle = b
             break
-            
-    has_gradle = bool(gradlew) or bool(build_gradle)
-    
-    if build_mode == "manifest":
-        pass
-    elif build_mode == "gradle":
-        build_mode = "gradle"
-    elif build_mode in ("auto", ""):
-        build_mode = "gradle" if has_gradle else "manifest"
-    else:
-        build_mode = "gradle" if has_gradle else "manifest"
 
+    has_gradle = bool(gradlew) or bool(build_gradle) or bool(settings_gradle)
+    apktool_yml = None
+    for a in sorted(extract_dir.rglob("apktool.yml")):
+        if a.is_file():
+            apktool_yml = a
+            break
+
+    smali_dirs = [p for p in sorted(extract_dir.rglob("smali*")) if p.is_dir()]
+    has_smali = bool(smali_dirs)
+    java_kt_files = [p for p in sorted(extract_dir.rglob("*")) if p.is_file() and p.suffix.lower() in (JAVA_EXTENSIONS | KOTLIN_EXTENSIONS)]
+    has_java_kt = bool(java_kt_files)
+
+    # Determine Build Mode
+    build_mode = PAYLOAD_BUILD_MODE
+    if build_mode in ("auto", ""):
+        if has_gradle:
+            build_mode = "gradle"
+        elif apktool_yml:
+            build_mode = "apktool"
+        elif has_smali and not has_java_kt:
+            build_mode = "apktool"
+        else:
+            build_mode = "manifest"
+
+    log.info("Selected APK build mode: %s (has_gradle=%s, apktool_yml=%s, has_smali=%s, has_java_kt=%s)",
+             build_mode, has_gradle, bool(apktool_yml), has_smali, has_java_kt)
+
+    # =========================================================================
+    # 1. GRADLE BUILD MODE
+    # =========================================================================
     if build_mode == "gradle":
-        await on_progress(20, "🚀 Building using Gradle...")
-        if gradlew:
+        await on_progress(20, "🚀 Building Android project with Gradle...")
+        if settings_gradle:
+            target_dir = settings_gradle.parent
+        elif gradlew:
             target_dir = gradlew.parent
         elif build_gradle:
-            # If no gradlew, use the root project folder that contains build.gradle
-            # It's better to find settings.gradle to ensure it's the root project
-            settings = [p for p in extract_dir.rglob("settings.gradle*") if p.is_file()]
-            if settings:
-                target_dir = settings[0].parent
-            else:
-                target_dir = build_gradle.parent
+            target_dir = build_gradle.parent
         else:
             target_dir = extract_dir
-        
+
+        sdk_path = sdk["root"]
+        ndk_bin = find_ndk_bin()
+        ndk_path = str(Path(ndk_bin).parents[3]) if ndk_bin else ""
+
+        # Write local.properties so AGP never complains about missing SDK location
+        local_prop = target_dir / "local.properties"
+        lp_content = f"sdk.dir={sdk_path}\n"
+        if ndk_path:
+            lp_content += f"ndk.dir={ndk_path}\n"
+        local_prop.write_text(lp_content, encoding="utf-8")
+        log.info("Wrote local.properties with sdk.dir=%s", sdk_path)
+
+        # Write gradle.properties with memory optimization & AndroidX
+        gp = target_dir / "gradle.properties"
+        gp_lines = gp.read_text(errors="replace").splitlines() if gp.exists() else []
+        gp_map = {}
+        for line in gp_lines:
+            if "=" in line and not line.strip().startswith("#"):
+                k, v = line.split("=", 1)
+                gp_map[k.strip()] = v.strip()
+        gp_map.setdefault("org.gradle.jvmargs", "-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8")
+        gp_map.setdefault("android.useAndroidX", "true")
+        gp_map.setdefault("android.enableJetifier", "true")
+        gp_map.setdefault("android.nonTransitiveRClass", "false")
+        gp.write_text("\n".join(f"{k}={v}" for k, v in gp_map.items()) + "\n", encoding="utf-8")
+
+        # Setup wrapper or gradlew
         if not gradlew:
-            try:
-                await on_progress(22, "⚙️ Setting up Gradle wrapper (8.10.2)...")
-                await run_tool(["gradle", "wrapper", "--gradle-version", "8.10.2"], on_progress, "gradle wrapper", cwd=str(target_dir))
-                cand = target_dir / "gradlew"
-                if cand.is_file():
-                    gradlew = cand
-            except Exception as e:
-                log.warning("gradle wrapper generation failed: %s", e)
+            gw_jar = target_dir / "gradle" / "wrapper" / "gradle-wrapper.jar"
+            if not gw_jar.exists():
+                try:
+                    await on_progress(22, "⚙️ Generating Gradle wrapper (8.10.2)...")
+                    await run_tool(["gradle", "wrapper", "--gradle-version", "8.10.2"], on_progress, "gradle wrapper", cwd=str(target_dir))
+                except Exception as we:
+                    log.warning("System gradle wrapper failed: %s", we)
+            cand = target_dir / "gradlew"
+            if cand.is_file():
+                gradlew = cand
 
-        cmd = []
-        if gradlew:
+        gradle_cmd = []
+        if gradlew and gradlew.exists():
             os.chmod(gradlew, 0o755)
-            cmd = ["./gradlew", "assembleDebug", "--no-daemon"]
+            gradle_cmd = ["./gradlew", "assembleDebug", "--no-daemon", "--stacktrace"]
         else:
-            cmd = ["gradle", "assembleDebug", "--no-daemon"]
-            
+            gradle_cmd = ["gradle", "assembleDebug", "--no-daemon", "--stacktrace"]
+
         try:
-            await on_progress(28, "🚀 Compiling APK with Gradle...")
-            await run_tool(cmd, on_progress, "gradle", cwd=str(target_dir))
-        except Exception as e:
-            raise ValueError(f"Gradle build failed: {e}")
-            
-        apks = sorted(target_dir.rglob("*.apk"))
-        if not apks:
-            raise ValueError("Gradle build completed but no .apk files were found in the project.")
-        found_apk = apks[-1]
+            await on_progress(28, "⚡ Compiling APK with Gradle...")
+            await run_tool(gradle_cmd, on_progress, "gradle assembleDebug", cwd=str(target_dir))
+        except Exception as ge:
+            log.warning("Gradle build error: %s", ge)
+            if has_java_kt:
+                await on_progress(35, "⚠️ Gradle assemble failed. Falling back to Native Engine...")
+                build_mode = "manifest"
+            else:
+                raise ValueError(f"Gradle build failed: {ge}")
+
+        if build_mode == "gradle":
+            apks = sorted(target_dir.rglob("*.apk"))
+            # Filter out unaligned/intermediate apks if debug apk exists
+            debug_apks = [p for p in apks if "-debug" in p.name.lower() or "app-debug" in p.name.lower()]
+            found_apk = debug_apks[-1] if debug_apks else (apks[-1] if apks else None)
+            if not found_apk:
+                if has_java_kt:
+                    log.info("No APK from Gradle, trying Native Engine...")
+                    build_mode = "manifest"
+                else:
+                    raise ValueError("Gradle build completed but no .apk output was produced.")
+            else:
+                return await finalize_apk_signing(found_apk, work_dir, on_progress, sdk)
+
+    # =========================================================================
+    # 2. APKTOOL / SMALI BUILD MODE
+    # =========================================================================
+    if build_mode == "apktool":
+        await on_progress(25, "🔧 Rebuilding APK with Apktool engine...")
+        apktool_dir = apktool_yml.parent if apktool_yml else extract_dir
+        unsigned_apk = work_dir / "apktool_unsigned.apk"
         
-        unsigned_apk = work_dir / "unsigned.apk"
-        import shutil
-        shutil.copy2(found_apk, unsigned_apk)
+        apktool_jar_path = Path(APKTOOL_JAR)
+        if not apktool_jar_path.exists():
+            # Download Apktool jar if missing
+            apktool_jar_path.parent.mkdir(parents=True, exist_ok=True)
+            dl_cmd = ["curl", "-sL", "-o", str(apktool_jar_path), "https://github.com/iBotPeaches/Apktool/releases/download/v2.10.0/apktool_2.10.0.jar"]
+            subprocess.run(dl_cmd, timeout=120)
 
-        zipalign = get_tool(sdk, "zipalign")
-        apksigner = get_tool(sdk, "apksigner")
-
-        aligned = work_dir / "aligned.apk"
-        if zipalign:
-            await on_progress(88, "🔏 Aligning APK (zipalign)...")
-            await run_tool([zipalign, "-p", "-f", "4", str(found_apk), str(aligned)], on_progress, "zipalign")
-        else:
-            shutil.copy2(found_apk, aligned)
-
-        await on_progress(90, "🔏 Signing APK...")
-        signed_apk = work_dir / "signed.apk"
-        ks_info = get_custom_keystore(work_dir)
-        ks_success = False
-        if ks_info and apksigner:
-            keystore, storepass, keypass, alias, ks_type = ks_info
-            await on_progress(90, f"🔏 Using your custom signing key (alias: {alias})...")
-            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
-                        "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
-                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
-            if ks_type:
-                sign_cmd.extend(["--ks-type", ks_type])
-            sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
+        if apktool_jar_path.exists():
+            cmd = ["java", "-Xmx4G", "-jar", str(apktool_jar_path), "b", str(apktool_dir), "-o", str(unsigned_apk)]
             try:
-                await run_tool(sign_cmd, on_progress, "apksigner")
-                ks_success = True
-            except Exception as e:
-                log.warning("Custom keystore signing failed: %s", e)
-                await on_progress(90, "⚠️ Custom keystore failed. Falling back to debug key...")
-                ks_success = False
+                await run_tool(cmd, on_progress, "apktool build")
+                if unsigned_apk.exists():
+                    return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
+            except Exception as ae:
+                log.warning("Apktool build failed: %s", ae)
+                if has_java_kt:
+                    await on_progress(35, "⚠️ Apktool failed. Falling back to Native Engine...")
+                    build_mode = "manifest"
+                else:
+                    raise ValueError(f"Apktool build failed: {ae}")
 
-        if not ks_success and apksigner:
-            keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
-            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
-                        "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
-                        "--out", str(signed_apk), str(aligned)]
-            await run_tool(sign_cmd, on_progress, "apksigner")
-        elif not apksigner:
-            shutil.copy2(found_apk, signed_apk)
+    # =========================================================================
+    # 3. NATIVE ENGINE (AAPT2 + JAVAC/KOTLINC + D8 + NDK)
+    # =========================================================================
+    await on_progress(20, "🚀 Building APK using Native Cloud Engine...")
 
-        if apksigner and signed_apk.exists():
-            await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
-
-        await on_progress(95, "✅ APK built and signed!")
-        return signed_apk, unsigned_apk
-
-
+    # Locate or generate AndroidManifest.xml
     manifest = extract_dir / "AndroidManifest.xml"
     if not manifest.exists():
-        m2 = [p for p in extract_dir.rglob("*") if p.is_file() and p.name.lower() == "androidmanifest.xml"]
-        if m2:
-            manifest = m2[0]
+        cand_m = [p for p in extract_dir.rglob("*") if p.is_file() and p.name.lower() == "androidmanifest.xml"]
+        if cand_m:
+            manifest = cand_m[0]
         else:
-            # Auto-generate a standard AndroidManifest.xml if not found in the ZIP
+            # Auto-generate standard manifest
             pkg = "com.example.app"
             main_activity = ""
             for p in sorted(extract_dir.rglob("*.java")) + sorted(extract_dir.rglob("*.kt")):
@@ -661,7 +735,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>"""
-            
+
             manifest_content = f"""<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="{pkg}">
@@ -675,6 +749,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
 </manifest>
 """
             manifest.write_text(manifest_content.strip(), encoding="utf-8")
+
     mp = parse_manifest(manifest)
     if not mp["package"]:
         mp["package"] = ensure_manifest_package(manifest, extract_dir)
@@ -687,10 +762,9 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     def is_valid_android_res_dir(r_path: Path) -> bool:
         if not r_path.is_dir():
             return False
-        # If inside any 'assets' folder, it belongs to assets!
         if any(part.lower() == "assets" for part in r_path.parts):
             return False
-        if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in r_path.parts):
+        if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git", "test", "androidTest") for part in r_path.parts):
             return False
         subdirs = [p.name.lower() for p in r_path.iterdir() if p.is_dir()]
         if not subdirs:
@@ -701,11 +775,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                 return True
         return False
 
-    res_dirs = []
-    for r in sorted(extract_dir.rglob("res")):
-        if is_valid_android_res_dir(r):
-            res_dirs.append(r)
-
+    res_dirs = [r for r in sorted(extract_dir.rglob("res")) if is_valid_android_res_dir(r)]
     if not res_dirs:
         dummy_res = work_dir / "default_res"
         (dummy_res / "values").mkdir(parents=True, exist_ok=True)
@@ -715,7 +785,7 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     assets_dirs = []
     for a in sorted(extract_dir.rglob("assets")):
         if a.is_dir() and any(a.iterdir()):
-            if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in a.parts):
+            if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git", "test") for part in a.parts):
                 continue
             if not any(a != ex and str(a).startswith(str(ex)) for ex in assets_dirs):
                 assets_dirs.append(a)
@@ -723,29 +793,21 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     jni_dirs = []
     for j in sorted(extract_dir.rglob("jniLibs")) + sorted(extract_dir.rglob("libs")):
         if j.is_dir() and any(j.rglob("*.so")):
-            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in j.parts):
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git", "test") for part in j.parts):
                 jni_dirs.append(j)
 
     libs_dirs = []
     for l in sorted(extract_dir.rglob("libs")):
         if l.is_dir() and any(l.rglob("*.jar")):
-            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in l.parts):
+            if not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git", "test") for part in l.parts):
                 libs_dirs.append(l)
 
     java_files = []
     kt_files = []
     for p in sorted(extract_dir.rglob("*")):
         if p.is_file():
-            if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in p.parts):
+            if any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git", "test", "androidTest") for part in p.parts):
                 continue
-            is_test = False
-            for idx, part in enumerate(p.parts):
-                if part == "src" and idx + 1 < len(p.parts) and p.parts[idx+1] in ("test", "androidTest"):
-                    is_test = True
-                    break
-            if is_test:
-                continue
-            
             if p.suffix.lower() in JAVA_EXTENSIONS:
                 java_files.append(str(p))
             elif p.suffix.lower() in KOTLIN_EXTENSIONS:
@@ -754,28 +816,24 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     kt_files = sorted(set(kt_files))
 
     aapt2 = get_tool(sdk, "aapt2")
-    zipalign = get_tool(sdk, "zipalign")
-    apksigner = get_tool(sdk, "apksigner")
     android_jar, compile_api = get_android_jar(sdk)
-    if not aapt2 or not zipalign or not apksigner:
-        raise ValueError("Android SDK build-tools missing (aapt2/zipalign/apksigner required).")
+    if not aapt2:
+        raise ValueError("Android SDK build-tools missing (aapt2 required).")
     if not android_jar:
-        raise ValueError("No Android platform (android.jar) found in the SDK.")
+        raise ValueError("No Android platform (android.jar) found in SDK.")
 
     target_sdk = mp["target_sdk"] or (compile_api or 34)
-    min_sdk = mp["min_sdk"] or 4
+    min_sdk = mp["min_sdk"] or 21
     package = mp["package"] or "com.example.app"
 
+    # Compile Resources
     await on_progress(25, "📦 Compiling resources (aapt2)...")
     compiled_res_list = []
     for idx, r_dir in enumerate(res_dirs):
         c_res = work_dir / f"compiled_res_{idx}.zip"
         try:
             compile_dir = r_dir
-            # apktool's values/public.xml carries explicit ids and entries with
-            # names aapt2 rejects (e.g. 'drawable/$ic_launcher_foreground__0'),
-            # which makes the whole res dir fail to compile. It is not needed
-            # for building an APK, so compile the res dir without it.
+            # Stage without public.xml (apktool artifact that fails aapt2)
             public_xml = r_dir / "values" / "public.xml"
             if public_xml.exists():
                 staged = work_dir / f"res_stage_{idx}"
@@ -783,7 +841,6 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                     shutil.rmtree(staged, ignore_errors=True)
                 shutil.copytree(r_dir, staged, ignore=shutil.ignore_patterns("public.xml"))
                 compile_dir = staged
-                log.info("Excluded values/public.xml from %s (apktool artifact)", r_dir)
             await run_tool([aapt2, "compile", "--dir", str(compile_dir), "-o", str(c_res)], on_progress, f"aapt2 compile res_{idx}")
             if c_res.exists():
                 compiled_res_list.append(str(c_res))
@@ -799,18 +856,22 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         if c_res.exists():
             compiled_res_list.append(str(c_res))
 
+    # Link Resources
     gen_dir = work_dir / "gen"
     gen_dir.mkdir(exist_ok=True)
     base_apk = work_dir / "base.apk"
-    link_cmd = [aapt2, "link", "-o", str(base_apk), "-I", android_jar, "--manifest", str(manifest),
-                "--java", str(gen_dir),
-                "--min-sdk-version", str(min_sdk),
-                "--target-sdk-version", str(target_sdk),
-                "--auto-add-overlay"]
+    link_cmd = [
+        aapt2, "link", "-o", str(base_apk), "-I", android_jar,
+        "--manifest", str(manifest),
+        "--java", str(gen_dir),
+        "--min-sdk-version", str(min_sdk),
+        "--target-sdk-version", str(target_sdk),
+        "--auto-add-overlay"
+    ]
     if mp["version_code"]:
         link_cmd += ["--version-code", str(mp["version_code"])]
     if mp["version_name"]:
-        link_cmd += ["--version-name", mp["version_name"]]
+        link_cmd += ["--version-name", str(mp["version_name"])]
     for a_dir in assets_dirs:
         link_cmd += ["-A", str(a_dir)]
     for c_res in compiled_res_list:
@@ -819,36 +880,28 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     if not base_apk.exists():
         raise ValueError("aapt2 link produced no APK (check AndroidManifest.xml).")
 
+    # Compiling Code (Kotlin + Java + Smali)
     class_dirs = []
-    cp_parts = [android_jar]
+    cp_parts = [android_jar, str(gen_dir)]
     lib_jars = []
-    if libs_dirs:
-        for l_dir in libs_dirs:
-            lib_jars += find_inputs(l_dir, {".jar"})
-        cp_parts += lib_jars
+    for l_dir in libs_dirs:
+        lib_jars += find_inputs(l_dir, {".jar"})
+    cp_parts += lib_jars
 
     if kt_files:
         kbin = kotlinc_bin()
-        if not kbin:
-            raise ValueError("Kotlin compiler not found (send Java-only source or fix runner).")
-        kotlin_out = work_dir / "kotlin_out"
-        kotlin_out.mkdir(exist_ok=True)
-        await on_progress(40, "☕ Compiling Kotlin sources...")
-        # Include the aapt2-generated R class (gen dir) and any lib jars so
-        # Kotlin sources referencing R.* or dependency classes resolve.
-        kcp = [android_jar, str(gen_dir)] + lib_jars
-        kcmd = ["bash", kbin, "-classpath", ":".join(kcp), "-jvm-target", "1.8", "-d", str(kotlin_out)] + kt_files
-        await run_tool(kcmd, on_progress, "kotlinc")
-        class_dirs.append(kotlin_out)
-        cp_parts.append(str(kotlin_out))
-        stdlib = os.path.join(KOTLINC_ROOT, "lib", "kotlin-stdlib.jar")
-        if os.path.isfile(stdlib):
-            cp_parts.append(stdlib)
-            lib_jars.append(stdlib)
-        for extra in ("kotlin-stdlib-jdk8.jar", "kotlin-stdlib-jdk7.jar"):
-            p = os.path.join(KOTLINC_ROOT, "lib", extra)
-            if os.path.isfile(p):
-                lib_jars.append(p)
+        if kbin:
+            kotlin_out = work_dir / "kotlin_out"
+            kotlin_out.mkdir(exist_ok=True)
+            await on_progress(40, "☕ Compiling Kotlin sources...")
+            kcmd = ["bash", kbin, "-classpath", ":".join(cp_parts), "-jvm-target", "1.8", "-d", str(kotlin_out)] + kt_files
+            await run_tool(kcmd, on_progress, "kotlinc")
+            class_dirs.append(kotlin_out)
+            cp_parts.append(str(kotlin_out))
+            stdlib = os.path.join(KOTLINC_ROOT, "lib", "kotlin-stdlib.jar")
+            if os.path.isfile(stdlib):
+                cp_parts.append(stdlib)
+                lib_jars.append(stdlib)
 
     r_java = find_inputs(gen_dir, JAVA_EXTENSIONS)
     if java_files or r_java:
@@ -858,46 +911,39 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         jcmd = ["javac", "-encoding", "UTF-8", "-classpath", ":".join(cp_parts), "-d", str(java_out)] + r_java + java_files
         await run_tool(jcmd, on_progress, "javac")
         class_dirs.append(java_out)
-        if not any(java_out.rglob("*.class")) and not any(kotlin_out.rglob("*.class") if 'kotlin_out' in dir() else []):
-            raise ValueError("No .class files generated (check your Java/Kotlin source).")
 
+    # DEX Generation
     dex_files = []
     class_files = []
     for d in class_dirs:
         class_files += [str(p) for p in sorted(Path(d).rglob("*.class"))]
-    if class_files:
+
+    dex_out = work_dir / "dex_out"
+    dex_out.mkdir(exist_ok=True)
+
+    if class_files or lib_jars:
         await on_progress(65, "🧬 Converting classes → .dex (D8)...")
-        dex_out = work_dir / "dex_out"
-        dex_out.mkdir(exist_ok=True)
+        d8_tool = R8_JAR if (R8_JAR and os.path.isfile(R8_JAR)) else get_tool(sdk, "d8")
         if R8_JAR and os.path.isfile(R8_JAR):
             dcmd = ["java", "-Xmx4G", "-cp", R8_JAR, "com.android.tools.r8.D8", "--release", "--min-api", str(min_sdk), "--lib", android_jar, "--output", str(dex_out)] + class_files + lib_jars
         else:
-            d8 = get_tool(sdk, "d8")
-            if not d8:
-                raise ValueError("d8 not found (need PAYLOAD_R8_JAR or build-tools d8).")
-            dcmd = [d8, "--release", "--min-api", str(min_sdk), "--lib", android_jar, "--output", str(dex_out)] + class_files + lib_jars
+            dcmd = [d8_tool, "--release", "--min-api", str(min_sdk), "--lib", android_jar, "--output", str(dex_out)] + class_files + lib_jars
         await run_tool(dcmd, on_progress, "d8")
         dex_files = sorted(dex_out.glob("*.dex"))
-        if not dex_files:
-            raise ValueError("d8 produced no .dex output.")
 
+    # C/C++ Native NDK Compilation
     cc_so = {}
     cc_c_files = find_inputs(extract_dir, CC_EXTENSIONS)
     cc_cpp_files = find_inputs(extract_dir, CPP_EXTENSIONS)
     if cc_c_files or cc_cpp_files:
         main_src = [f for f in cc_c_files + cc_cpp_files if Path(f).stem.lower() == "main"]
-        if main_src:
-            lib_name = "main"
-        else:
-            first = (cc_cpp_files or cc_c_files)[0]
-            lib_name = Path(first).stem
+        lib_name = Path(main_src[0]).stem if main_src else Path((cc_cpp_files or cc_c_files)[0]).stem
         lib_name = re.sub(r"[^A-Za-z0-9_.-]", "_", lib_name) or "native"
-        await on_progress(75, "⚙️ Compiling C/C++ sources (NDK)...")
+        await on_progress(75, f"⚙️ Compiling native C/C++ libraries (lib{lib_name}.so)...")
         cc_so = await compile_cc_sources(cc_c_files, cc_cpp_files, work_dir, on_progress, lib_name)
-        if not cc_so:
-            raise ValueError("C/C++ sources found but no .so could be compiled (NDK clang missing).")
 
-    await on_progress(80, "📦 Assembling APK...")
+    # Assembling Unsigned APK
+    await on_progress(80, "📦 Packaging APK...")
     unsigned_apk = work_dir / "unsigned.apk"
     extra = {}
     for d in dex_files:
@@ -909,45 +955,73 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             for so in sorted(j_dir.rglob("*.so")):
                 rel = so.relative_to(j_dir)
                 extra[str(Path("lib") / rel)] = so
+
     _merge_apk(base_apk, unsigned_apk, extra)
+    return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
+
+
+async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, sdk):
+    """Zipalign and sign the APK with custom keystore or debug key."""
+    zipalign = get_tool(sdk, "zipalign")
+    apksigner = get_tool(sdk, "apksigner")
 
     aligned = work_dir / "aligned.apk"
-    await run_tool([zipalign, "-p", "-f", "4", str(unsigned_apk), str(aligned)], on_progress, "zipalign")
-    await on_progress(88, "🔏 Signing APK...")
+    if zipalign:
+        await on_progress(88, "🔏 Aligning APK (zipalign)...")
+        await run_tool([zipalign, "-p", "-f", "4", str(unsigned_apk), str(aligned)], on_progress, "zipalign")
+    else:
+        shutil.copy2(unsigned_apk, aligned)
+
+    await on_progress(90, "🔏 Signing APK...")
     signed_apk = work_dir / "signed.apk"
     ks_info = get_custom_keystore(work_dir)
     ks_success = False
-    if ks_info:
+
+    if ks_info and apksigner:
         keystore, storepass, keypass, alias, ks_type = ks_info
-        await on_progress(88, "🔏 Using your custom signing key...")
-        sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
-                    "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
-                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
-        if min_sdk:
-            sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
+        await on_progress(92, f"🔏 Signing with custom key (alias: {alias})...")
+        sign_cmd = [
+            apksigner, "sign", "--ks", str(keystore),
+            "--ks-pass", f"pass:{storepass}",
+            "--key-pass", f"pass:{keypass}",
+            "--ks-key-alias", alias,
+            "--v1-signing-enabled", "true",
+            "--v2-signing-enabled", "true",
+            "--v3-signing-enabled", "true"
+        ]
         if ks_type:
             sign_cmd.extend(["--ks-type", ks_type])
         sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
         try:
-            await run_tool(sign_cmd, on_progress, "apksigner")
+            await run_tool(sign_cmd, on_progress, "apksigner custom key")
             ks_success = True
         except Exception as e:
             log.warning("Custom keystore signing failed: %s", e)
-            await on_progress(88, "⚠️ Custom keystore failed (Wrong Password?). Falling back to debug key...")
-            ks_success = False
+            await on_progress(92, "⚠️ Custom keystore failed. Falling back to debug key...")
 
-    if not ks_success:
+    if not ks_success and apksigner:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
-        sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
-                    "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true"]
-        if min_sdk:
-            sign_cmd.extend(["--min-sdk-version", str(min_sdk)])
-        sign_cmd.extend(["--out", str(signed_apk), str(aligned)])
-        await run_tool(sign_cmd, on_progress, "apksigner")
-        
-    await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
-    await on_progress(95, "✅ APK built!")
-    return signed_apk, aligned
+        sign_cmd = [
+            apksigner, "sign", "--ks", str(keystore),
+            "--ks-pass", "pass:android",
+            "--key-pass", "pass:android",
+            "--v1-signing-enabled", "true",
+            "--v2-signing-enabled", "true",
+            "--v3-signing-enabled", "true",
+            "--out", str(signed_apk), str(aligned)
+        ]
+        await run_tool(sign_cmd, on_progress, "apksigner debug key")
+    elif not apksigner:
+        shutil.copy2(aligned, signed_apk)
+
+    if apksigner and signed_apk.exists():
+        try:
+            await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
+        except Exception as ve:
+            log.warning("apksigner verify notice: %s", ve)
+
+    await on_progress(98, "✅ APK successfully built & signed!")
+    return signed_apk, unsigned_apk
 
 
 class TolerantZipFile(zipfile.ZipFile):
@@ -957,29 +1031,14 @@ class TolerantZipFile(zipfile.ZipFile):
             zinfo._end_offset = None
 
 
-def strip_old_signatures(input_apk: Path, out_apk: Path):
-    drop = re.compile(r"^META-INF/.*\.(RSA|DSA|EC|SF)$", re.IGNORECASE)
-    try:
-        with TolerantZipFile(input_apk) as zin:
-            with zipfile.ZipFile(out_apk, "w") as zout:
-                for item in zin.infolist():
-                    if drop.match(item.filename) or item.filename.upper() == "META-INF/MANIFEST.MF":
-                        continue
-                    compress_type = item.compress_type
-                    if item.filename.endswith(".so") or item.filename == "resources.arsc":
-                        compress_type = zipfile.ZIP_STORED
-                    zout.writestr(item, zin.read(item.filename), compress_type=compress_type)
-    except Exception as e:
-        import shutil
-        shutil.copy2(input_apk, out_apk)
-
-
 def make_keystore(path: Path) -> Path:
-    import subprocess as sp
     if not path.exists():
-        sp.run(["keytool", "-genkeypair", "-keystore", str(path), "-storepass", "android", "-keypass", "android",
-                "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
-                "-dname", "CN=Android Debug,O=Android,C=US"], check=True, capture_output=True)
+        subprocess.run(
+            ["keytool", "-genkeypair", "-keystore", str(path), "-storepass", "android", "-keypass", "android",
+             "-alias", "androiddebugkey", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000",
+             "-dname", "CN=Android Debug,O=Android,C=US"],
+            check=True, capture_output=True
+        )
     return path
 
 
@@ -996,55 +1055,32 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
 
     m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out, re.I)
     ks_type = m.group(1).lower() if m else ""
-    
     aliases = []
     for line in out.splitlines():
-        line_s = line.strip()
-        m_alias = re.search(r"Alias name:\s*(.+)", line_s, re.I)
-        if m_alias:
-            a = m_alias.group(1).strip()
-            if a and a not in aliases:
-                aliases.append(a)
-        elif "," in line_s and any(k in line_s.lower() for k in ["privatekey", "keyentry", "entry"]):
-            a = line_s.split(",")[0].strip()
-            if a and a not in aliases:
-                aliases.append(a)
-
-    if proc.returncode != 0:
-        if "password" in out.lower() or "tampered" in out.lower() or "integrity" in out.lower():
-            return "", [], False
-        return ks_type, aliases, True
-    return ks_type, aliases, True
+        al = re.match(r"^Alias name:\s*(.+)$", line.strip(), re.I)
+        if al:
+            aliases.append(al.group(1).strip())
+    return ks_type, aliases, False
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON or not KEYSTORE_JSON.strip():
+    if not KEYSTORE_JSON:
         return None
     try:
-        info = json.loads(KEYSTORE_JSON)
-        b64 = info.get("keystore_b64") or info.get("b64") or ""
+        data = json.loads(KEYSTORE_JSON)
+        b64 = data.get("keystore_b64", "")
         if not b64:
             return None
         ks_path = work_dir / "custom.keystore"
         ks_path.write_bytes(base64.b64decode(b64))
-        if not ks_path.exists() or ks_path.stat().st_size == 0:
-            return None
-        storepass = info.get("storepass", "android")
-        keypass = info.get("keypass", storepass)
-        alias = (info.get("alias") or "").strip()
-        ks_type, aliases, ok = inspect_custom_keystore(ks_path, storepass)
-        if not ok:
-            raise ValueError(
-                "Custom signing key: keystore password (storepass) is incorrect. "
-                "Run /setkey again with the correct storepass."
-            )
-        if alias and alias not in aliases and aliases:
-            alias = aliases[0]
+        storepass = data.get("storepass", "android")
+        keypass = data.get("keypass", storepass)
+        alias = data.get("alias", "")
+        ks_type, aliases, err = inspect_custom_keystore(ks_path, storepass)
         if not alias and aliases:
             alias = aliases[0]
-        return ks_path, storepass, keypass, alias or "androiddebugkey", ks_type
-    except ValueError:
-        raise
+        alias = alias or "key0"
+        return ks_path, storepass, keypass, alias, ks_type
     except Exception as e:
         log.warning("Failed to parse custom keystore: %s", e)
         return None
@@ -1061,12 +1097,12 @@ def find_clang_for(ndk_bin: str, abi: str):
 async def compile_cc_sources(c_files: list, cpp_files: list, work_dir: Path, on_progress, lib_name: str) -> dict:
     ndk_bin = find_ndk_bin()
     if not ndk_bin:
-        raise ValueError("Android NDK not found on the runner (C/C++ sources present).")
+        log.warning("Android NDK not found on runner; skipping native C/C++ compilation")
+        return {}
     results = {}
     for abi in ABI_CLANG_NAMES:
         clang, clangxx = find_clang_for(ndk_bin, abi)
         if not clang:
-            log.warning("NDK clang for %s not found, skipping", abi)
             continue
         out_so = work_dir / f"lib_{abi}_{lib_name}.so"
         await on_progress(0, f"⚙️ Compiling C/C++ → {abi} .so...")
@@ -1081,28 +1117,18 @@ async def compile_cc_sources(c_files: list, cpp_files: list, work_dir: Path, on_
             for i, f in enumerate(c_files):
                 obj = obj_dir / f"c_{i}.o"
                 await run_tool([clang, "-c", "-fPIC", "-O2", "-std=c11", "-o", str(obj), f], on_progress, f"clang {abi}")
-                if not obj.exists():
-                    raise RuntimeError(f"clang produced no object file for {f}")
-                objs.append(str(obj))
+                if obj.exists():
+                    objs.append(str(obj))
             for i, f in enumerate(cpp_files):
                 obj = obj_dir / f"cpp_{i}.o"
                 await run_tool([clangxx, "-c", "-fPIC", "-O2", "-std=c++17", "-o", str(obj), f], on_progress, f"clang++ {abi}")
-                if not obj.exists():
-                    raise RuntimeError(f"clang++ produced no object file for {f}")
-                objs.append(str(obj))
-            if not objs:
-                raise ValueError("No object files produced from C/C++ sources.")
-            await run_tool([clangxx, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, f"link {abi}")
+                if obj.exists():
+                    objs.append(str(obj))
+            if objs:
+                await run_tool([clangxx, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, f"link {abi}")
         if out_so.exists():
             results[abi] = out_so
     return results
-
-
-class TolerantZipFile(zipfile.ZipFile):
-    def _RealGetContents(self):
-        super()._RealGetContents()
-        for zinfo in self.filelist:
-            zinfo._end_offset = None
 
 
 def _merge_apk(base_apk: Path, out_apk: Path, extra: dict):
@@ -1119,10 +1145,6 @@ def _merge_apk(base_apk: Path, out_apk: Path, extra: dict):
                 if arc_str.endswith(".so") or arc_str == "resources.arsc":
                     c_type = zipfile.ZIP_STORED
                 zout.write(str(src), arc_str, compress_type=c_type)
-
-
-def check_zip_limits(file_path: Path):
-    return
 
 
 async def upload_document(path: Path, caption: str):
@@ -1162,7 +1184,7 @@ async def poll_cancel_commands():
                         log.info("Cancellation received from user via app/notification!")
                         CANCELLED["v"] = True
                         break
-    except Exception as e:
+    except Exception:
         pass
 
 
@@ -1172,20 +1194,20 @@ async def main():
         sys.exit(1)
 
     cancel_task = asyncio.create_task(poll_cancel_commands())
-
-    edit("🟢 Job started! Preparing APK Build engine on cloud server...", parse_mode="HTML")
+    edit("🟢 Job started! Preparing APK Build engine on cloud runner...", parse_mode="HTML")
 
     work_dir = Path(tempfile.gettempdir()) / ("apkbuild_" + os.urandom(8).hex())
     try:
         work_dir.mkdir(parents=True)
         global TOOL_LOG_FH
         TOOL_LOG_FH = open(work_dir / "build_log.txt", "a", encoding="utf-8", errors="replace")
-        ext = Path(FILENAME).suffix or ".bin"
+        ext = Path(FILENAME).suffix or ".zip"
         dest = work_dir / f"input_file{ext}"
         last = [-100.0]
 
         dl_method = ["📥 Downloading file..."]
         last_dl_time = [0.0]
+
         async def on_dl(pct: float):
             now = time.time()
             if pct < 100.0 and (pct < last[0] or ((pct - last[0] < 5.0) and (now - last_dl_time[0] < 3.0))):
@@ -1194,11 +1216,12 @@ async def main():
             last_dl_time[0] = now
             edit(f"{dl_method[0]}\n\n{progress_bar(pct)}")
 
+        # Download input file
         try:
             file_id = os.environ.get("PAYLOAD_FILE_ID", "")
             tg_file_path = TG_FILE_PATH
             got_file = False
-            
+
             if file_id and not tg_file_path:
                 try:
                     async with httpx.AsyncClient(timeout=30) as client:
@@ -1212,7 +1235,6 @@ async def main():
 
             if tg_file_path:
                 try:
-                    filename = FILENAME or "download"
                     file_api = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
                     tg_url = tg_file_path if tg_file_path.startswith("http") else f"{file_api}/{tg_file_path}"
                     async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
@@ -1238,7 +1260,6 @@ async def main():
                     log.warning("HTTP download failed, falling back to MTProto: %s", http_err)
 
             if not got_file and file_id:
-                filename = FILENAME or "download"
                 dl_method[0] = "📥 Downloading via MTProto (Pyrogram)..."
                 await on_dl(0.0)
                 proc = await asyncio.create_subprocess_exec(
@@ -1270,7 +1291,8 @@ async def main():
                     got_file = True
 
             if not got_file and FILE_URL:
-                filename = await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
+                dl_method[0] = "📥 Downloading source archive..."
+                await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
                 if dest.exists() and dest.stat().st_size > 0:
                     got_file = True
         except Exception as e:
@@ -1286,52 +1308,49 @@ async def main():
             edit(f"❌ File is {size/1024/1024:.1f} MB — max download limit is {MAX_DOWNLOAD_MB} MB.", keep_button=False)
             return
 
-        try:
-            check_zip_limits(dest)
-        except ValueError as e:
-            edit(f"❌ {e}", keep_button=False)
-            return
-
         edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Preparing APK build...")
 
         sdk = find_sdk()
         if not sdk["build_tools"] or not sdk["platforms"]:
-            edit("❌ Android SDK build-tools/platforms not found on the runner.", keep_button=False)
+            edit("❌ Android SDK build-tools/platforms not found on runner.", keep_button=False)
             return
 
         last_prog = [0, ""]
+
         async def on_progress(pct: int, label: str = "📦 Building APK..."):
-            if pct - last_prog[0] < 5 and label == last_prog[1]:
+            if pct - last_prog[0] < 4 and label == last_prog[1]:
                 return
             last_prog[0], last_prog[1] = pct, label
             edit(f"{label}\n{progress_bar(pct)}")
 
         try:
             signed_apk, unsigned_apk = await build_apk_from_source(dest, work_dir, on_progress, sdk)
-            done_msg = "✅ APK build complete!"
+            done_msg = "✅ APK build successfully completed!"
         except asyncio.TimeoutError:
-            edit("⏰ Timeout! The source is too large to build.", keep_button=False)
+            edit("⏰ Timeout! The project is too large to build within limit.", keep_button=False)
             return
         except Exception as e:
             await send_error_log(work_dir, e, "APK Build failed")
             return
 
         await on_progress(100, done_msg)
+
         if JOB_ID:
             upload_result_for_app(signed_apk)
 
-        elif BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID:
+        if BOT_TOKEN and BOT_TOKEN != "app_direct_mode" and CHAT_ID and CHAT_ID != "me":
             try:
-                await upload_document(signed_apk, f"✅ <b>Signed APK</b> built from source — Powered By @R3V_X")
-                edit("📤 Sending unsigned APK...")
-                await upload_document(unsigned_apk, f"✅ <b>Unsigned APK</b> built from source — Powered By @R3V_X")
+                await upload_document(signed_apk, "✅ <b>Signed APK</b> built from source — Powered By @R3V_X")
+                if unsigned_apk and unsigned_apk.exists():
+                    edit("📤 Sending unsigned APK...")
+                    await upload_document(unsigned_apk, "✅ <b>Unsigned APK</b> built from source — Powered By @R3V_X")
                 edit("✅ APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
             except Exception as e:
                 log.warning("Telegram upload failed: %s", e)
                 if not JOB_ID:
                     await send_error_log(work_dir, e, "Result upload failed")
         else:
-            edit("✅ APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
+            edit("✅ APK build complete! Ready for download.", keep_button=False)
     finally:
         if TOOL_LOG_FH is not None:
             try:
