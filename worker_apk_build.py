@@ -39,6 +39,7 @@ R8_JAR = os.environ.get("PAYLOAD_R8_JAR", "/opt/r8.jar")
 KOTLINC_ROOT = os.environ.get("PAYLOAD_KOTLINC", "/opt/kotlinc")
 APKTOOL_JAR = os.environ.get("PAYLOAD_APKTOOL_JAR", "/opt/apktool/apktool.jar")
 KEYSTORE_JSON = os.environ.get("PAYLOAD_CUSTOM_KEYSTORE_JSON") or os.environ.get("PAYLOAD_KEYSTORE", "")
+CUSTOM_KEY_ERROR = ""  # human-readable reason when the custom keystore cannot be used
 PAYLOAD_BUILD_MODE = os.environ.get("PAYLOAD_BUILD_MODE", "auto").lower()
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 1000
 
@@ -978,7 +979,13 @@ async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, 
 
     await on_progress(90, "🔏 Signing APK...")
     signed_apk = work_dir / "signed.apk"
-    ks_info = get_custom_keystore(work_dir)
+    custom_requested = bool(KEYSTORE_JSON and KEYSTORE_JSON.strip())
+    try:
+        ks_info = get_custom_keystore(work_dir)
+    except Exception as e:
+        log.warning("get_custom_keystore raised: %s", e)
+        CUSTOM_KEY_ERROR = CUSTOM_KEY_ERROR or str(e)[:300]
+        ks_info = None
     ks_success = False
 
     if ks_info and apksigner:
@@ -1001,7 +1008,17 @@ async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, 
             ks_success = True
         except Exception as e:
             log.warning("Custom keystore signing failed: %s", e)
-            await on_progress(92, "⚠️ Custom keystore failed. Falling back to debug key...")
+            CUSTOM_KEY_ERROR = CUSTOM_KEY_ERROR or f"apksigner rejected the custom key: {e}"
+            await on_progress(92, "⚠️ Custom key rejected by apksigner. Falling back to debug key...")
+    elif custom_requested:
+        edit(
+            "⚠️ <b>Custom key was requested but could not be used:</b>\n\n"
+            f"<code>{CUSTOM_KEY_ERROR or 'Unknown reason'}</code>\n\n"
+            "Signing with the <b>debug key</b> instead. Fix the keystore in Settings "
+            "(or re-run /setkey) to sign with your own key.",
+            parse_mode="HTML", keep_button=False
+        )
+        await on_progress(92, "⚠️ Custom key unavailable — using debug key...")
 
     if not ks_success and apksigner:
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
@@ -1055,7 +1072,7 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
         out = proc.stdout + proc.stderr
     except Exception as e:
         log.warning("keytool inspect failed: %s", e)
-        return "", [], True
+        return "", [], False
 
     m = re.search(r"Keystore type:\s*([A-Za-z0-9_]+)", out, re.I)
     ks_type = m.group(1).lower() if m else ""
@@ -1064,29 +1081,60 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
         al = re.match(r"^Alias name:\s*(.+)$", line.strip(), re.I)
         if al:
             aliases.append(al.group(1).strip())
-    return ks_type, aliases, False
+    if proc.returncode != 0:
+        if "password" in out.lower() or "tampered" in out.lower() or "integrity" in out.lower():
+            return ks_type, aliases, False
+    return ks_type, aliases, True
 
 
 def get_custom_keystore(work_dir: Path):
-    if not KEYSTORE_JSON:
+    """Return (keystore_path, storepass, keypass, alias, ks_type) or None.
+
+    Never raises: on any problem it records a human-readable reason in the
+    module-level CUSTOM_KEY_ERROR and returns None, so signing falls back to
+    the debug key instead of killing the whole job with a traceback.
+    """
+    global CUSTOM_KEY_ERROR
+    CUSTOM_KEY_ERROR = ""
+    if not KEYSTORE_JSON or not KEYSTORE_JSON.strip():
         return None
     try:
         data = json.loads(KEYSTORE_JSON)
-        b64 = data.get("keystore_b64", "")
+        b64 = (data.get("keystore_b64") or "").strip()
         if not b64:
+            CUSTOM_KEY_ERROR = "Keystore file data is missing from the job payload."
+            return None
+        try:
+            ks_bytes = base64.b64decode(b64)
+        except Exception:
+            CUSTOM_KEY_ERROR = "Keystore file data is corrupt (invalid base64). Re-upload the keystore file."
+            return None
+        if not ks_bytes:
+            CUSTOM_KEY_ERROR = "Keystore file is empty."
             return None
         ks_path = work_dir / "custom.keystore"
-        ks_path.write_bytes(base64.b64decode(b64))
-        storepass = data.get("storepass", "android")
-        keypass = data.get("keypass", storepass)
-        alias = data.get("alias", "")
-        ks_type, aliases, err = inspect_custom_keystore(ks_path, storepass)
+        ks_path.write_bytes(ks_bytes)
+        storepass = (data.get("storepass") or "").strip() or "android"
+        keypass = (data.get("keypass") or "").strip() or storepass
+        alias = (data.get("alias") or "").strip()
+        ks_type, aliases, ok = inspect_custom_keystore(ks_path, storepass)
+        if not ok:
+            CUSTOM_KEY_ERROR = (
+                "Custom signing key password (storepass) is incorrect, or the keystore file is damaged. "
+                "Re-upload the keystore and re-enter the correct password in Settings (or /setkey)."
+            )
+            return None
+        if alias and aliases and alias not in aliases:
+            alias = aliases[0]
         if not alias and aliases:
             alias = aliases[0]
-        alias = alias or "key0"
+        if not alias:
+            CUSTOM_KEY_ERROR = "Could not detect any alias inside the keystore."
+            return None
         return ks_path, storepass, keypass, alias, ks_type
     except Exception as e:
         log.warning("Failed to parse custom keystore: %s", e)
+        CUSTOM_KEY_ERROR = f"Failed to read the custom keystore: {e}"
         return None
 
 

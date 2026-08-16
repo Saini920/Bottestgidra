@@ -35,6 +35,7 @@ SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
 MIN_SDK = os.environ.get("PAYLOAD_MIN_SDK", "")
 MAX_SDK = os.environ.get("PAYLOAD_MAX_SDK", "")
 KEYSTORE_JSON = os.environ.get("PAYLOAD_CUSTOM_KEYSTORE_JSON") or os.environ.get("PAYLOAD_KEYSTORE", "")
+CUSTOM_KEY_ERROR = ""  # human-readable reason when the custom keystore cannot be used
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -387,35 +388,53 @@ def inspect_custom_keystore(ks_path: Path, storepass: str):
 
 
 def get_custom_keystore(work_dir: Path):
+    """Return (keystore_path, storepass, keypass, alias, ks_type) or None.
+
+    Never raises: on any problem it records a human-readable reason in the
+    module-level CUSTOM_KEY_ERROR (used to tell the user why their custom key
+    was not applied) and returns None, so signing falls back to the debug key.
+    """
+    global CUSTOM_KEY_ERROR
+    CUSTOM_KEY_ERROR = ""
     if not KEYSTORE_JSON or not KEYSTORE_JSON.strip():
         return None
     try:
         info = json.loads(KEYSTORE_JSON)
-        b64 = info.get("keystore_b64") or info.get("b64") or ""
+        b64 = (info.get("keystore_b64") or info.get("b64") or "").strip()
         if not b64:
+            CUSTOM_KEY_ERROR = "Keystore file data is missing from the job payload."
+            return None
+        try:
+            ks_bytes = base64.b64decode(b64)
+        except Exception:
+            CUSTOM_KEY_ERROR = "Keystore file data is corrupt (invalid base64). Re-upload the keystore file."
+            return None
+        if not ks_bytes:
+            CUSTOM_KEY_ERROR = "Keystore file is empty."
             return None
         ks_path = work_dir / "custom.keystore"
-        ks_path.write_bytes(base64.b64decode(b64))
-        if not ks_path.exists() or ks_path.stat().st_size == 0:
-            return None
-        storepass = info.get("storepass", "android")
-        keypass = info.get("keypass", storepass)
+        ks_path.write_bytes(ks_bytes)
+        storepass = (info.get("storepass") or "").strip() or "android"
+        keypass = (info.get("keypass") or "").strip() or storepass
         alias = (info.get("alias") or "").strip()
         ks_type, aliases, ok = inspect_custom_keystore(ks_path, storepass)
         if not ok:
-            raise ValueError(
-                "Custom signing key: keystore password (storepass) is incorrect. "
-                "Run /setkey again with the correct storepass."
+            CUSTOM_KEY_ERROR = (
+                "Custom signing key password (storepass) is incorrect, or the keystore file is damaged. "
+                "Re-upload the keystore and re-enter the correct password in Settings (or /setkey)."
             )
-        if alias and alias not in aliases and aliases:
+            return None
+        if alias and aliases and alias not in aliases:
             alias = aliases[0]
         if not alias and aliases:
             alias = aliases[0]
-        return ks_path, storepass, keypass, alias or "androiddebugkey", ks_type
-    except ValueError:
-        raise
+        if not alias:
+            CUSTOM_KEY_ERROR = "Could not detect any alias inside the keystore."
+            return None
+        return ks_path, storepass, keypass, alias, ks_type
     except Exception as e:
         log.warning("Failed to parse custom keystore: %s", e)
+        CUSTOM_KEY_ERROR = f"Failed to read the custom keystore: {e}"
         return None
 
 
@@ -441,7 +460,13 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
     await on_progress(40, "🔏 Aligning APK (zipalign)...")
     await run_tool([zipalign, "-p", "-f", "4", str(stripped), str(aligned)], on_progress, "zipalign")
 
-    ks_info = get_custom_keystore(work_dir)
+    custom_requested = bool(KEYSTORE_JSON and KEYSTORE_JSON.strip())
+    try:
+        ks_info = get_custom_keystore(work_dir)
+    except Exception as e:
+        log.warning("get_custom_keystore raised: %s", e)
+        CUSTOM_KEY_ERROR = CUSTOM_KEY_ERROR or str(e)[:300]
+        ks_info = None
     signed = work_dir / "signed.apk"
     min_sdk = str(MIN_SDK) if str(MIN_SDK).isdigit() else "14"
     max_sdk = str(MAX_SDK) if str(MAX_SDK).isdigit() else ""
@@ -474,10 +499,21 @@ async def sign_apk(input_apk: Path, work_dir: Path, on_progress, sdk) -> Path:
             ks_success = True
         except Exception as e:
             log.warning("Custom keystore signing failed: %s", e)
-            await on_progress(55, "⚠️ Custom keystore failed (Wrong Password?). Falling back to debug key...")
+            CUSTOM_KEY_ERROR = CUSTOM_KEY_ERROR or f"apksigner rejected the custom key: {e}"
+            await on_progress(55, "⚠️ Custom key rejected by apksigner. Falling back to debug key...")
             ks_success = False
-            
+    elif custom_requested:
+        edit(
+            "⚠️ <b>Custom key was requested but could not be used:</b>\n\n"
+            f"<code>{CUSTOM_KEY_ERROR or 'Unknown reason'}</code>\n\n"
+            "Signing with the <b>debug key</b> instead. Fix the keystore in Settings "
+            "(or re-run /setkey) to sign with your own key.",
+            parse_mode="HTML", keep_button=False
+        )
+
     if not ks_success:
+        if custom_requested and CUSTOM_KEY_ERROR:
+            await on_progress(55, "⚠️ Custom key unavailable — using debug key...")
         keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
         sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
                     "--v1-signing-enabled", "true", "--v2-signing-enabled", "true", "--v3-signing-enabled", "true",
