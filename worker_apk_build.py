@@ -933,14 +933,18 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
 
     # C/C++ Native NDK Compilation
     cc_so = {}
-    cc_c_files = find_inputs(extract_dir, CC_EXTENSIONS)
-    cc_cpp_files = find_inputs(extract_dir, CPP_EXTENSIONS)
+    cc_c_files = [f for f in find_inputs(extract_dir, CC_EXTENSIONS) if is_compilable_c_source(f)]
+    cc_cpp_files = [f for f in find_inputs(extract_dir, CPP_EXTENSIONS) if is_compilable_c_source(f)]
+    lib_name = "native"
     if cc_c_files or cc_cpp_files:
-        main_src = [f for f in cc_c_files + cc_cpp_files if Path(f).stem.lower() == "main"]
-        lib_name = Path(main_src[0]).stem if main_src else Path((cc_cpp_files or cc_c_files)[0]).stem
-        lib_name = re.sub(r"[^A-Za-z0-9_.-]", "_", lib_name) or "native"
-        await on_progress(75, f"⚙️ Compiling native C/C++ libraries (lib{lib_name}.so)...")
-        cc_so = await compile_cc_sources(cc_c_files, cc_cpp_files, work_dir, on_progress, lib_name)
+        try:
+            main_src = [f for f in cc_c_files + cc_cpp_files if Path(f).stem.lower() == "main"]
+            lib_name = Path(main_src[0]).stem if main_src else Path((cc_cpp_files or cc_c_files)[0]).stem
+            lib_name = re.sub(r"[^A-Za-z0-9_.-]", "_", lib_name) or "native"
+            await on_progress(75, f"⚙️ Compiling native C/C++ libraries (lib{lib_name}.so)...")
+            cc_so = await compile_cc_sources(cc_c_files, cc_cpp_files, work_dir, on_progress, lib_name)
+        except Exception as ce:
+            log.warning("Native C/C++ compilation warning: %s (continuing APK packaging)", ce)
 
     # Assembling Unsigned APK
     await on_progress(80, "📦 Packaging APK...")
@@ -1086,6 +1090,27 @@ def get_custom_keystore(work_dir: Path):
         return None
 
 
+def is_compilable_c_source(file_path: str) -> bool:
+    """Filter out Ghidra pseudo-C decompiler outputs that cannot be compiled directly with Clang."""
+    try:
+        p = Path(file_path)
+        if any(part in ("ghidra", "decompile", "decompiled", "pseudocode") for part in p.parts):
+            return False
+        content = p.read_text(encoding="utf-8", errors="replace")[:6000]
+        ghidra_patterns = (
+            "undefined4", "undefined8", "undefined2", "undefined1", "code *",
+            "PTR_", "SUB84(", "CONCAT44(", "SUB42(", "CONCAT11(",
+            "__thiscall", "param_1", "extraout_s"
+        )
+        matched_count = sum(1 for marker in ghidra_patterns if marker in content)
+        if matched_count >= 2:
+            log.info("Skipping Ghidra decompiler pseudo-C from Clang: %s", p.name)
+            return False
+        return True
+    except Exception:
+        return True
+
+
 def find_clang_for(ndk_bin: str, abi: str):
     for base in ABI_CLANG_NAMES.get(abi, []):
         c = os.path.join(ndk_bin, base)
@@ -1099,35 +1124,47 @@ async def compile_cc_sources(c_files: list, cpp_files: list, work_dir: Path, on_
     if not ndk_bin:
         log.warning("Android NDK not found on runner; skipping native C/C++ compilation")
         return {}
+
+    # Filter out pseudo-C decompiler outputs
+    c_files = [f for f in c_files if is_compilable_c_source(f)]
+    cpp_files = [f for f in cpp_files if is_compilable_c_source(f)]
+
+    if not c_files and not cpp_files:
+        log.info("No raw compilable C/C++ source files to build with Clang.")
+        return {}
+
     results = {}
     for abi in ABI_CLANG_NAMES:
-        clang, clangxx = find_clang_for(ndk_bin, abi)
-        if not clang:
-            continue
-        out_so = work_dir / f"lib_{abi}_{lib_name}.so"
-        await on_progress(0, f"⚙️ Compiling C/C++ → {abi} .so...")
-        if c_files and not cpp_files:
-            await run_tool([clang, "-shared", "-fPIC", "-O2", "-std=c11", "-o", str(out_so)] + c_files, on_progress, f"clang {abi}")
-        elif cpp_files and not c_files:
-            await run_tool([clangxx, "-shared", "-fPIC", "-O2", "-std=c++17", "-o", str(out_so)] + cpp_files, on_progress, f"clang++ {abi}")
-        else:
-            obj_dir = work_dir / f"obj_{abi}"
-            obj_dir.mkdir(exist_ok=True)
-            objs = []
-            for i, f in enumerate(c_files):
-                obj = obj_dir / f"c_{i}.o"
-                await run_tool([clang, "-c", "-fPIC", "-O2", "-std=c11", "-o", str(obj), f], on_progress, f"clang {abi}")
-                if obj.exists():
-                    objs.append(str(obj))
-            for i, f in enumerate(cpp_files):
-                obj = obj_dir / f"cpp_{i}.o"
-                await run_tool([clangxx, "-c", "-fPIC", "-O2", "-std=c++17", "-o", str(obj), f], on_progress, f"clang++ {abi}")
-                if obj.exists():
-                    objs.append(str(obj))
-            if objs:
-                await run_tool([clangxx, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, f"link {abi}")
-        if out_so.exists():
-            results[abi] = out_so
+        try:
+            clang, clangxx = find_clang_for(ndk_bin, abi)
+            if not clang:
+                continue
+            out_so = work_dir / f"lib_{abi}_{lib_name}.so"
+            await on_progress(75, f"⚙️ Compiling C/C++ → {abi} .so...")
+            if c_files and not cpp_files:
+                await run_tool([clang, "-shared", "-fPIC", "-O2", "-std=c11", "-o", str(out_so)] + c_files, on_progress, f"clang {abi}")
+            elif cpp_files and not c_files:
+                await run_tool([clangxx, "-shared", "-fPIC", "-O2", "-std=c++17", "-o", str(out_so)] + cpp_files, on_progress, f"clang++ {abi}")
+            else:
+                obj_dir = work_dir / f"obj_{abi}"
+                obj_dir.mkdir(exist_ok=True)
+                objs = []
+                for i, f in enumerate(c_files):
+                    obj = obj_dir / f"c_{i}.o"
+                    await run_tool([clang, "-c", "-fPIC", "-O2", "-std=c11", "-o", str(obj), f], on_progress, f"clang {abi}")
+                    if obj.exists():
+                        objs.append(str(obj))
+                for i, f in enumerate(cpp_files):
+                    obj = obj_dir / f"cpp_{i}.o"
+                    await run_tool([clangxx, "-c", "-fPIC", "-O2", "-std=c++17", "-o", str(obj), f], on_progress, f"clang++ {abi}")
+                    if obj.exists():
+                        objs.append(str(obj))
+                if objs:
+                    await run_tool([clangxx, "-shared", "-O2", "-o", str(out_so)] + objs, on_progress, f"link {abi}")
+            if out_so.exists():
+                results[abi] = out_so
+        except Exception as e:
+            log.warning("C/C++ compilation warning for %s: %s (continuing APK packaging)", abi, e)
     return results
 
 
