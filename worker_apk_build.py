@@ -1369,19 +1369,37 @@ async def compile_cc_sources(c_files: list, cpp_files: list, work_dir: Path, on_
 
 
 def _merge_apk(base_apk: Path, out_apk: Path, extra: dict):
+    norm_extra = {}
+    for arc, src in extra.items():
+        k = str(arc).replace("\\", "/").lstrip("/")
+        norm_extra[k] = src
+
+    written_entries = set()
     with TolerantZipFile(base_apk) as zin:
         with zipfile.ZipFile(out_apk, "w") as zout:
             for item in zin.infolist():
-                c_type = item.compress_type
-                if item.filename.endswith(".so") or item.filename == "resources.arsc":
-                    c_type = zipfile.ZIP_STORED
-                zout.writestr(item, zin.read(item.filename), compress_type=c_type)
-            for arc, src in extra.items():
-                arc_str = str(arc)
-                c_type = zipfile.ZIP_DEFLATED
-                if arc_str.endswith(".so") or arc_str == "resources.arsc":
-                    c_type = zipfile.ZIP_STORED
-                zout.write(str(src), arc_str, compress_type=c_type)
+                entry_name = item.filename.replace("\\", "/").lstrip("/")
+                if entry_name in written_entries:
+                    continue
+                # If extra contains an overriding version, write that instead
+                if entry_name in norm_extra:
+                    src = norm_extra.pop(entry_name)
+                    c_type = zipfile.ZIP_STORED if (entry_name.endswith(".so") or entry_name == "resources.arsc") else zipfile.ZIP_DEFLATED
+                    zout.write(str(src), entry_name, compress_type=c_type)
+                    written_entries.add(entry_name)
+                else:
+                    c_type = item.compress_type
+                    if entry_name.endswith(".so") or entry_name == "resources.arsc":
+                        c_type = zipfile.ZIP_STORED
+                    zout.writestr(item, zin.read(item.filename), compress_type=c_type)
+                    written_entries.add(entry_name)
+
+            for entry_name, src in norm_extra.items():
+                if entry_name in written_entries:
+                    continue
+                c_type = zipfile.ZIP_STORED if (entry_name.endswith(".so") or entry_name == "resources.arsc") else zipfile.ZIP_DEFLATED
+                zout.write(str(src), entry_name, compress_type=c_type)
+                written_entries.add(entry_name)
 
 
 async def upload_document(path: Path, caption: str):
