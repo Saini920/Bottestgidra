@@ -462,6 +462,52 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     with zipfile.ZipFile(input_path, "r") as zf:
         zf.extractall(extract_dir)
 
+    # Inspect XML files before building:
+    #  - binary Android XML (AXML magic 03 00 08 00) or UTF-16 XML comes from
+    #    undecoded APK resources and cannot be compiled by aapt2 — fail early
+    #    with an actionable message instead of a cryptic aapt2 error.
+    #  - UTF-8 BOMs can also be rejected by aapt2; strip them (safe).
+    binary_xml_files = []
+    bom_stripped = 0
+    for p in sorted(extract_dir.rglob("*")):
+        if not p.is_file() or (p.suffix.lower() != ".xml" and p.name.lower() != "androidmanifest.xml"):
+            continue
+        try:
+            with open(p, "rb") as fh:
+                head = fh.read(4)
+            if head.startswith(b"\x03\x00\x08\x00") or head[:2] in (b"\xff\xfe", b"\xfe\xff"):
+                binary_xml_files.append(str(p.relative_to(extract_dir)))
+            elif head.startswith(b"\xef\xbb\xbf"):
+                data = p.read_bytes()[3:]
+                p.write_bytes(data)
+                bom_stripped += 1
+        except Exception:
+            continue
+    if bom_stripped:
+        log.info("Stripped UTF-8 BOM from %d XML file(s)", bom_stripped)
+    if binary_xml_files:
+        sample = ", ".join(binary_xml_files[:5])
+        raise ValueError(
+            "This source archive contains binary Android XML resources "
+            f"({sample}, ...). The APK Build engine requires text resources. "
+            "Please zip a proper source project with text res/ files (e.g. an "
+            "apktool-decoded project), not raw/undecoded APK resources."
+        )
+
+    # apktool-decoded projects ship smali/ code + apktool.yml, which this engine
+    # (Java/Kotlin source → aapt2/d8) cannot assemble — those belong to the
+    # 'Apktool Rebuild' tool. Detect them so we never silently produce an APK
+    # with resources but no code.
+    has_smali = any(p.is_dir() and p.name.lower() == "smali" for p in extract_dir.rglob("*"))
+    has_apktool_yml = any(p.is_file() and p.name.lower() == "apktool.yml" for p in extract_dir.rglob("*"))
+    if has_smali or has_apktool_yml:
+        raise ValueError(
+            "This archive looks like an apktool-decoded project (smali/ or "
+            "apktool.yml). The APK Build (Source) engine builds from Java/Kotlin "
+            "source code — please use the 'Apktool Rebuild' tool for apktool-decoded "
+            "projects."
+        )
+
     build_mode = os.environ.get("PAYLOAD_BUILD_MODE", "")
     
     gradlew = None
@@ -788,7 +834,10 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         kotlin_out = work_dir / "kotlin_out"
         kotlin_out.mkdir(exist_ok=True)
         await on_progress(40, "☕ Compiling Kotlin sources...")
-        kcmd = ["bash", kbin, "-classpath", android_jar, "-jvm-target", "1.8", "-d", str(kotlin_out)] + kt_files
+        # Include the aapt2-generated R class (gen dir) and any lib jars so
+        # Kotlin sources referencing R.* or dependency classes resolve.
+        kcp = [android_jar, str(gen_dir)] + lib_jars
+        kcmd = ["bash", kbin, "-classpath", ":".join(kcp), "-jvm-target", "1.8", "-d", str(kotlin_out)] + kt_files
         await run_tool(kcmd, on_progress, "kotlinc")
         class_dirs.append(kotlin_out)
         cp_parts.append(str(kotlin_out))

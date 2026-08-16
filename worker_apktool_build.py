@@ -65,7 +65,38 @@ def upload_result_for_app(file_to_send: Path):
     api_id_val = os.environ.get('API_ID', '').strip()
     api_hash_val = os.environ.get('API_HASH', '').strip()
     bot_tok = os.environ.get('TELEGRAM_BOT_TOKEN', '').strip()
-    
+
+    # 1) Preferred: deliver straight to the user's chat via the Telegram Bot HTTP
+    # API. Unlike the MTProto path below this needs no API_ID/API_HASH secrets on
+    # the runner repo, so it works when the app dispatches to the user's own repo.
+    if bot_tok and target_chat != 'me' and file_to_send.stat().st_size <= 50 * 1024 * 1024:
+        try:
+            with open(file_to_send, 'rb') as fh:
+                resp = httpx.post(
+                    f'https://api.telegram.org/bot{bot_tok}/sendDocument',
+                    data={'chat_id': target_chat, 'caption': f'✅ Result for Job {JOB_ID}'},
+                    files={'document': (file_to_send.name, fh, 'application/octet-stream')},
+                    timeout=300,
+                )
+                if resp.status_code == 200 and resp.json().get('ok'):
+                    log.info('Result uploaded to chat %s via Bot HTTP API', target_chat)
+                    bot_id = ''
+                    try:
+                        me = httpx.get(f'https://api.telegram.org/bot{bot_tok}/getMe', timeout=30).json()
+                        if me.get('ok'):
+                            bot_id = str(me['result'].get('id', ''))
+                    except Exception:
+                        pass
+                    if bot_id:
+                        notify_app(f'FINAL_ZIP_URL:telegram_msg:{bot_id}')
+                    else:
+                        notify_app('FINAL_ZIP_URL:telegram_direct_upload')
+                    return
+                log.warning('Bot HTTP upload failed (HTTP %s): %s', resp.status_code, resp.text[:200])
+        except Exception as e:
+            log.warning('Bot HTTP upload failed: %s', e)
+
+    # 2) MTProto upload (requires API_ID/API_HASH secrets on the runner repo).
     if api_id_val and api_hash_val:
         try:
             import subprocess
