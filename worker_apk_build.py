@@ -502,6 +502,35 @@ def sanitize_and_decode_xml_files(extract_dir: Path):
             log.warning("XML sanitization error on %s: %s", p, e)
 
 
+def sanitize_res_directories(extract_dir: Path):
+    """Fix common resource directory naming issues for AAPT2.
+    Specifically, <adaptive-icon> in *-anydpi folders without -v26 qualifier causes AAPT2 link error."""
+    for res_dir in sorted(extract_dir.rglob("res")):
+        if not res_dir.is_dir():
+            continue
+        for sub in list(res_dir.iterdir()):
+            if not sub.is_dir():
+                continue
+            name = sub.name.lower()
+            # If folder is -anydpi without -v26+ qualifier
+            if "anydpi" in name and not any(f"-v{v}" in name for v in range(26, 36)):
+                new_name = f"{name}-v26"
+                target = res_dir / new_name
+                try:
+                    if target.exists():
+                        for f in sub.iterdir():
+                            shutil.move(str(f), str(target / f.name))
+                        try:
+                            sub.rmdir()
+                        except Exception:
+                            pass
+                    else:
+                        sub.rename(target)
+                    log.info("Renamed %s -> %s for adaptive-icon support", name, new_name)
+                except Exception as e:
+                    log.warning("Could not rename %s: %s", sub, e)
+
+
 def extract_archive(input_path: Path, extract_dir: Path):
     """Robustly extract any archive type or copy raw source file."""
     extract_dir.mkdir(parents=True, exist_ok=True)
@@ -574,6 +603,8 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
 
     # Sanitize XML files (UTF-16 -> UTF-8, strip BOM)
     sanitize_and_decode_xml_files(extract_dir)
+    # Sanitize Resource directories (adaptive-icon v26 qualifiers)
+    sanitize_res_directories(extract_dir)
 
     # Check project features
     gradlew = None
@@ -879,16 +910,12 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     for idx, r_dir in enumerate(res_dirs):
         c_res = work_dir / f"compiled_res_{idx}.zip"
         try:
-            compile_dir = r_dir
-            # Stage without public.xml (apktool artifact that fails aapt2)
-            public_xml = r_dir / "values" / "public.xml"
-            if public_xml.exists():
-                staged = work_dir / f"res_stage_{idx}"
-                if staged.exists():
-                    shutil.rmtree(staged, ignore_errors=True)
-                shutil.copytree(r_dir, staged, ignore=shutil.ignore_patterns("public.xml"))
-                compile_dir = staged
-            await run_tool([aapt2, "compile", "--dir", str(compile_dir), "-o", str(c_res)], on_progress, f"aapt2 compile res_{idx}")
+            staged = work_dir / f"res_stage_{idx}"
+            if staged.exists():
+                shutil.rmtree(staged, ignore_errors=True)
+            shutil.copytree(r_dir, staged, ignore=shutil.ignore_patterns("public.xml"))
+            sanitize_res_directories(staged)
+            await run_tool([aapt2, "compile", "--dir", str(staged), "-o", str(c_res)], on_progress, f"aapt2 compile res_{idx}")
             if c_res.exists():
                 compiled_res_list.append(str(c_res))
         except Exception as res_err:
@@ -913,7 +940,8 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         "--java", str(gen_dir),
         "--min-sdk-version", str(min_sdk),
         "--target-sdk-version", str(target_sdk),
-        "--auto-add-overlay"
+        "--auto-add-overlay",
+        "--no-version-vectors"
     ]
     if mp["version_code"]:
         link_cmd += ["--version-code", str(mp["version_code"])]
@@ -923,7 +951,30 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         link_cmd += ["-A", str(a_dir)]
     for c_res in compiled_res_list:
         link_cmd += [c_res]
-    await run_tool(link_cmd, on_progress, "aapt2 link")
+
+    try:
+        await run_tool(link_cmd, on_progress, "aapt2 link")
+    except Exception as le:
+        log.warning("aapt2 link attempt 1 failed: %s, retrying with min-sdk 26...", le)
+        link_cmd_retry = [
+            aapt2, "link", "-o", str(base_apk), "-I", android_jar,
+            "--manifest", str(manifest),
+            "--java", str(gen_dir),
+            "--min-sdk-version", "26",
+            "--target-sdk-version", str(target_sdk or 34),
+            "--auto-add-overlay",
+            "--no-version-vectors"
+        ]
+        if mp["version_code"]:
+            link_cmd_retry += ["--version-code", str(mp["version_code"])]
+        if mp["version_name"]:
+            link_cmd_retry += ["--version-name", str(mp["version_name"])]
+        for a_dir in assets_dirs:
+            link_cmd_retry += ["-A", str(a_dir)]
+        for c_res in compiled_res_list:
+            link_cmd_retry += [c_res]
+        await run_tool(link_cmd_retry, on_progress, "aapt2 link retry")
+
     if not base_apk.exists():
         raise ValueError("aapt2 link produced no APK (check AndroidManifest.xml).")
 
