@@ -1526,6 +1526,18 @@
       "started": 1786853756.610211,
       "run_id": null,
       "run_status": ""
+    },
+    "2255": {
+      "user_id": "6684870256",
+      "username": "Ghostofhackers",
+      "name": "\u26a1\ufe0e\ud835\udd72\ud835\udd8d\ud835\udd94\ud835\udd98\ud835\udd99 \ud835\udd94\ud835\udd8b \ud835\udd8d\ud835\udd86\ud835\udd88\ud835\udd90\ud835\udd8a\ud835\udd97\ud835\udd98\u26a1\ufe0e",
+      "chat_id": "6684870256",
+      "message_id": 2255,
+      "filename": "libTool.so",
+      "engine": "ghidra",
+      "started": 1786858169.0485718,
+      "run_id": null,
+      "run_status": ""
     }
   },
   "signkeys": {
