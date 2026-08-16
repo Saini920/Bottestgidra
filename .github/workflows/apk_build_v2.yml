@@ -39,14 +39,14 @@ jobs:
       - name: Ensure SDK platform + build-tools
         run: |
           set -e
-          FOUND=0
-          if [ -d "$SDK_ROOT/platforms" ] && [ -n "$(ls "$SDK_ROOT/platforms" 2>/dev/null | grep -E '^android-[0-9]+$' | head -1)" ]; then
-            FOUND=1
-          fi
-          if [ "$FOUND" = "0" ]; then
-            echo "Installing platforms;android-34 + build-tools;34.0.0 ..."
-            yes | "$SDK_ROOT"/cmdline-tools/latest/bin/sdkmanager "platforms;android-34" "build-tools;34.0.0"
-          fi
+          SDKMANAGER="$SDK_ROOT"/cmdline-tools/latest/bin/sdkmanager
+          # Always ensure android-34 AND android-36 are present. Projects with
+          # compileSdk 36 used to fail Gradle here, then silently fell back to the
+          # Apktool engine which produced a tiny resource-only stub APK (~8 KB).
+          echo "Ensuring platforms;android-34 + build-tools;34.0.0 ..."
+          yes | "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0" || true
+          echo "Ensuring platforms;android-36 + build-tools;36.0.0 ..."
+          yes | "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0" || true
           echo "Platforms: $(ls "$SDK_ROOT/platforms" 2>/dev/null | grep -E '^android-[0-9]+$' | tr '\n' ' ')"
           echo "Build-tools: $(ls "$SDK_ROOT/build-tools" 2>/dev/null | tr '\n' ' ')"
 

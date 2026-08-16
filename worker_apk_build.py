@@ -757,10 +757,15 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             break
 
     smali_dirs = [p for p in sorted(extract_dir.rglob("smali*")) if p.is_dir()]
-    has_smali = bool(smali_dirs) or bool(target_apktool_dir)
+    has_smali = bool(smali_dirs)
     java_kt_files = [p for p in sorted(extract_dir.rglob("*")) if p.is_file() and p.suffix.lower() in (JAVA_EXTENSIONS | KOTLIN_EXTENSIONS)]
     has_java_kt = bool(java_kt_files)
-    has_apktool_project = bool(target_apktool_dir) or bool(smali_dirs) or (extract_dir / "AndroidManifest.xml").exists()
+    # A project is only an Apktool project when it contains decoded smali code or an
+    # apktool.yml. Gradle/Java/Kotlin source projects must NOT be rebuilt with Apktool:
+    # Apktool cannot compile Java/Kotlin, so it silently produces a tiny resource-only
+    # stub APK (a few KB, no classes.dex, no native libs) that gets sent as the result.
+    apktool_yml_files = [p for p in sorted(extract_dir.rglob("apktool.yml")) if p.is_file()]
+    has_apktool_project = bool(smali_dirs) or bool(apktool_yml_files)
 
     # Determine Build Mode
     build_mode = PAYLOAD_BUILD_MODE
@@ -899,6 +904,13 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                     log.info("Running Apktool build (%s)...", label)
                     await run_tool(cmd, on_progress, f"apktool build ({label})")
                     if unsigned_apk.exists() and unsigned_apk.stat().st_size > 10240:
+                        # Apktool cannot compile Java/Kotlin sources. If the project has
+                        # Java/Kotlin code but the rebuilt APK contains no classes.dex, it
+                        # is a resource-only stub (a few KB) — never ship it.
+                        if has_java_kt and not apk_contains_entry(unsigned_apk, "classes.dex"):
+                            last_err = "Apktool produced an APK without classes.dex (it cannot compile Java/Kotlin sources)."
+                            log.warning("Apktool build (%s) produced a stub APK without classes.dex; not accepting it.", label)
+                            continue
                         success = True
                         log.info("Apktool build (%s) SUCCEEDED! APK size: %.2f MB", label, unsigned_apk.stat().st_size / (1024 * 1024))
                         break
@@ -1245,6 +1257,14 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
                     except Exception:
                         pass
 
+    if has_java_kt and not dex_files:
+        raise ValueError(
+            "Native engine compiled no classes.dex from the project's Java/Kotlin sources. "
+            "The project probably depends on external libraries (e.g. AAR dependencies such "
+            "as TDLib) that the native engine cannot resolve. Use the Gradle build mode "
+            "instead so dependencies are fetched and the full APK (with native libs) is built."
+        )
+
     _merge_apk(base_apk, unsigned_apk, extra)
     return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
 
@@ -1347,6 +1367,15 @@ async def finalize_apk_signing(unsigned_apk: Path, work_dir: Path, on_progress, 
 
     await on_progress(98, "✅ APK successfully built & signed!")
     return signed_apk, unsigned_apk
+
+
+def apk_contains_entry(apk_path: Path, entry_name: str) -> bool:
+    """Check whether an APK zip contains an entry with the given name."""
+    try:
+        with zipfile.ZipFile(apk_path) as zf:
+            return any(n.replace("\\", "/").lstrip("/") == entry_name for n in zf.namelist())
+    except Exception:
+        return False
 
 
 class TolerantZipFile(zipfile.ZipFile):
