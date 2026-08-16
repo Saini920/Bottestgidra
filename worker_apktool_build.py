@@ -229,6 +229,38 @@ def send_document(file_path: Path, caption: str, filename: str):
         )
     return resp.json()
 
+def ensure_apktool_yml(target_dir: Path):
+    """Ensure a valid apktool.yml exists in target_dir for decompiled / smali projects."""
+    yml_file = target_dir / "apktool.yml"
+    if not yml_file.exists():
+        manifest_path = target_dir / "AndroidManifest.xml"
+        if not manifest_path.exists():
+            cand = [p for p in target_dir.rglob("*") if p.is_file() and p.name.lower() == "androidmanifest.xml"]
+            if cand:
+                manifest_path = cand[0]
+        
+        yml_content = """version: 2.10.0
+apkFileName: app.apk
+isFrameworkApk: false
+usesFramework:
+  ids:
+  - 1
+packageInfo:
+  forcedPackageId: '127'
+sdkInfo:
+  minSdkVersion: '21'
+  targetSdkVersion: '34'
+versionInfo:
+  versionCode: '1'
+  versionName: '1.0'
+doNotCompress:
+- resources.arsc
+- png
+- so
+"""
+        yml_file.write_text(yml_content, encoding="utf-8")
+        log.info("Auto-generated apktool.yml in %s", target_dir)
+
 async def main():
     global CUSTOM_KEY_ERROR
     if not JOB_ID and (not BOT_TOKEN or not CHAT_ID):
@@ -269,7 +301,6 @@ async def main():
 
             if tg_file_path:
                 try:
-                    filename = FILENAME or "download.zip"
                     file_api = f"https://api.telegram.org/file/bot{BOT_TOKEN}"
                     tg_url = tg_file_path if tg_file_path.startswith("http") else f"{file_api}/{tg_file_path}"
                     async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120, read=300)) as client:
@@ -287,14 +318,14 @@ async def main():
                                     if total:
                                         pct = min(100, int(done * 100 / total))
                                         await on_dl(pct)
-                    got_file = True
+                    if dest.exists() and dest.stat().st_size > 0:
+                        got_file = True
                 except Exception as http_err:
                     if not file_id:
                         raise
                     log.warning("HTTP download failed, falling back to MTProto: %s", http_err)
             if not got_file and file_id:
-                filename = FILENAME or "download.zip"
-                dl_method[0] = "📥 Downloading ZIP via MTProto (Pyrogram)..."
+                dl_method[0] = "📥 Downloading via MTProto (Pyrogram)..."
                 await on_dl(0.0)
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "download_file.py", str(dest),
@@ -311,9 +342,10 @@ async def main():
                     line = raw.decode(errors="replace").strip()
                     if line:
                         dl_logs.append(line)
+                        log.info("dl: %s", line)
                     if line.startswith("PROGRESS:"):
                         try:
-                            pct = float(line.split(":")[1])
+                            pct = float(line.split(":", 1)[1])
                             await on_dl(pct)
                         except ValueError:
                             pass
@@ -321,11 +353,19 @@ async def main():
                 if proc.returncode != 0:
                     err_tail = "\n".join(dl_logs[-8:]) or "no output"
                     raise ValueError(f"MTProto Download failed with code {proc.returncode}: {err_tail}")
-                got_file = True
-            if not got_file:
-                await asyncio.wait_for(download_url(FILE_URL, dest, on_dl), timeout=1800)
+                if dest.exists() and dest.stat().st_size > 0:
+                    got_file = True
+            if not got_file and FILE_URL:
+                dl_method[0] = "📥 Downloading ZIP..."
+                filename = await download_url(FILE_URL, dest, on_dl)
+                if dest.exists() and dest.stat().st_size > 0:
+                    got_file = True
         except Exception as e:
-            edit("❌ Download failed: " + str(e)[:300])
+            edit(f"❌ Download failed: {e}", keep_button=False)
+            return
+
+        if not dest.exists() or dest.stat().st_size == 0:
+            edit("❌ Downloaded file is empty.", keep_button=False)
             return
 
         edit("📦 Extracting project...")
@@ -338,16 +378,26 @@ async def main():
             edit("❌ Extraction failed. Please send a valid ZIP containing an apktool project.")
             return
 
-        # Find where apktool.yml is
+        # Find where apktool.yml or decompiled project is
         target_dir = None
         for root, dirs, files in os.walk(proj_dir):
             if "apktool.yml" in files:
                 target_dir = Path(root)
                 break
+            if "AndroidManifest.xml" in files and ("res" in dirs or any(d.startswith("smali") for d in dirs) or "lib" in dirs or "assets" in dirs):
+                target_dir = Path(root)
+                break
+            if any(d.startswith("smali") for d in dirs):
+                target_dir = Path(root)
+                break
+            if "AndroidManifest.xml" in files:
+                target_dir = Path(root)
+                break
         
         if not target_dir:
-            edit("❌ Missing `apktool.yml`! Could not find a valid apktool decompiled project in the ZIP.", keep_button=False)
-            return
+            target_dir = proj_dir
+
+        ensure_apktool_yml(target_dir)
 
         unsigned_apk = work_dir / "unsigned.apk"
         cmd = ["java", "-Xmx8G", "-jar", "/opt/apktool/apktool.jar", "b", str(target_dir), "-o", str(unsigned_apk)]
