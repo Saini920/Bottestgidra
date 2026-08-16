@@ -1091,20 +1091,30 @@ def get_custom_keystore(work_dir: Path):
 
 
 def is_compilable_c_source(file_path: str) -> bool:
-    """Filter out Ghidra pseudo-C decompiler outputs that cannot be compiled directly with Clang."""
+    """Filter out Ghidra pseudo-C decompiler outputs that cannot be compiled directly with Clang.
+
+    Ghidra exports C with decompiler-only constructs (undefined8, FUN_00123456, PTR_LOOP_*,
+    DAT_*, param_1, __cxa_finalize stubs, (code *) casts...). Real NDK C/C++ never contains
+    these, so a weighted scan of the whole file reliably separates real native sources from
+    decompiler pseudo-code.
+    """
     try:
         p = Path(file_path)
         if any(part in ("ghidra", "decompile", "decompiled", "pseudocode") for part in p.parts):
             return False
-        content = p.read_text(encoding="utf-8", errors="replace")[:6000]
-        ghidra_patterns = (
-            "undefined4", "undefined8", "undefined2", "undefined1", "code *",
-            "PTR_", "SUB84(", "CONCAT44(", "SUB42(", "CONCAT11(",
-            "__thiscall", "param_1", "extraout_s"
+        content = p.read_text(encoding="utf-8", errors="replace")[:200000]
+        strong_markers = (
+            "undefined8", "undefined4", "undefined2", "undefined1",
+            "FUN_", "PTR_LOOP_", "PTR_DAT_", "extraout_",
+            "__thiscall", "(code *)", "UNRECOVERED_JUMPTABLE",
+            "__cxa_finalize", "__register_atfork", "__cxa_atexit",
+            "CONCAT44(", "CONCAT11(", "SUB84(", "SUB42(",
         )
-        matched_count = sum(1 for marker in ghidra_patterns if marker in content)
-        if matched_count >= 2:
-            log.info("Skipping Ghidra decompiler pseudo-C from Clang: %s", p.name)
+        weak_markers = ("undefined", "code *", "param_1", "ulong", "longlong", "DAT_", "LAB_")
+        strong = sum(content.count(m) for m in strong_markers)
+        weak = sum(content.count(m) for m in weak_markers)
+        if strong >= 2 or (strong >= 1 and weak >= 2):
+            log.info("Skipping Ghidra decompiler pseudo-C from Clang: %s (strong=%d, weak=%d)", p.name, strong, weak)
             return False
         return True
     except Exception:
