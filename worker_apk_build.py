@@ -886,18 +886,35 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             subprocess.run(dl_cmd, timeout=120)
 
         if apktool_jar_path.exists():
-            cmd = ["java", "-Xmx8G", "-jar", str(apktool_jar_path), "b", str(apktool_dir), "-o", str(unsigned_apk)]
-            try:
-                await run_tool(cmd, on_progress, "apktool build")
-                if unsigned_apk.exists() and unsigned_apk.stat().st_size > 10240:
-                    return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
-            except Exception as ae:
-                log.warning("Apktool build failed: %s", ae)
-                if has_java_kt:
+            success = False
+            last_err = ""
+            for extra_flags, label in [([], "standard"), (["--use-aapt2"], "use-aapt2"), (["-f"], "force"), (["-f", "--use-aapt2"], "force+aapt2")]:
+                if unsigned_apk.exists():
+                    try:
+                        unsigned_apk.unlink()
+                    except Exception:
+                        pass
+                cmd = ["java", "-Xmx8G", "-jar", str(apktool_jar_path), "b"] + extra_flags + [str(apktool_dir), "-o", str(unsigned_apk)]
+                try:
+                    log.info("Running Apktool build (%s)...", label)
+                    await run_tool(cmd, on_progress, f"apktool build ({label})")
+                    if unsigned_apk.exists() and unsigned_apk.stat().st_size > 10240:
+                        success = True
+                        log.info("Apktool build (%s) SUCCEEDED! APK size: %.2f MB", label, unsigned_apk.stat().st_size / (1024 * 1024))
+                        break
+                except Exception as ae:
+                    last_err = str(ae)
+                    log.warning("Apktool build (%s) failed: %s", label, ae)
+
+            if success:
+                return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
+            else:
+                if has_smali or (apktool_dir / "apktool.yml").exists() or not has_java_kt:
+                    raise ValueError(f"Apktool build failed: {last_err}")
+                else:
+                    log.warning("Apktool failed, falling back to Native Engine: %s", last_err)
                     await on_progress(35, "⚠️ Apktool failed. Falling back to Native Engine...")
                     build_mode = "manifest"
-                else:
-                    raise ValueError(f"Apktool build failed: {ae}")
 
     # =========================================================================
     # 3. NATIVE ENGINE (AAPT2 + JAVAC/KOTLINC + D8 + NDK)
@@ -1156,11 +1173,16 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         await run_tool(dcmd, on_progress, "d8")
         dex_files = sorted(dex_out.glob("*.dex"))
 
-    # Check for prebuilt .dex files in source archive
+    # Check for prebuilt .dex files in source archive (preserve all original classes.dex, classes2.dex, etc.)
     prebuilt_dex = [p for p in sorted(extract_dir.rglob("*.dex")) if p.is_file() and not str(p).startswith(str(dex_out))]
-    for pd in prebuilt_dex:
-        if pd.name not in [d.name for d in dex_files]:
-            dex_files.append(pd)
+    if prebuilt_dex:
+        log.info("Found %d prebuilt .dex files in source archive", len(prebuilt_dex))
+        if len(dex_files) == 1 and dex_files[0].stat().st_size < 50000 and any(pd.name == dex_files[0].name and pd.stat().st_size > 100000 for pd in prebuilt_dex):
+            # Replace dummy small generated dex with original full dex
+            dex_files = [pd for pd in prebuilt_dex if pd.name == "classes.dex"]
+        for pd in prebuilt_dex:
+            if pd.name not in [d.name for d in dex_files]:
+                dex_files.append(pd)
 
     # C/C++ Native NDK Compilation
     cc_so = {}
