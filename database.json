@@ -46,10 +46,14 @@
     "6684870256": {
       "date": "2026-08-16",
       "count": 1
+    },
+    "8776576226": {
+      "date": "2026-08-16",
+      "count": 1
     }
   },
   "free_mode": false,
-  "total_files": 319,
+  "total_files": 320,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -1537,7 +1541,7 @@
       "engine": "ghidra",
       "started": 1786858169.0485718,
       "run_id": 31929130909,
-      "run_status": "in_progress"
+      "run_status": "completed"
     },
     "2253": {
       "user_id": "7251749429",
@@ -1560,8 +1564,8 @@
       "filename": "App.zip",
       "engine": "apkbuild-manifest",
       "started": 1786858919.0740564,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 31929618415,
+      "run_status": "completed"
     }
   },
   "signkeys": {
