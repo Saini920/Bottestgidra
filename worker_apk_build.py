@@ -524,6 +524,44 @@ def extract_archive(input_path: Path, extract_dir: Path):
         shutil.copy2(input_path, dest)
 
 
+def ensure_apktool_yml(target_dir: Path):
+    """Ensure a valid apktool.yml exists in target_dir for decompiled / smali projects."""
+    yml_file = target_dir / "apktool.yml"
+    if not yml_file.exists():
+        manifest_path = target_dir / "AndroidManifest.xml"
+        if not manifest_path.exists():
+            cand = [p for p in target_dir.rglob("*") if p.is_file() and p.name.lower() == "androidmanifest.xml"]
+            if cand:
+                manifest_path = cand[0]
+        mp = parse_manifest(manifest_path) if manifest_path.exists() else {}
+        min_sdk = mp.get("min_sdk", 21) or 21
+        target_sdk = mp.get("target_sdk", 34) or 34
+        vcode = mp.get("version_code", "1") or "1"
+        vname = mp.get("version_name", "1.0") or "1.0"
+        
+        yml_content = f"""version: 2.10.0
+apkFileName: app.apk
+isFrameworkApk: false
+usesFramework:
+  ids:
+  - 1
+packageInfo:
+  forcedPackageId: '127'
+sdkInfo:
+  minSdkVersion: '{min_sdk}'
+  targetSdkVersion: '{target_sdk}'
+versionInfo:
+  versionCode: '{vcode}'
+  versionName: '{vname}'
+doNotCompress:
+- resources.arsc
+- png
+- so
+"""
+        yml_file.write_text(yml_content, encoding="utf-8")
+        log.info("Auto-generated apktool.yml in %s", target_dir)
+
+
 async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, sdk):
     await on_progress(10, "📦 Extracting project source code...")
     extract_dir = work_dir / "src"
@@ -556,14 +594,21 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             break
 
     has_gradle = bool(gradlew) or bool(build_gradle) or bool(settings_gradle)
-    apktool_yml = None
-    for a in sorted(extract_dir.rglob("apktool.yml")):
-        if a.is_file():
-            apktool_yml = a
+
+    target_apktool_dir = None
+    for root, dirs, files in os.walk(extract_dir):
+        if "apktool.yml" in files:
+            target_apktool_dir = Path(root)
+            break
+        if "AndroidManifest.xml" in files and any(d.startswith("smali") for d in dirs):
+            target_apktool_dir = Path(root)
+            break
+        if any(d.startswith("smali") for d in dirs):
+            target_apktool_dir = Path(root)
             break
 
     smali_dirs = [p for p in sorted(extract_dir.rglob("smali*")) if p.is_dir()]
-    has_smali = bool(smali_dirs)
+    has_smali = bool(smali_dirs) or bool(target_apktool_dir)
     java_kt_files = [p for p in sorted(extract_dir.rglob("*")) if p.is_file() and p.suffix.lower() in (JAVA_EXTENSIONS | KOTLIN_EXTENSIONS)]
     has_java_kt = bool(java_kt_files)
 
@@ -572,15 +617,15 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     if build_mode in ("auto", ""):
         if has_gradle:
             build_mode = "gradle"
-        elif apktool_yml:
+        elif target_apktool_dir or has_smali:
             build_mode = "apktool"
-        elif has_smali and not has_java_kt:
-            build_mode = "apktool"
-        else:
+        elif has_java_kt:
             build_mode = "manifest"
+        else:
+            build_mode = "apktool" if (has_smali or (extract_dir / "AndroidManifest.xml").exists()) else "manifest"
 
-    log.info("Selected APK build mode: %s (has_gradle=%s, apktool_yml=%s, has_smali=%s, has_java_kt=%s)",
-             build_mode, has_gradle, bool(apktool_yml), has_smali, has_java_kt)
+    log.info("Selected APK build mode: %s (has_gradle=%s, has_apktool=%s, has_smali=%s, has_java_kt=%s)",
+             build_mode, has_gradle, bool(target_apktool_dir), has_smali, has_java_kt)
 
     # =========================================================================
     # 1. GRADLE BUILD MODE
@@ -672,7 +717,8 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     # =========================================================================
     if build_mode == "apktool":
         await on_progress(25, "🔧 Rebuilding APK with Apktool engine...")
-        apktool_dir = apktool_yml.parent if apktool_yml else extract_dir
+        apktool_dir = target_apktool_dir if target_apktool_dir else extract_dir
+        ensure_apktool_yml(apktool_dir)
         unsigned_apk = work_dir / "apktool_unsigned.apk"
         
         apktool_jar_path = Path(APKTOOL_JAR)
@@ -683,14 +729,14 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             subprocess.run(dl_cmd, timeout=120)
 
         if apktool_jar_path.exists():
-            cmd = ["java", "-Xmx4G", "-jar", str(apktool_jar_path), "b", str(apktool_dir), "-o", str(unsigned_apk)]
+            cmd = ["java", "-Xmx8G", "-jar", str(apktool_jar_path), "b", str(apktool_dir), "-o", str(unsigned_apk)]
             try:
                 await run_tool(cmd, on_progress, "apktool build")
-                if unsigned_apk.exists():
+                if unsigned_apk.exists() and unsigned_apk.stat().st_size > 10240:
                     return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
             except Exception as ae:
                 log.warning("Apktool build failed: %s", ae)
-                if has_java_kt:
+                if has_java_kt and not has_smali:
                     await on_progress(35, "⚠️ Apktool failed. Falling back to Native Engine...")
                     build_mode = "manifest"
                 else:
@@ -932,6 +978,12 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
         await run_tool(dcmd, on_progress, "d8")
         dex_files = sorted(dex_out.glob("*.dex"))
 
+    # Check for prebuilt .dex files in source archive
+    prebuilt_dex = [p for p in sorted(extract_dir.rglob("*.dex")) if p.is_file() and not str(p).startswith(str(dex_out))]
+    for pd in prebuilt_dex:
+        if pd.name not in [d.name for d in dex_files]:
+            dex_files.append(pd)
+
     # C/C++ Native NDK Compilation
     cc_so = {}
     cc_c_files = [f for f in find_inputs(extract_dir, CC_EXTENSIONS) if is_compilable_c_source(f)]
@@ -960,6 +1012,25 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
             for so in sorted(j_dir.rglob("*.so")):
                 rel = so.relative_to(j_dir)
                 extra[str(Path("lib") / rel)] = so
+
+    # Prebuilt .so libraries from archive
+    for so in sorted(extract_dir.rglob("*.so")):
+        if so.is_file() and not any(part in ("build", ".gradle", "bin", "out", "target", ".idea", ".git") for part in so.parts):
+            parent_name = so.parent.name
+            if parent_name in ("arm64-v8a", "armeabi-v7a", "x86", "x86_64"):
+                arc_path = str(Path("lib") / parent_name / so.name)
+                if arc_path not in extra:
+                    extra[arc_path] = so
+
+    # Prebuilt assets from archive
+    for a_dir in sorted(extract_dir.rglob("assets")):
+        if a_dir.is_dir() and not any(part in ("build", ".gradle", "bin", "out", "target") for part in a_dir.parts):
+            for af in sorted(a_dir.rglob("*")):
+                if af.is_file():
+                    rel = af.relative_to(a_dir)
+                    arc_path = str(Path("assets") / rel)
+                    if arc_path not in extra:
+                        extra[arc_path] = af
 
     _merge_apk(base_apk, unsigned_apk, extra)
     return await finalize_apk_signing(unsigned_apk, work_dir, on_progress, sdk)
