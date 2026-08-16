@@ -1566,6 +1566,18 @@
       "started": 1786858919.0740564,
       "run_id": 31929618415,
       "run_status": "completed"
+    },
+    "2272": {
+      "user_id": "6684870256",
+      "username": "Ghostofhackers",
+      "name": "\u26a1\ufe0e\ud835\udd72\ud835\udd8d\ud835\udd94\ud835\udd98\ud835\udd99 \ud835\udd94\ud835\udd8b \ud835\udd8d\ud835\udd86\ud835\udd88\ud835\udd90\ud835\udd8a\ud835\udd97\ud835\udd98\u26a1\ufe0e",
+      "chat_id": "6684870256",
+      "message_id": 2272,
+      "filename": "libUE4.so",
+      "engine": "ghidra",
+      "started": 1786863170.8629742,
+      "run_id": null,
+      "run_status": ""
     }
   },
   "signkeys": {
