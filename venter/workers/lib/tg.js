@@ -11,6 +11,17 @@ import { TelegramClient } from "telegram";
 // the runner). Bundlers like Vite tolerate it; bare Node does not.
 import { StringSession } from "telegram/sessions/index.js";
 
+// Telegram official DC IPs (port 443). The web CDN hosts
+// (*.web.telegram.org) open a TCP connection from cloud runners and then
+// immediately drop it — pinning the official DC IP is reliable everywhere.
+const DC_IPS = {
+  1: "149.154.175.53",
+  2: "149.154.167.51",
+  3: "149.154.175.100",
+  4: "149.154.167.91",
+  5: "91.108.56.130",
+};
+
 export class Tg {
   /**
    * @param {{apiId: string|number, apiHash: string, session: string}} opts
@@ -34,12 +45,23 @@ export class Tg {
         autoReconnect: true,
         maxConcurrentDownloads: 5,
         downloadRetries: 5,
-        // Critical: GitHub Actions runners (Azure) often cannot reach Telegram
-        // DCs on port 80 (ETIMEDOUT). useWSS:true makes GramJS use port 443,
-        // which is always open outbound.
+        // Port 443 — Telegram DCs are reachable from cloud runners on 443.
         useWSS: true,
       }
     );
+
+    // Pin the session's DC to its official IP:443 — bypasses the web CDN
+    // (*.web.telegram.org) whose connections drop immediately from Azure/
+    // GitHub Actions runners.
+    const dcId = this.client.session.dcId;
+    const ip = DC_IPS[dcId];
+    if (dcId && ip) {
+      this.client.session.setDC(dcId, ip, 443);
+      console.log(`Telegram DC${dcId} pinned to ${ip}:443`);
+    } else {
+      console.warn(`Unknown DC id ${dcId}, falling back to default resolution`);
+    }
+
     await this.client.connect();
     const me = await this.client.getMe();
     return me;
