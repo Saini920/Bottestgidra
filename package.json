@@ -1,0 +1,10 @@
+{
+  "name": "venter",
+  "version": "0.1.0",
+  "description": "Venter — serverless reverse engineering web studio",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "cd venter/frontend && npm install && npm run build && cd ../.. && rm -rf dist && cp -r venter/frontend/dist ./dist"
+  }
+}

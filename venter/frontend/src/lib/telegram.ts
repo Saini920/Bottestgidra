@@ -7,7 +7,7 @@
 // client.downloadMedia, client.exportSession/importSession, LocalStorage.
 // Confirm against the installed @mtcute/client types.
 
-import { TelegramClient, LocalStorage } from "@mtcute/client";
+import { TelegramClient } from "@mtcute/web";
 
 export interface LoginStep {
   step: "phone" | "code" | "password" | "done";
@@ -24,11 +24,10 @@ export class Telegram {
   async connect(apiId: string, apiHash: string, session?: string): Promise<void> {
     this.apiId = Number(apiId);
     this.apiHash = apiHash;
-    // VERIFY: LocalStorage is exported by @mtcute/client and accepts a prefix.
     this.client = new TelegramClient({
       apiId: this.apiId,
       apiHash: this.apiHash,
-      storage: new LocalStorage("venter:mtcute"),
+      storage: "venter:mtcute",
     });
     if (session) {
       // VERIFY: importSession accepts the string from exportSession().
