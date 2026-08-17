@@ -12,7 +12,7 @@
 
 | Problem (old system) | Solution (Venter) |
 |---|---|
-| Telegram Bot API 50 MB upload limit — big files can't be processed | MTProto (mtcute) direct from the browser — **2 GB free / 4 GB premium** |
+| Telegram Bot API 50 MB upload limit — big files can't be processed | MTProto (GramJS) direct from the browser — **2 GB free / 4 GB premium** |
 | Bot token ban risk — if the bot looks spammy, the whole service dies | **No bot at all.** Each user logs in with their own Telegram account (exactly like web.telegram.org) |
 | Railway hosting RAM limits → OOM on big files | Heavy compute runs on **free GitHub Actions runners** (4-core / 16 GB) |
 | Python glue code (bot + 12 worker scripts) to maintain | **100% TypeScript / Node.js** — one language everywhere |
@@ -24,7 +24,7 @@
 ┌────────────────────────────────────────────────────────────────┐
 │  LAYER 1 — FRONTEND (Cloudflare Pages — free, static)          │
 │  React + Vite + TypeScript + Tailwind (dark mode)              │
-│  • Telegram login (mtcute runs IN THE BROWSER)                 │
+│  • Telegram login (GramJS runs IN THE BROWSER)                 │
 │  • File upload → streams to Telegram "Saved Messages"          │
 │  • Monaco editor for viewing decompiled code                   │
 │  • Live progress via ntfy.sh (SSE)                             │
@@ -50,7 +50,7 @@ Every moving part is reachable from the browser with **no backend of our own**:
 
 | Service | Used for | CORS / browser support |
 |---|---|---|
-| **Telegram MTProto** (mtcute) | Login, upload, download, file listing | ✅ WebSocket in browser (same as web.telegram.org) |
+| **Telegram MTProto** (GramJS) | Login, upload, download, file listing | ✅ WebSocket in browser (same as web.telegram.org) |
 | **GitHub REST API** | `repository_dispatch`, token/repo validation | ✅ CORS enabled |
 | **ntfy.sh** | Live job progress push | ✅ SSE/WebSocket from browser |
 
@@ -65,7 +65,7 @@ The only code that ever runs on a "server" is the **worker.js** on GitHub Action
 | Language | **TypeScript everywhere** | One language for frontend + worker; type safety |
 | Frontend framework | **React 18 + Vite** | Fast builds, easy Cloudflare Pages deploy |
 | Styling | **Tailwind CSS (dark mode)** | Matches blueprint, fast UI dev |
-| MTProto client | **mtcute** | Modern TS MTProto library; runs in **browser AND Node** with the same session format |
+| MTProto client | **GramJS** (`telegram` v2.26) | Battle-tested (proven in the TG Drive app); runs in **browser AND Node** with the same `StringSession` format |
 | Code editor | **Monaco Editor** (@monaco-editor/react) | VS Code-quality C/Java/Smali viewer |
 | ZIP handling (browser) | **fflate** | Tiny, fast unzip/zip in the browser |
 | ZIP handling (worker) | **adm-zip / archiver** | Node-native zip |
@@ -74,10 +74,11 @@ The only code that ever runs on a "server" is the **worker.js** on GitHub Action
 | Static hosting | **Cloudflare Pages** | Free, global CDN, custom domain |
 | CI runners | **GitHub Actions (ubuntu-latest)** | Free 4-core / 16 GB runners |
 
-**Key decision — mtcute:**
+**Key decision — GramJS:**
 - Browser build handles login (phone → OTP → 2FA) exactly like Telegram's own web client.
-- Node build on the worker uses the **same exported session string** to download/upload files.
+- Node build on the worker uses the **same exported `StringSession`** to download/upload files.
 - Session format is identical on both sides → no conversion layer.
+- The Telegram layer (login, upload, download, listing) is ported from the user's proven **TG Drive** app, so it is already battle-tested.
 
 ---
 

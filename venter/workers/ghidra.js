@@ -76,8 +76,8 @@ async function main() {
   // Session is decrypted ONCE, kept only in this process's memory.
   const session = decryptSessionBlob(payload.session, process.env.SESSION_KEY);
   const tg = new Tg({ apiId, apiHash, session });
-  await tg.start();
-  console.log("Logged in to Telegram as user", (await tg.getMe())?.id ?? "?");
+  const me = await tg.start();
+  console.log("Logged in to Telegram as user", me?.id ?? "?");
 
   applyMemorySettings();
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "venter-ghidra-"));

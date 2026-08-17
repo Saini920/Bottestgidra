@@ -9,7 +9,7 @@ Actions** runners, and the UI is served from **Cloudflare Pages**.
 ```
 ┌────────────────────────────────────────────────────────┐
 │ Cloudflare Pages — React frontend (free)               │
-│  • mtcute login in browser (OTP + 2FA)                 │
+│  • GramJS login in browser (OTP + 2FA)                 │
 │  • upload → Saved Messages, file explorer, Monaco      │
 │  • Settings: GitHub token/repo + Test Connection       │
 ├────────────────────────────────────────────────────────┤
@@ -27,14 +27,14 @@ Actions** runners, and the UI is served from **Cloudflare Pages**.
 repo root
 ├── frontend/                  # Cloudflare Pages app (React + Vite + TS + Tailwind)
 │   ├── src/
-│   │   ├── lib/               # telegram (mtcute), github, ntfy, crypto, storage
+│   │   ├── lib/               # telegram (GramJS), github, ntfy, crypto, storage
 │   │   ├── components/        # LoginFlow, SettingsPanel, UploadDropzone,
 │   │   │                      # EnginePicker, JobProgress, FileExplorer, MonacoViewer
 │   │   └── App.tsx            # tabs + flow wiring
 │   └── public/_headers        # strict CSP (security section)
 ├── workers/                   # GitHub Actions worker scripts (Node ESM)
 │   ├── ghidra.js              # ✅ ported (worker.py → TS)
-│   └── lib/                   # tg (mtcute), ntfy, crypto, limits, zip, ghidra
+│   └── lib/                   # tg (GramJS), ntfy, crypto, limits, zip, ghidra
 ├── ghidra_scripts/            # DecompileAll.java + DisableCallFixup.java (Java, unchanged)
 ├── .github/workflows/         # one workflow per engine (ghidra.yml ✅) — MUST be at repo root
 ├── package.json               # worker dependencies (@mtcute/node, adm-zip)
@@ -95,9 +95,16 @@ apktool) are Java/C binaries — they were never Python.
 - Zip-slip protection in every worker extraction
 - Session passed to workers only as an encrypted blob; decrypted in-process on ephemeral runners
 
+## Telegram layer — GramJS (from TG Drive)
+
+The Telegram transport uses **GramJS** (`telegram` v2.26.22) — the same
+battle-tested library + `StringSession` format as the user's TG Drive app
+(browser login, upload, list, download ported from its proven code). One
+session string works in the browser frontend and the Node workers.
+
 ## Verify points before going live
 
-- `workers/lib/tg.js` and `frontend/src/lib/telegram.ts` contain `VERIFY` marks
-  on mtcute API calls — run `npm ci` + a typecheck (`npm run typecheck`) and
-  confirm signatures against the installed `@mtcute/*` versions.
-- Run `npm run check` (worker syntax) and `npm run build` (frontend) locally.
+- Run `npm install && npm run build` (frontend) and `npm run check` (worker
+  syntax) locally before pushing.
+- Real end-to-end test: login → upload → GitHub dispatch → worker → result ZIP
+  back in Saved Messages.

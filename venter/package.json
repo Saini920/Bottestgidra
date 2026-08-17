@@ -12,7 +12,7 @@
     "check": "node --check workers/ghidra.js && node --check workers/lib/*.js"
   },
   "dependencies": {
-    "@mtcute/node": "^0.31.0",
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "telegram": "^2.26.22"
   }
 }
