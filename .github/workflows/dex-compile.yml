@@ -44,7 +44,8 @@ jobs:
           fi
           echo "$BT" >> "$GITHUB_PATH"
           echo "Using build-tools: $BT"
-          d8 --version
+          # GITHUB_PATH only affects the NEXT step, so verify with the full path
+          "$BT/d8" --version
           ls /usr/local/lib/android/sdk/platforms | head -5
 
       - name: Install worker deps

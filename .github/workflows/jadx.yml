@@ -30,7 +30,8 @@ jobs:
           sudo unzip -q -o /tmp/jadx.zip -d /opt/jadx
           sudo chmod +x /opt/jadx/bin/jadx
           echo "/opt/jadx/bin" >> "$GITHUB_PATH"
-          jadx --version
+          # GITHUB_PATH only affects the NEXT step, so verify with the full path
+          /opt/jadx/bin/jadx --version
 
       - name: Install worker deps
         run: npm install

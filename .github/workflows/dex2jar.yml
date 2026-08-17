@@ -30,7 +30,9 @@ jobs:
           sudo unzip -q -o /tmp/d2j.zip -d /opt/dex2jar
           sudo chmod +x /opt/dex2jar/dex-tools-v2.4-20200915/d2j-dex2jar.sh
           echo "/opt/dex2jar/dex-tools-v2.4-20200915" >> "$GITHUB_PATH"
-          d2j-dex2jar.sh -h >/dev/null 2>&1 || true
+          # GITHUB_PATH only affects the NEXT step, so verify with the full path
+          /opt/dex2jar/dex-tools-v2.4-20200915/d2j-dex2jar.sh -h >/dev/null 2>&1
+          test -x /opt/dex2jar/dex-tools-v2.4-20200915/d2j-dex2jar.sh
 
       - name: Get JADX (java sources)
         run: |

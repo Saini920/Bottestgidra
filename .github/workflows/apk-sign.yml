@@ -37,7 +37,8 @@ jobs:
           fi
           echo "$BT" >> "$GITHUB_PATH"
           echo "Using build-tools: $BT"
-          apksigner --version
+          # GITHUB_PATH only affects the NEXT step, so verify with the full path
+          "$BT/apksigner" --version
 
       - name: Install worker deps
         run: npm install
