@@ -6,7 +6,10 @@
 // Everything else in the workers talks to this abstraction only.
 
 import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
+// NOTE: must import the exact file — Node.js ESM does NOT support directory
+// imports ("telegram/sessions" fails with ERR_UNSUPPORTED_DIR_IMPORT on
+// the runner). Bundlers like Vite tolerate it; bare Node does not.
+import { StringSession } from "telegram/sessions/index.js";
 
 export class Tg {
   /**
