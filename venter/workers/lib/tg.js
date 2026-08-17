@@ -34,6 +34,10 @@ export class Tg {
         autoReconnect: true,
         maxConcurrentDownloads: 5,
         downloadRetries: 5,
+        // Critical: GitHub Actions runners (Azure) often cannot reach Telegram
+        // DCs on port 80 (ETIMEDOUT). useWSS:true makes GramJS use port 443,
+        // which is always open outbound.
+        useWSS: true,
       }
     );
     await this.client.connect();
