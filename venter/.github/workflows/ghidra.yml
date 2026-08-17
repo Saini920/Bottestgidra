@@ -20,7 +20,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
 
       - name: Setup Java 21 (Ghidra requirement)
         uses: actions/setup-java@v4
@@ -52,7 +51,7 @@ jobs:
           rm /tmp/ghidra.zip
 
       - name: Install worker deps
-        run: npm ci
+        run: npm install
 
       - name: Run Ghidra worker
         env:

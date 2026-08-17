@@ -24,7 +24,7 @@ Actions** runners, and the UI is served from **Cloudflare Pages**.
 ## Project structure
 
 ```
-venter/
+repo root
 ├── frontend/                  # Cloudflare Pages app (React + Vite + TS + Tailwind)
 │   ├── src/
 │   │   ├── lib/               # telegram (mtcute), github, ntfy, crypto, storage
@@ -36,7 +36,9 @@ venter/
 │   ├── ghidra.js              # ✅ ported (worker.py → TS)
 │   └── lib/                   # tg (mtcute), ntfy, crypto, limits, zip, ghidra
 ├── ghidra_scripts/            # DecompileAll.java + DisableCallFixup.java (Java, unchanged)
-├── .github/workflows/         # one workflow per engine (ghidra.yml ✅)
+├── .github/workflows/         # one workflow per engine (ghidra.yml ✅) — MUST be at repo root
+├── package.json               # worker dependencies (@mtcute/node, adm-zip)
+├── wrangler.toml              # Cloudflare Pages config
 └── Project_Blueprint.md       # full architecture + security spec
 ```
 
@@ -44,8 +46,8 @@ venter/
 
 ### 1. GitHub repo (workers + workflows)
 
-1. Push this `venter/` folder to a **new GitHub repo** (e.g. `username/venter-engine`).
-   The `.github/workflows/` + `workers/` folders must sit at the repo root.
+1. Push this repo (`.github/workflows/` + `workers/` at repo root — GitHub Actions
+   only reads workflows from the root).
 2. In repo **Settings → Secrets and variables → Actions**, add:
    | Secret | Value |
    |---|---|
@@ -56,13 +58,19 @@ venter/
 
 ### 2. Cloudflare Pages (frontend)
 
-**Option A — dashboard:** Cloudflare dashboard → Pages → Create → connect the repo →
-Build command: `npm ci && npm run build` · Build output: `frontend/dist`.
+**Option A — dashboard (recommended):** Cloudflare dashboard → Pages → Create →
+connect the repo →
+
+| Setting | Value |
+|---|---|
+| Root directory | `frontend` |
+| Build command | `npm install && npm run build` |
+| Build output | `dist` |
 
 **Option B — wrangler CLI:**
 ```bash
 npm i -g wrangler
-cd frontend && npm ci && npm run build && cd ..
+cd frontend && npm install && npm run build && cd ..
 wrangler pages deploy frontend/dist --project-name venter
 ```
 

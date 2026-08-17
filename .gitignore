@@ -15,8 +15,15 @@ value.txt
 
 # Persistent runtime data & logs
 approved_users.json
+database.json
+user_subscriptions.json
 *.log
 *.sqlite3
+
+# Node.js (frontend + workers)
+node_modules/
+dist/
+*.tsbuildinfo
 
 # Temporary & Working directories
 tmp/
