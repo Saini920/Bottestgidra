@@ -1,15 +1,15 @@
-name: decompile-smali
+name: apk-sign
 run-name: job-${{ github.event.client_payload.job_id }}
 on:
   repository_dispatch:
-    types: [decompile-smali]
+    types: [apk-sign]
 
 permissions:
   actions: write
   contents: read
 
 jobs:
-  decompile:
+  sign:
     runs-on: ubuntu-latest
     timeout-minutes: 1440
     steps:
@@ -21,26 +21,31 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Setup Java 21
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
-      - name: Get baksmali
+      - name: Locate apksigner (build-tools)
         run: |
-          sudo curl -L --retry 3 -o /opt/baksmali.jar https://github.com/baksmali/smali/releases/download/3.0.9/baksmali-3.0.9-fat.jar
-          printf '#!/bin/bash\nexec java -jar /opt/baksmali.jar "$@"\n' | sudo tee /usr/local/bin/baksmali >/dev/null
-          sudo chmod +x /usr/local/bin/baksmali
-          baksmali --version
+          set -e
+          BT=$(ls -d /usr/local/lib/android/sdk/build-tools/* 2>/dev/null | sort -V | tail -1)
+          if [ -z "$BT" ] || [ ! -x "$BT/apksigner" ]; then
+            echo "::error::apksigner not found on runner"
+            exit 1
+          fi
+          echo "$BT" >> "$GITHUB_PATH"
+          echo "Using build-tools: $BT"
+          apksigner --version
 
       - name: Install worker deps
         run: npm install
 
-      - name: Run Smali worker
+      - name: Run APK Sign worker
         env:
           PAYLOAD: ${{ toJson(github.event.client_payload) }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_KEY: ${{ secrets.SESSION_KEY }}
-        run: node workers/smali.js
+        run: node workers/apk-sign.js

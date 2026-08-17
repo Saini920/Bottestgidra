@@ -1,7 +1,7 @@
-name: decompile-dex2jar
+name: decompile-jadx
 on:
   repository_dispatch:
-    types: [decompile-dex2jar]
+    types: [decompile-jadx]
 
 permissions:
   actions: write
@@ -23,30 +23,22 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Get dex2jar
-        run: |
-          sudo mkdir -p /opt/dex2jar
-          curl -L --retry 3 -o /tmp/d2j.zip https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip
-          sudo unzip -q -o /tmp/d2j.zip -d /opt/dex2jar
-          sudo chmod +x /opt/dex2jar/dex-tools-v2.4-20200915/d2j-dex2jar.sh
-          echo "/opt/dex2jar/dex-tools-v2.4-20200915" >> "$GITHUB_PATH"
-          d2j-dex2jar.sh -h >/dev/null 2>&1 || true
-
-      - name: Get JADX (java sources)
+      - name: Get JADX
         run: |
           sudo mkdir -p /opt/jadx
           curl -L --retry 3 -o /tmp/jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
           sudo unzip -q -o /tmp/jadx.zip -d /opt/jadx
           sudo chmod +x /opt/jadx/bin/jadx
           echo "/opt/jadx/bin" >> "$GITHUB_PATH"
+          jadx --version
 
       - name: Install worker deps
         run: npm install
 
-      - name: Run dex2jar worker
+      - name: Run JADX worker
         env:
           PAYLOAD: ${{ toJson(github.event.client_payload) }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_KEY: ${{ secrets.SESSION_KEY }}
-        run: node workers/dex2jar.js
+        run: node workers/jadx.js

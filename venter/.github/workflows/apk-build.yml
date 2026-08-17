@@ -1,15 +1,15 @@
-name: decompile-smali
+name: apk-source-build
 run-name: job-${{ github.event.client_payload.job_id }}
 on:
   repository_dispatch:
-    types: [decompile-smali]
+    types: [apk-source-build]
 
 permissions:
   actions: write
   contents: read
 
 jobs:
-  decompile:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 1440
     steps:
@@ -21,26 +21,26 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Setup Java 21
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
 
-      - name: Get baksmali
+      - name: Get apktool
         run: |
-          sudo curl -L --retry 3 -o /opt/baksmali.jar https://github.com/baksmali/smali/releases/download/3.0.9/baksmali-3.0.9-fat.jar
-          printf '#!/bin/bash\nexec java -jar /opt/baksmali.jar "$@"\n' | sudo tee /usr/local/bin/baksmali >/dev/null
-          sudo chmod +x /usr/local/bin/baksmali
-          baksmali --version
+          sudo curl -L --retry 3 -o /opt/apktool.jar https://github.com/iBotPeaches/Apktool/releases/download/v2.9.3/apktool_2.9.3.jar
+          printf '#!/bin/bash\nexec java -jar /opt/apktool.jar "$@"\n' | sudo tee /usr/local/bin/apktool >/dev/null
+          sudo chmod +x /usr/local/bin/apktool
+          apktool --version
 
       - name: Install worker deps
         run: npm install
 
-      - name: Run Smali worker
+      - name: Run APK Build worker
         env:
           PAYLOAD: ${{ toJson(github.event.client_payload) }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_KEY: ${{ secrets.SESSION_KEY }}
-        run: node workers/smali.js
+        run: node workers/apk-build.js

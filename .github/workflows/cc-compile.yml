@@ -1,15 +1,15 @@
-name: decompile-smali
+name: cc-compile
 run-name: job-${{ github.event.client_payload.job_id }}
 on:
   repository_dispatch:
-    types: [decompile-smali]
+    types: [cc-compile]
 
 permissions:
   actions: write
   contents: read
 
 jobs:
-  decompile:
+  compile:
     runs-on: ubuntu-latest
     timeout-minutes: 1440
     steps:
@@ -21,26 +21,19 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Setup Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Get baksmali
+      - name: Install ARM64 cross-compiler
         run: |
-          sudo curl -L --retry 3 -o /opt/baksmali.jar https://github.com/baksmali/smali/releases/download/3.0.9/baksmali-3.0.9-fat.jar
-          printf '#!/bin/bash\nexec java -jar /opt/baksmali.jar "$@"\n' | sudo tee /usr/local/bin/baksmali >/dev/null
-          sudo chmod +x /usr/local/bin/baksmali
-          baksmali --version
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          aarch64-linux-gnu-gcc --version | head -1
 
       - name: Install worker deps
         run: npm install
 
-      - name: Run Smali worker
+      - name: Run C/C++ Compile worker
         env:
           PAYLOAD: ${{ toJson(github.event.client_payload) }}
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_KEY: ${{ secrets.SESSION_KEY }}
-        run: node workers/smali.js
+        run: node workers/cc-compile.js

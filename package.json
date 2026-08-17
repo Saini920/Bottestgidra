@@ -4,7 +4,14 @@
   "description": "Venter — serverless reverse engineering web studio",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "cd venter/frontend && npm install && npm run build && cd ../.. && rm -rf dist && cp -r venter/frontend/dist ./dist"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "telegram": "^2.26.22"
   }
 }
