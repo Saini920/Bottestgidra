@@ -78,7 +78,17 @@ export async function runWorker(cfg) {
 
   const apiId = process.env.API_ID;
   const apiHash = process.env.API_HASH;
-  if (!apiId || !apiHash) throw new Error("API_ID / API_HASH env missing on runner");
+  if (!apiId || !apiHash) {
+    throw new Error(
+      "API_ID / API_HASH env missing on runner — GitHub repo me secrets set nahi hain. " +
+      "Repo → Settings → Secrets and variables → Actions → API_ID + API_HASH add karo."
+    );
+  }
+  if (!/^\d+$/.test(String(apiId))) {
+    throw new Error(
+      `API_ID invalid: ${JSON.stringify(apiId)} — yeh NUMBER hona chahiye (my.telegram.org se, sirf digits).`
+    );
+  }
 
   const session = decryptSessionBlob(payload.session, process.env.SESSION_KEY);
   const tg = new Tg({ apiId, apiHash, session });

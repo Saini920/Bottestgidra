@@ -41,7 +41,15 @@ export class Ntfy {
     if (!this.jobId) return;
     try {
       const headers = {};
-      if (title) headers["Title"] = title;
+      if (title) {
+        // HTTP headers are Latin-1 only (0-255). Emoji/unicode in the Title
+        // header makes fetch throw "Cannot convert argument to a ByteString"
+        // and NO event ever reaches ntfy.sh -> frontend stuck at 0% forever.
+        // Strip everything outside printable ASCII; the full label stays in
+        // the JSON body (which is UTF-8 safe).
+        const ascii = title.replace(/[^\x20-\x7E]/g, "").trim().slice(0, 64);
+        headers["Title"] = ascii || "Venter";
+      }
       const resp = await fetch(`${this.base}/${this.jobId}`, {
         method: "POST",
         headers,
