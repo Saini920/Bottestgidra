@@ -1,0 +1,18 @@
+{
+  "name": "venter-workers",
+  "version": "0.1.0",
+  "description": "Venter serverless reverse-engineering workers — run inside GitHub Actions runners",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "worker:ghidra": "node workers/ghidra.js",
+    "check": "node --check workers/ghidra.js && node --check workers/lib/*.js"
+  },
+  "dependencies": {
+    "@mtcute/node": "^0.31.0",
+    "adm-zip": "^0.5.16"
+  }
+}

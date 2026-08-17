@@ -1,0 +1,64 @@
+name: decompile-ghidra
+run-name: job-${{ github.event.client_payload.job_id }}
+on:
+  repository_dispatch:
+    types: [decompile-ghidra]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1440
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Setup Java 21 (Ghidra requirement)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Ghidra
+        id: ghidra-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/ghidra
+          key: ghidra-11.3.2-v1
+
+      - name: Get Ghidra
+        if: steps.ghidra-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -f /opt/ghidra/support/analyzeHeadless ]; then
+            echo "Ghidra already valid at /opt/ghidra"; exit 0
+          fi
+          if [ -d /opt/ghidra ]; then sudo rm -rf /opt/ghidra; fi
+          curl -L --retry 3 -o /tmp/ghidra.zip \
+            "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.3.2_build/ghidra_11.3.2_PUBLIC_20250415.zip"
+          sudo unzip -q -o /tmp/ghidra.zip -d /opt
+          ghdir=$(sudo bash -c 'ls -d /opt/ghidra_* 2>/dev/null | head -n1')
+          sudo mv "$ghdir" /opt/ghidra
+          test -f /opt/ghidra/support/analyzeHeadless
+          echo "Ghidra ready"
+          rm /tmp/ghidra.zip
+
+      - name: Install worker deps
+        run: npm ci
+
+      - name: Run Ghidra worker
+        env:
+          PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          SESSION_KEY: ${{ secrets.SESSION_KEY }}
+          JAVA_MAX_MEM: "6G"
+        run: node workers/ghidra.js

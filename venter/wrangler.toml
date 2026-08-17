@@ -1,0 +1,11 @@
+# Cloudflare Pages deployment config (wrangler)
+#   npm i -g wrangler
+#   wrangler pages deploy frontend/dist --project-name venter
+# OR connect the GitHub repo in the Cloudflare dashboard:
+#   Build command:  npm ci && npm run build
+#   Build directory: frontend/dist
+#   Root directory:  (repo root — make frontend/ the working dir)
+
+name = "venter"
+compatibility_date = "2026-01-01"
+pages_build_output_dir = "./frontend/dist"
