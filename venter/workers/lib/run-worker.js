@@ -140,13 +140,17 @@ export async function runWorker(cfg) {
       }
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
+        const outDir = path.join(workDir, `a${i + 1}`);
+        fs.mkdirSync(outDir, { recursive: true });
         await ntfy.progress(5, `📦 Processing (${i + 1}/${candidates.length}): ${path.basename(c)}...`);
-        const res = await cfg.run(c, path.join(workDir, `a${i + 1}`), onProgress);
+        const res = await cfg.run(c, outDir, onProgress);
         const prefix = path.basename(c, path.extname(c));
         res.forEach((f) => outFiles.push({ arcname: `${prefix}/${f.arcname}`, path: f.path }));
       }
     } else {
-      const res = await cfg.run(dest, path.join(workDir, "analysis"), onProgress);
+      const outDir = path.join(workDir, "analysis");
+      fs.mkdirSync(outDir, { recursive: true });
+      const res = await cfg.run(dest, outDir, onProgress);
       outFiles.push(...res);
     }
 
