@@ -34,9 +34,11 @@ export class Tg {
     this.client = null;
   }
 
-  async start() {
+  /** Build a fresh client with the DC pinned (per attempt — a failed
+   *  connect may leave a half-initialized transport behind). */
+  _createClient() {
     // GramJS auto-selects TCP transport on Node (WSS is browser-only).
-    this.client = new TelegramClient(
+    const client = new TelegramClient(
       new StringSession(this.session || ""),
       this.apiId,
       this.apiHash,
@@ -53,18 +55,53 @@ export class Tg {
     // Pin the session's DC to its official IP:443 — bypasses the web CDN
     // (*.web.telegram.org) whose connections drop immediately from Azure/
     // GitHub Actions runners.
-    const dcId = this.client.session.dcId;
+    const dcId = client.session.dcId;
     const ip = DC_IPS[dcId];
     if (dcId && ip) {
-      this.client.session.setDC(dcId, ip, 443);
+      client.session.setDC(dcId, ip, 443);
       console.log(`Telegram DC${dcId} pinned to ${ip}:443`);
     } else {
       console.warn(`Unknown DC id ${dcId}, falling back to default resolution`);
     }
+    return client;
+  }
 
-    await this.client.connect();
-    const me = await this.client.getMe();
-    return me;
+  async start() {
+    // 406 AUTH_KEY_DUPLICATED: same session (auth key) already active
+    // elsewhere (e.g. the TG Drive tab open in the browser). Telegram
+    // terminates the OLDER connection, so retrying after a short wait
+    // lets the worker win the handshake. This mirrors Telethon/GramJS
+    // behaviour for concurrent use of one StringSession.
+    const MAX_ATTEMPTS = 6;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        this.client = this._createClient();
+        await this.client.connect();
+        const me = await this.client.getMe();
+        return me;
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err?.message || err);
+        const duplicated = err?.code === 406 || /AUTH_KEY_DUPLICATED/i.test(msg);
+        if (!duplicated) throw err; // any other error: fail fast
+        // Close the failed client so no half-open transport lingers
+        // and could itself look like a duplicate on the next attempt.
+        try {
+          await this.client?.disconnect();
+        } catch {
+          /* ignore */
+        }
+        this.client = null;
+        console.warn(
+          `[attempt ${attempt}/${MAX_ATTEMPTS}] AUTH_KEY_DUPLICATED — session pehle se active hai ` +
+          `(TG Drive tab browser me khula hai?). Telegram purani connection terminate karta hai; ` +
+          `8s wait karke retry...`
+        );
+        await new Promise((r) => setTimeout(r, 8000));
+      }
+    }
+    throw lastErr;
   }
 
   async close() {
