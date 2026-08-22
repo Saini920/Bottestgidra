@@ -41,7 +41,7 @@
     },
     "7251749429": {
       "date": "2026-08-22",
-      "count": 1
+      "count": 2
     },
     "6684870256": {
       "date": "2026-08-16",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 330,
+  "total_files": 331,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -1660,8 +1660,8 @@
       "filename": "libcocosdenshion.so",
       "engine": "ghidra",
       "started": 1787414546.6286483,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 32583508995,
+      "run_status": "completed"
     }
   }
 }
