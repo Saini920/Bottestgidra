@@ -41,7 +41,7 @@
     },
     "7251749429": {
       "date": "2026-08-23",
-      "count": 6
+      "count": 7
     },
     "6684870256": {
       "date": "2026-08-16",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 349,
+  "total_files": 350,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -1888,8 +1888,8 @@
       "filename": "CodeLingo-Android.zip",
       "engine": "apkbuild",
       "started": 1787460408.848333,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 32618703082,
+      "run_status": "completed"
     }
   }
 }
