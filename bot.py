@@ -867,14 +867,19 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "bot_token": BOT_TOKEN,
         "is_admin": str(is_admin),
         "is_premium": str(is_premium),
-        "file_id": file_id,
-        "min_sdk": min_sdk,
-        "build_type": build_type,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
-    else:
+    elif file_url:
         client_payload["file_url"] = file_url
+
+    if file_id:
+        client_payload["file_id"] = str(file_id)
+    if min_sdk:
+        client_payload["min_sdk"] = str(min_sdk)
+    if build_type:
+        client_payload["build_type"] = str(build_type)
+
     payload = {"event_type": event_type, "client_payload": client_payload}
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
