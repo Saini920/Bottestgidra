@@ -334,6 +334,23 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
+    if engine == "apkbuild":
+        job = PENDING_JOBS.get(job_id)
+        if job:
+            await query.edit_message_text(
+                "📦 <b>Choose APK Build Engine:</b>\n\n"
+                "• 🛠 <b>AndroidManifest Build:</b> Fast standalone build (AAPT2 + Javac/Kotlinc + D8)\n"
+                "• 📦 <b>Gradle Build:</b> Full Gradle build (runs <code>./gradlew assembleRelease</code>)\n\n"
+                "Select your build method:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🛠 AndroidManifest Build", callback_data=f"engine_apkbuild-manual_{job_id}")],
+                    [InlineKeyboardButton("📦 Gradle Build", callback_data=f"engine_apkbuild-gradle_{job_id}")],
+                    [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                ])
+            )
+            return
+
     job = PENDING_JOBS.pop(job_id)
     engine_label = engine_display_label(engine)
     await query.edit_message_text(f"🚀 Job submitted for {engine_label} engine! Sending to server...")
@@ -344,6 +361,38 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     user = query.from_user
     record_user_name(user)
     data = query.data
+
+    if data.startswith("source_build_"):
+        job_id = data.split("source_build_")[1]
+        job = PENDING_JOBS.get(job_id)
+        if job:
+            uid = str(user.id)
+            is_premium = uid in ADMIN_IDS or uid in db.data["subscriptions"]
+            if not is_premium:
+                await query.answer("Premium required", show_alert=False)
+                await query.edit_message_text(
+                    "🔒 <b>Premium Only!</b>\n\n"
+                    "APK Source Build is available for <b>Premium subscribers</b> only.",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
+                    ])
+                )
+                return
+            await query.answer("Choose Source Build Type", show_alert=False)
+            await query.edit_message_text(
+                "📦 <b>Choose APK Build Engine:</b>\n\n"
+                "• 🛠 <b>AndroidManifest Build:</b> Fast standalone build (AAPT2 + Javac/Kotlinc + D8)\n"
+                "• 📦 <b>Gradle Build:</b> Full Gradle build (runs <code>./gradlew assembleRelease</code>)\n\n"
+                "Select your build method:",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🛠 AndroidManifest Build", callback_data=f"engine_apkbuild-manual_{job_id}")],
+                    [InlineKeyboardButton("📦 Gradle Build", callback_data=f"engine_apkbuild-gradle_{job_id}")],
+                    [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
+                ])
+            )
+        return
 
     if data.startswith("stoprun_"):
         await query.answer("🛑 Stopping cloud job...", show_alert=False)
@@ -807,7 +856,7 @@ def get_report_url() -> str:
     return (base + "/internal/count") if base else ""
 
 
-async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, min_sdk: str = ""):
+async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, min_sdk: str = "", build_type: str = ""):
     if not GITHUB_TOKEN:
         return False, 0, "GITHUB_TOKEN env missing"
     client_payload = {
@@ -820,6 +869,7 @@ async def trigger_github(file_url: str, chat_id: int, message_id: int, filename:
         "is_premium": str(is_premium),
         "file_id": file_id,
         "min_sdk": min_sdk,
+        "build_type": build_type,
     }
     if tg_file_path:
         client_payload["tg_file_path"] = tg_file_path
@@ -914,6 +964,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         )
         return
     min_sdk = ""
+    build_type = ""
     if engine == "jadx":
         event_type = "decompile-jadx"
     elif engine == "dex2jar":
@@ -932,8 +983,12 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "dex-compile-java"
     elif engine == "cccompile":
         event_type = "cc-compile"
-    elif engine == "apkbuild":
+    elif engine == "apkbuild" or engine.startswith("apkbuild-"):
         event_type = "apk-source-build"
+        if "-" in engine:
+            build_type = engine.split("-")[1]
+        else:
+            build_type = "manual"
     elif engine == "apksign" or engine.startswith("apksign-"):
         event_type = "apk-sign"
         min_sdk = engine.split("-")[1] if "-" in engine else ""
@@ -943,7 +998,7 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "decompile-job"
         
     user_id = str(msg.from_user.id) if msg and msg.from_user else ""
-    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, min_sdk)
+    ok, code, body = await trigger_github(file_url, msg.chat_id, status.message_id, filename, tg_file_path, is_admin, event_type, file_id, msg.message_id, is_premium, min_sdk, build_type)
     if not ok:
         await status.edit_text(
             "❌ GitHub trigger failed (HTTP <code>{code}</code>).\n"
@@ -980,6 +1035,64 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         parse_mode=constants.ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status.message_id}")]])
     )
+
+
+async def inspect_zip_archive(tg_file_path: str = "", file_id: str = "", file_url: str = "") -> dict:
+    info = {
+        "has_gradle": False,
+        "has_manifest": False,
+        "has_dex": False,
+        "has_smali": False,
+        "has_java": False,
+        "has_cc": False,
+        "has_pdf": False,
+        "inspected": False,
+    }
+    tmp_path = None
+    try:
+        import uuid, zipfile, tempfile
+        tmp_path = Path(tempfile.gettempdir()) / f"inspect_{uuid.uuid4().hex[:8]}.zip"
+        downloaded = False
+
+        if tg_file_path:
+            url = tg_file_path if tg_file_path.startswith("http") else f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file_path}"
+            async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(20, read=45)) as client:
+                async with client.stream("GET", url) as resp:
+                    if resp.status_code == 200:
+                        with open(tmp_path, "wb") as f:
+                            async for chunk in resp.aiter_bytes(65536):
+                                f.write(chunk)
+                        downloaded = True
+        elif file_url:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(20, read=45)) as client:
+                async with client.stream("GET", file_url) as resp:
+                    if resp.status_code == 200:
+                        with open(tmp_path, "wb") as f:
+                            async for chunk in resp.aiter_bytes(65536):
+                                f.write(chunk)
+                        downloaded = True
+
+        if downloaded and tmp_path.exists() and tmp_path.stat().st_size > 0:
+            with zipfile.ZipFile(tmp_path, "r") as zf:
+                names = zf.namelist()
+
+            info["has_gradle"] = any(re.search(r'(^|/)(build\.gradle(\.kts)?|settings\.gradle(\.kts)?|gradlew)$', n, re.I) for n in names)
+            info["has_manifest"] = any(re.search(r'(^|/)AndroidManifest\.xml$', n, re.I) for n in names)
+            info["has_dex"] = any(n.lower().endswith('.dex') for n in names)
+            info["has_smali"] = any(n.lower().endswith('.smali') for n in names)
+            info["has_java"] = any(n.lower().endswith(('.java', '.kt', '.jar', '.class')) for n in names)
+            info["has_cc"] = any(n.lower().endswith(('.c', '.cpp', '.cc', '.cxx', '.h', '.hpp')) for n in names)
+            info["has_pdf"] = any(n.lower().endswith('.pdf') for n in names)
+            info["inspected"] = True
+    except Exception as e:
+        log.warning("inspect_zip_archive error: %s", e)
+    finally:
+        if tmp_path and tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except Exception:
+                pass
+    return info
 
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1142,57 +1255,124 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text, keyboard = build_apk_chooser(job_id, PENDING_JOBS[job_id], is_premium)
             await status.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
         elif doc.file_name and doc.file_name.lower().endswith(".zip"):
+            await status.edit_text("🔍 <b>Analyzing ZIP project structure...</b>", parse_mode="HTML")
+            zip_info = await inspect_zip_archive(tg_file_path=tg_file_path, file_id=file_id)
+            PENDING_JOBS[job_id]["zip_info"] = zip_info
+
+            has_gradle = zip_info.get("has_gradle", False)
+            has_manifest = zip_info.get("has_manifest", False)
+
             if is_premium or user_id in ADMIN_IDS:
-                btn_build = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+                btn_build_manual = InlineKeyboardButton("🛠 AndroidManifest Build", callback_data=f"engine_apkbuild-manual_{job_id}")
+                btn_build_gradle = InlineKeyboardButton("📦 Gradle Build", callback_data=f"engine_apkbuild-gradle_{job_id}")
+                btn_build_apktool = InlineKeyboardButton("🔨 Compile APK (Apktool Build)", callback_data=f"engine_apktool-build_{job_id}")
+                btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"compile_dex_{job_id}")
+                btn_so = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
+                btn_build_src = InlineKeyboardButton("📦 Build APK (Source)", callback_data=f"source_build_{job_id}")
             else:
-                btn_build = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+                btn_build_manual = InlineKeyboardButton("🔒 AndroidManifest Build (Premium)", callback_data="buy_sub")
+                btn_build_gradle = InlineKeyboardButton("🔒 Gradle Build (Premium)", callback_data="buy_sub")
+                btn_build_apktool = InlineKeyboardButton("🔒 Compile APK (Premium Only)", callback_data="buy_sub")
+                btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
+                btn_so = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
+                btn_build_src = InlineKeyboardButton("🔒 Build APK (Premium Only)", callback_data="buy_sub")
+
             if jd_allowed:
                 btn_jadx = InlineKeyboardButton("☕ JADX (Java/Smali)", callback_data=f"engine_jadx_{job_id}")
                 btn_d2j = InlineKeyboardButton("🧬 dex2jar (JAR+Java)", callback_data=f"engine_dex2jar_{job_id}")
             else:
                 btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
                 btn_d2j = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
+
             btn_decode = InlineKeyboardButton("🧩 Decode .dex → Smali", callback_data=f"decode_smali_{job_id}")
-            if is_premium or user_id in ADMIN_IDS:
-                btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"compile_dex_{job_id}")
-            else:
-                btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
-            if is_premium or user_id in ADMIN_IDS:
-                btn_so = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
-            else:
-                btn_so = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
-            if is_premium or user_id in ADMIN_IDS:
-                btn_build_src = InlineKeyboardButton("📦 Build APK (Source)", callback_data=f"engine_apkbuild_{job_id}")
-            else:
-                btn_build_src = InlineKeyboardButton("🔒 Build APK (Premium Only)", callback_data="buy_sub")
+
             pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
             if user_id in ADMIN_IDS or (doc.file_size or 0) <= pdf_limit_mb * 1024 * 1024:
                 btn_pdf = InlineKeyboardButton("📄 PDF → TXT", callback_data=f"engine_pdftxt_{job_id}")
             else:
                 btn_pdf = InlineKeyboardButton(f"🔒 PDF → TXT (max {pdf_limit_mb} MB)", callback_data="buy_sub")
 
-            await status.edit_text(
-                "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
-                "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
-                "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
-                "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
-                "• 🧩 <b>Decode:</b> Multiple .dex → Smali Code\n"
-                "• 🛠️ <b>Compile:</b> Smali / Java files → .dex (⭐ Premium)\n"
-                "• 🛠️ <b>Compile .so:</b> C/C++ sources → Android .so (⭐ Premium)\n"
-                "• 📦 <b>Build APK:</b> Real source code → signed + unsigned APK (⭐ Premium)\n"
-                "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)\n"
-                "• 📄 <b>PDF → TXT:</b> Convert PDFs inside ZIP to text (Free ≤30 MB, Premium ≤300 MB)",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
-                    [btn_jadx, btn_d2j],
-                    [btn_decode, btn_compile],
-                    [btn_so],
-                    [btn_build_src],
-                    [btn_build],
-                    [btn_pdf]
-                ])
-            )
+            btn_ghidra = InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")
+
+            if has_gradle and has_manifest:
+                await status.edit_text(
+                    "📦 <b>Android Source Project Detected!</b>\n"
+                    "Found <b>Gradle</b> and <b>AndroidManifest.xml</b> in your archive.\n\n"
+                    "Choose your build system:\n"
+                    "• 🛠 <b>AndroidManifest Build:</b> Fast standalone build (AAPT2 + Javac/Kotlinc + D8)\n"
+                    "• 📦 <b>Gradle Build:</b> Full Gradle build (<code>./gradlew assembleRelease</code>)\n\n"
+                    "Or select another processing engine below:",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_build_manual, btn_build_gradle],
+                        [btn_ghidra],
+                        [btn_jadx, btn_d2j],
+                        [btn_decode, btn_compile],
+                        [btn_so],
+                        [btn_build_apktool],
+                        [btn_pdf],
+                    ])
+                )
+            elif has_gradle and not has_manifest:
+                await status.edit_text(
+                    "📦 <b>Gradle Project Detected!</b>\n"
+                    "Found Gradle configuration (<code>build.gradle</code> / <code>settings.gradle</code>).\n\n"
+                    "Choose build option:\n"
+                    "• 📦 <b>Gradle Build:</b> Full Gradle build (<code>./gradlew assembleRelease</code>)\n"
+                    "• 🛠 <b>AndroidManifest Build:</b> Manual standalone build\n\n"
+                    "Or select another processing engine below:",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_build_gradle, btn_build_manual],
+                        [btn_ghidra],
+                        [btn_jadx, btn_d2j],
+                        [btn_decode, btn_compile],
+                        [btn_so],
+                        [btn_build_apktool],
+                        [btn_pdf],
+                    ])
+                )
+            elif has_manifest and not has_gradle:
+                await status.edit_text(
+                    "🛠️ <b>Simple Manual Project Detected!</b>\n"
+                    "Found <code>AndroidManifest.xml</code> + source/res (No Gradle).\n\n"
+                    "Choose build option:\n"
+                    "• 🛠 <b>AndroidManifest Build:</b> Fast standalone compiler (AAPT2 + Javac/Kotlinc + D8)\n\n"
+                    "Or select another processing engine below:",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_build_manual],
+                        [btn_ghidra],
+                        [btn_jadx, btn_d2j],
+                        [btn_decode, btn_compile],
+                        [btn_so],
+                        [btn_build_apktool],
+                        [btn_pdf],
+                    ])
+                )
+            else:
+                await status.edit_text(
+                    "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
+                    "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
+                    "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+                    "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+                    "• 🧩 <b>Decode:</b> Multiple .dex → Smali Code\n"
+                    "• 🛠️ <b>Compile:</b> Smali / Java files → .dex (⭐ Premium)\n"
+                    "• 🛠️ <b>Compile .so:</b> C/C++ sources → Android .so (⭐ Premium)\n"
+                    "• 📦 <b>Build APK:</b> Real source code → signed + unsigned APK (⭐ Premium)\n"
+                    "• 🔨 <b>Compile APK:</b> Build APK from decompiled ZIP (⭐ Premium)\n"
+                    "• 📄 <b>PDF → TXT:</b> Convert PDFs inside ZIP to text (Free ≤30 MB, Premium ≤300 MB)",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_ghidra],
+                        [btn_jadx, btn_d2j],
+                        [btn_decode, btn_compile],
+                        [btn_so],
+                        [btn_build_src],
+                        [btn_build_apktool],
+                        [btn_pdf]
+                    ])
+                )
         elif doc.file_name and doc.file_name.lower().endswith(".pdf"):
             pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
             pdf_allowed = user_id in ADMIN_IDS or (doc.file_size or 0) <= pdf_limit_mb * 1024 * 1024
@@ -1760,7 +1940,24 @@ def parse_run_name(run_name: str):
     return m.group(1), m.group(2), m.group(3)
 
 
-ENGINE_LABELS = {"job": "🐉 Ghidra", "ghidra": "🐉 Ghidra", "jadx": "☕ JADX", "dex2jar": "🧬 dex2jar", "apktool": "📱 Apktool", "build": "⚒️ Apktool Build", "smali": "🧩 Smali Decode", "smaliextract": "🧩 Smali Extract", "dexcompile-smali": "🛠️ Smali → DEX", "dexcompile-java": "🛠️ Java → DEX", "cccompile": "⚙️ C/C++ → .so", "apkbuild": "📦 APK Build (Source)", "apksign": "🔏 APK Signer", "pdftxt": "📄 PDF → TXT"}
+ENGINE_LABELS = {
+    "job": "🐉 Ghidra",
+    "ghidra": "🐉 Ghidra",
+    "jadx": "☕ JADX",
+    "dex2jar": "🧬 dex2jar",
+    "apktool": "📱 Apktool",
+    "build": "⚒️ Apktool Build",
+    "smali": "🧩 Smali Decode",
+    "smaliextract": "🧩 Smali Extract",
+    "dexcompile-smali": "🛠️ Smali → DEX",
+    "dexcompile-java": "🛠️ Java → DEX",
+    "cccompile": "⚙️ C/C++ → .so",
+    "apkbuild": "📦 APK Build (Source)",
+    "apkbuild-manual": "🛠️ APK Build (AndroidManifest)",
+    "apkbuild-gradle": "📦 APK Build (Gradle)",
+    "apksign": "🔏 APK Signer",
+    "pdftxt": "📄 PDF → TXT",
+}
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
@@ -1773,6 +1970,8 @@ TASK_LABELS = {
     "dexcompile-java": "Java → classes.dex (javac + d8)",
     "cccompile": "C/C++ source → Android .so (NDK)",
     "apkbuild": "Real source code → signed + unsigned APK",
+    "apkbuild-manual": "Source code → APK (AndroidManifest + AAPT2)",
+    "apkbuild-gradle": "Gradle project → APK (assembleRelease)",
     "apksign": "Re-sign APK (v1+v2)",
     "pdftxt": "PDF → TXT conversion (poppler-utils)",
 }

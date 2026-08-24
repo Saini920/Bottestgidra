@@ -69,29 +69,55 @@ jobs:
             echo "Using NDK at: $NDK_BIN"
           fi
 
-      - name: Cache R8/D8
+      - name: Setup Gradle Environment & Licenses (Gradle Build)
+        if: ${{ github.event.client_payload.build_type == 'gradle' }}
+        run: |
+          echo "Setting up Gradle build environment..."
+          mkdir -p "$HOME/.android"
+          mkdir -p "$SDK_ROOT/licenses"
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > "$SDK_ROOT/licenses/android-sdk-license" 2>/dev/null || true
+          echo "84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK_ROOT/licenses/android-sdk-preview-license" 2>/dev/null || true
+          echo "d56f5187479edd81e388891d122210e3785b9b8b" >> "$SDK_ROOT/licenses/android-sdk-license" 2>/dev/null || true
+          echo "89388d6beac7883ba64e2173491f6a9f56730f13" >> "$SDK_ROOT/licenses/android-sdk-license" 2>/dev/null || true
+          yes | "$SDK_ROOT"/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
+          echo "GRADLE_USER_HOME=$HOME/.gradle" >> "$GITHUB_ENV"
+
+      - name: Cache Gradle packages (Gradle Build)
+        if: ${{ github.event.client_payload.build_type == 'gradle' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gradle-cache-${{ runner.os }}-
+
+      - name: Cache R8/D8 (Manual Build)
+        if: ${{ github.event.client_payload.build_type != 'gradle' }}
         id: r8-cache
         uses: actions/cache@v4
         with:
           path: /opt/r8.jar
           key: r8-8.3.37
 
-      - name: Get R8/D8
-        if: steps.r8-cache.outputs.cache-hit != 'true'
+      - name: Get R8/D8 (Manual Build)
+        if: ${{ github.event.client_payload.build_type != 'gradle' && steps.r8-cache.outputs.cache-hit != 'true' }}
         run: |
           sudo curl -L -o /opt/r8.jar https://storage.googleapis.com/r8-releases/raw/8.3.37/r8lib.jar
           test -f /opt/r8.jar
           echo "r8 ready"
 
-      - name: Cache Kotlin compiler
+      - name: Cache Kotlin compiler (Manual Build)
+        if: ${{ github.event.client_payload.build_type != 'gradle' }}
         id: kotlin-cache
         uses: actions/cache@v4
         with:
           path: /opt/kotlinc
           key: kotlinc-2.1.0
 
-      - name: Get Kotlin compiler
-        if: steps.kotlin-cache.outputs.cache-hit != 'true'
+      - name: Get Kotlin compiler (Manual Build)
+        if: ${{ github.event.client_payload.build_type != 'gradle' && steps.kotlin-cache.outputs.cache-hit != 'true' }}
         run: |
           cd /tmp
           curl -sL -o kotlinc.zip https://github.com/JetBrains/kotlin/releases/download/v2.1.0/kotlin-compiler-2.1.0.zip
@@ -139,6 +165,7 @@ jobs:
           PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
           PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
           PAYLOAD_IS_PREMIUM: ${{ github.event.client_payload.is_premium }}
+          PAYLOAD_BUILD_TYPE: ${{ github.event.client_payload.build_type }}
           PAYLOAD_REPORT_URL: ${{ github.event.client_payload.report_url }}
           PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
           PAYLOAD_KEYSTORE: ${{ secrets[format('SIGNKEY_{0}', github.event.client_payload.chat_id)] }}

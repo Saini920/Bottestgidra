@@ -37,6 +37,7 @@ SDK_ROOT = os.environ.get("PAYLOAD_SDK_ROOT", "")
 R8_JAR = os.environ.get("PAYLOAD_R8_JAR", "")
 KOTLINC_ROOT = os.environ.get("PAYLOAD_KOTLINC", "")
 KEYSTORE_JSON = os.environ.get("PAYLOAD_KEYSTORE", "")
+BUILD_TYPE = os.environ.get("PAYLOAD_BUILD_TYPE", "manual").strip().lower()
 MAX_DOWNLOAD_MB = 2000 if IS_ADMIN else 500
 
 JAVA_EXTENSIONS = {".java"}
@@ -577,6 +578,229 @@ async def build_apk_from_source(input_path: Path, work_dir: Path, on_progress, s
     return signed_apk, aligned
 
 
+async def run_gradle_tool(cmd: list, cwd: Path, on_progress, label: str, timeout: int = 86400, progress_stall: int = 1800):
+    log.info("Running Gradle: %s (cwd=%s)", " ".join(cmd), cwd)
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, cwd=str(cwd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
+    )
+    out_lines = []
+
+    async def read_stream():
+        last_activity = time.monotonic()
+        last_cpu = proc_cpu_usage(proc.pid)
+        current_pct = 25.0
+        while True:
+            if CANCELLED["v"]:
+                proc.kill()
+                raise JobCancelled()
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
+                last_activity = time.monotonic()
+            except asyncio.TimeoutError:
+                cpu = proc_cpu_usage(proc.pid)
+                if cpu > last_cpu:
+                    last_cpu = cpu
+                    last_activity = time.monotonic()
+                elif time.monotonic() - last_activity >= progress_stall:
+                    proc.kill()
+                    raise RuntimeError(f"{label} stalled: no CPU activity for {progress_stall//60} minutes")
+                continue
+            if not raw:
+                break
+            line = raw.decode(errors="replace").strip()
+            if line:
+                out_lines.append(line)
+                if len(out_lines) > 200:
+                    del out_lines[:-200]
+                if TOOL_LOG_FH is not None:
+                    try:
+                        TOOL_LOG_FH.write(line + "\n")
+                    except Exception:
+                        pass
+                
+                llow = line.lower()
+                if "> task" in llow:
+                    task_name = line.split("> Task", 1)[-1].strip()
+                    if "compile" in llow:
+                        current_pct = min(60.0, current_pct + 3.0)
+                        await on_progress(int(current_pct), f"☕ Compiling ({task_name[:30]})...")
+                    elif "kapt" in llow or "ksp" in llow:
+                        current_pct = min(50.0, current_pct + 3.0)
+                        await on_progress(int(current_pct), f"🧬 Annotation processing ({task_name[:30]})...")
+                    elif "dex" in llow or "transform" in llow:
+                        current_pct = min(75.0, current_pct + 4.0)
+                        await on_progress(int(current_pct), f"🧬 Dexing ({task_name[:30]})...")
+                    elif "merge" in llow or "res" in llow:
+                        current_pct = min(70.0, current_pct + 3.0)
+                        await on_progress(int(current_pct), f"📦 Merging resources ({task_name[:30]})...")
+                    elif "package" in llow:
+                        current_pct = min(88.0, current_pct + 5.0)
+                        await on_progress(int(current_pct), f"📦 Packaging APK ({task_name[:30]})...")
+                    elif "assemble" in llow or "sign" in llow:
+                        current_pct = min(92.0, current_pct + 2.0)
+                        await on_progress(int(current_pct), f"🔏 Assembling APK ({task_name[:30]})...")
+                    else:
+                        current_pct = min(85.0, current_pct + 1.0)
+                        await on_progress(int(current_pct), f"🐘 Gradle: {task_name[:35]}...")
+                elif "build successful" in llow:
+                    await on_progress(94, "✅ Gradle build successful!")
+        return await proc.wait()
+
+    try:
+        rc = await asyncio.wait_for(read_stream(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise TimeoutError(f"{label} timed out")
+
+    if rc != 0:
+        raise RuntimeError(f"{label} failed with exit code {rc}:\n" + "\n".join(out_lines[-40:]))
+    return "\n".join(out_lines[-40:])
+
+
+async def build_apk_from_gradle(input_path: Path, work_dir: Path, on_progress, sdk):
+    await on_progress(10, "📦 Extracting Gradle project...")
+    extract_dir = work_dir / "src"
+    extract_dir.mkdir(exist_ok=True)
+    with zipfile.ZipFile(input_path, "r") as zf:
+        zf.extractall(extract_dir)
+
+    # Search for Gradle project root
+    cands = []
+    for p in extract_dir.rglob("settings.gradle*"):
+        cands.append(p.parent)
+    for p in extract_dir.rglob("build.gradle*"):
+        cands.append(p.parent)
+    for p in extract_dir.rglob("gradlew"):
+        cands.append(p.parent)
+    if cands:
+        gradle_root = sorted(set(cands), key=lambda p: len(p.parts))[0]
+    else:
+        gradle_root = extract_dir
+
+    log.info("Identified Gradle root: %s", gradle_root)
+
+    # Configure local.properties
+    local_prop = gradle_root / "local.properties"
+    sdk_root_clean = sdk["root"].replace("\\", "/")
+    prop_lines = [f"sdk.dir={sdk_root_clean}"]
+    ndk_bin = os.environ.get("PAYLOAD_NDK_BIN", "")
+    if ndk_bin:
+        ndk_root = Path(ndk_bin).parent.parent.parent.parent
+        if ndk_root.is_dir():
+            prop_lines.append(f"ndk.dir={str(ndk_root).replace('\\', '/')}")
+    local_prop.write_text("\n".join(prop_lines) + "\n")
+
+    # Configure gradle.properties
+    gradle_props = gradle_root / "gradle.properties"
+    gp_append = (
+        "\norg.gradle.daemon=false\n"
+        "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m\n"
+        "org.gradle.parallel=true\n"
+        "android.useAndroidX=true\n"
+    )
+    if gradle_props.exists():
+        gradle_props.write_text(gradle_props.read_text(errors="replace") + gp_append)
+    else:
+        gradle_props.write_text(gp_append)
+
+    # Ensure SDK licenses
+    lic_dir = Path(sdk["root"]) / "licenses"
+    lic_dir.mkdir(parents=True, exist_ok=True)
+    (lic_dir / "android-sdk-license").write_text(
+        "24333f8a63b6825ea9c5514f83c2829b004d1fee\n"
+        "84831b9409646a918e30573bab4c9c91346d8abd\n"
+        "d56f5187479edd81e388891d122210e3785b9b8b\n"
+        "89388d6beac7883ba64e2173491f6a9f56730f13\n"
+    )
+    (lic_dir / "android-sdk-preview-license").write_text("84831b9409646a918e30573bab4c9c91346d8abd\n")
+
+    # Configure Gradle wrapper executable
+    gradlew_file = gradle_root / "gradlew"
+    if gradlew_file.exists():
+        try:
+            content = gradlew_file.read_bytes().replace(b"\r\n", b"\n")
+            gradlew_file.write_bytes(content)
+            gradlew_file.chmod(0o755)
+        except Exception as e:
+            log.warning("chmod gradlew error: %s", e)
+        gradle_exec = ["bash", "gradlew"]
+    else:
+        system_gradle = shutil.which("gradle") or "/usr/bin/gradle"
+        gradle_exec = [system_gradle]
+
+    # Run tasks: assembleRelease first, then assembleDebug or assemble
+    tasks_to_try = ["assembleRelease", "assembleDebug", "assemble"]
+    build_succeeded = False
+    last_err = ""
+
+    for task in tasks_to_try:
+        await on_progress(20, f"🐘 Running Gradle ({task})...")
+        cmd = gradle_exec + [task, "--no-daemon", "--stacktrace", "--warning-mode=none"]
+        try:
+            await run_gradle_tool(cmd, cwd=gradle_root, on_progress=on_progress, label=f"gradle {task}")
+            apks = [p for p in gradle_root.rglob("*.apk") if p.is_file() and not any(ign in p.name.lower() for ign in ["-test", "-androidtest", "unaligned"])]
+            if apks:
+                build_succeeded = True
+                break
+        except Exception as e:
+            last_err = str(e)
+            log.warning("Task %s failed: %s", task, e)
+            if task == "assembleRelease":
+                await on_progress(40, "⚠️ assembleRelease failed, trying assembleDebug...")
+
+    if not build_succeeded:
+        raise RuntimeError(f"Gradle build failed across all targets:\n{last_err}")
+
+    # Locate output APKs
+    all_apks = [p for p in gradle_root.rglob("*.apk") if p.is_file() and not any(ign in p.name.lower() for ign in ["-test", "-androidtest", "unaligned"])]
+    if not all_apks:
+        raise ValueError("Gradle build finished but no output .apk files were found.")
+
+    release_apks = [p for p in all_apks if "release" in p.name.lower()]
+    debug_apks = [p for p in all_apks if "debug" in p.name.lower()]
+    if release_apks:
+        target_apk = release_apks[0]
+    elif debug_apks:
+        target_apk = debug_apks[0]
+    else:
+        target_apk = sorted(all_apks, key=lambda p: p.stat().st_size, reverse=True)[0]
+
+    log.info("Target APK chosen: %s", target_apk)
+
+    zipalign = get_tool(sdk, "zipalign")
+    apksigner = get_tool(sdk, "apksigner")
+    if not zipalign or not apksigner:
+        raise ValueError("Android SDK build-tools missing (zipalign/apksigner required).")
+
+    # Align & Sign APK
+    await on_progress(88, "📦 Aligning and Signing APK...")
+    aligned_apk = work_dir / "aligned.apk"
+    await run_tool([zipalign, "-p", "-f", "4", str(target_apk), str(aligned_apk)], on_progress, "zipalign")
+
+    signed_apk = work_dir / "signed.apk"
+    ks_info = get_custom_keystore(work_dir)
+    if ks_info:
+        keystore, storepass, keypass, alias, ks_type = ks_info
+        await on_progress(90, "🔏 Signing with custom keystore...")
+        sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", f"pass:{storepass}",
+                    "--key-pass", f"pass:{keypass}", "--ks-key-alias", alias,
+                    "--out", str(signed_apk), str(aligned_apk)]
+        if ks_type:
+            sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-type", ks_type,
+                        "--ks-pass", f"pass:{storepass}", "--key-pass", f"pass:{keypass}",
+                        "--ks-key-alias", alias, "--out", str(signed_apk), str(aligned_apk)]
+    else:
+        await on_progress(90, "🔏 Signing with debug key...")
+        keystore = await asyncio.to_thread(make_keystore, work_dir / "debug.keystore")
+        sign_cmd = [apksigner, "sign", "--ks", str(keystore), "--ks-pass", "pass:android", "--key-pass", "pass:android",
+                    "--out", str(signed_apk), str(aligned_apk)]
+
+    await run_tool(sign_cmd, on_progress, "apksigner")
+    await run_tool([apksigner, "verify", str(signed_apk)], on_progress, "apksigner verify")
+    await on_progress(96, "✅ Gradle APK built and signed successfully!")
+    return signed_apk, target_apk
+
+
 def make_keystore(path: Path) -> Path:
     import subprocess as sp
     if not path.exists():
@@ -749,7 +973,8 @@ async def main():
         log.error("Missing env TELEGRAM_BOT_TOKEN / PAYLOAD_CHAT_ID")
         sys.exit(1)
 
-    edit("🟢 Job started! Preparing APK Build engine on cloud server...", parse_mode="HTML")
+    build_label = "Gradle" if BUILD_TYPE == "gradle" else "AndroidManifest"
+    edit(f"🟢 Job started! Preparing APK Build ({build_label}) on cloud server...", parse_mode="HTML")
 
     work_dir = Path(tempfile.gettempdir()) / ("apkbuild_" + os.urandom(8).hex())
     try:
@@ -843,7 +1068,7 @@ async def main():
             edit(f"❌ {e}", keep_button=False)
             return
 
-        edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Preparing APK build...")
+        edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Preparing APK build ({build_label})...")
 
         sdk = find_sdk()
         if not sdk["build_tools"] or not sdk["platforms"]:
@@ -858,21 +1083,27 @@ async def main():
             edit(f"{label}\n{progress_bar(pct)}")
 
         try:
-            signed_apk, unsigned_apk = await build_apk_from_source(dest, work_dir, on_progress, sdk)
-            done_msg = "✅ APK build complete!"
+            if BUILD_TYPE == "gradle":
+                signed_apk, unsigned_apk = await build_apk_from_gradle(dest, work_dir, on_progress, sdk)
+                done_msg = "✅ Gradle APK build complete!"
+            else:
+                signed_apk, unsigned_apk = await build_apk_from_source(dest, work_dir, on_progress, sdk)
+                done_msg = "✅ APK build complete!"
         except asyncio.TimeoutError:
             edit("⏰ Timeout! The source is too large to build.", keep_button=False)
             return
         except Exception as e:
-            await send_error_log(work_dir, e, "APK Build failed")
+            err_title = "Gradle Build failed" if BUILD_TYPE == "gradle" else "APK Build failed"
+            await send_error_log(work_dir, e, err_title)
             return
 
         await on_progress(100, done_msg)
         try:
-            await upload_document(signed_apk, f"✅ <b>Signed APK</b> built from source — Powered By @R3V_X")
+            type_str = "Gradle" if BUILD_TYPE == "gradle" else "Source"
+            await upload_document(signed_apk, f"✅ <b>Signed APK</b> built from {type_str} — Powered By @R3V_X")
             edit("📤 Sending unsigned APK...")
-            await upload_document(unsigned_apk, f"✅ <b>Unsigned APK</b> built from source — Powered By @R3V_X")
-            edit("✅ APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
+            await upload_document(unsigned_apk, f"✅ <b>Unsigned APK</b> built from {type_str} — Powered By @R3V_X")
+            edit(f"✅ {type_str} APK build complete! Signed + Unsigned delivered. 🔥", keep_button=False)
             if JOB_ID:
                 notify_app("FINAL_ZIP_URL:telegram_direct_upload")
         except Exception as e:
