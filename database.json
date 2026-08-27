@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-27",
-      "count": 55
+      "count": 56
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 502,
+  "total_files": 503,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -3664,8 +3664,8 @@
       "filename": "Netflix_9.80.0 build 5 64396_apks.apk",
       "engine": "apktool",
       "started": 1787850723.8221667,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33097177076,
+      "run_status": "in_progress"
     }
   }
 }
