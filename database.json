@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-27",
-      "count": 57
+      "count": 58
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 504,
+  "total_files": 505,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -3653,7 +3653,7 @@
       "engine": "apkbuild-gradle",
       "started": 1787850620.9986517,
       "run_id": 33097029535,
-      "run_status": "in_progress"
+      "run_status": "completed"
     },
     "3050": {
       "user_id": "7249511572",
@@ -3677,7 +3677,7 @@
       "engine": "jadx",
       "started": 1787850816.9094067,
       "run_id": 33097313750,
-      "run_status": "in_progress"
+      "run_status": "completed"
     },
     "3055": {
       "user_id": "7249511572",
