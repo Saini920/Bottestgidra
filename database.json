@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 536,
   "active_jobs": {
-    "2077": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 2077,
-      "filename": "GhidraStudio_Android_App (1).zip",
-      "engine": "apkbuild",
-      "started": 1786796074.7475343,
-      "run_id": 31884104768,
-      "run_status": "completed"
-    },
     "2081": {
       "user_id": "7251749429",
       "username": "R3V_X",
