@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 546,
-  "active_jobs": {
-    "3207": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3207,
-      "filename": "zip nf mod.zip",
-      "engine": "ghidra",
-      "started": 1787925268.3230183,
-      "run_id": 33177569362,
-      "run_status": "in_progress"
-    }
-  }
+  "active_jobs": {}
 }
