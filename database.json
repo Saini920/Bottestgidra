@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-28",
-      "count": 27
+      "count": 28
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 532,
+  "total_files": 533,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -4000,8 +4000,8 @@
       "filename": "Netflix Premium v9.38.0.apk",
       "engine": "apktool",
       "started": 1787903947.1684682,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33153526649,
+      "run_status": "completed"
     },
     "3158": {
       "user_id": "7249511572",
@@ -4012,8 +4012,8 @@
       "filename": "Netflix Premium v9.38.0.apk",
       "engine": "jadx",
       "started": 1787903959.0785902,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33153538805,
+      "run_status": "completed"
     }
   }
 }
