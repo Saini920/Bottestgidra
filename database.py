@@ -58,24 +58,31 @@ class RepoDB:
 
     def save(self):
         if not self.token or not self.repo: return
-        try:
-            content_str = json.dumps(self.data, indent=2)
-            content_b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
-            payload = {
-                "message": "Update database [skip ci]",
-                "content": content_b64,
-                "branch": DB_BRANCH
-            }
-            if self.file_sha:
-                payload["sha"] = self.file_sha
-            
-            r = httpx.put(f"https://api.github.com/repos/{self.repo}/contents/database.json", headers=self.headers, json=payload, timeout=10)
-            if r.status_code in (200, 201):
-                self.file_sha = r.json()["content"]["sha"]
-            else:
-                log.error(f"RepoDB save failed: {r.status_code} {r.text}")
-        except Exception as e:
-            log.error(f"RepoDB save error: {e}")
+        for attempt in range(3):
+            try:
+                content_str = json.dumps(self.data, indent=2)
+                content_b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+                payload = {
+                    "message": "Update database [skip ci]",
+                    "content": content_b64,
+                    "branch": DB_BRANCH
+                }
+                if self.file_sha:
+                    payload["sha"] = self.file_sha
+                
+                r = httpx.put(f"https://api.github.com/repos/{self.repo}/contents/database.json", headers=self.headers, json=payload, timeout=10)
+                if r.status_code in (200, 201):
+                    self.file_sha = r.json()["content"]["sha"]
+                    return
+                elif r.status_code == 409:
+                    # Conflict: Refresh file SHA and retry
+                    ref_r = httpx.get(f"https://api.github.com/repos/{self.repo}/contents/database.json?ref={DB_BRANCH}", headers=self.headers, timeout=10)
+                    if ref_r.status_code == 200:
+                        self.file_sha = ref_r.json().get("sha")
+                        continue
+                log.error(f"RepoDB save failed (attempt {attempt+1}): {r.status_code} {r.text}")
+            except Exception as e:
+                log.error(f"RepoDB save error (attempt {attempt+1}): {e}")
 
     def add_approved(self, uid: str, name: str = ""):
         if uid not in self.data["approved"]:

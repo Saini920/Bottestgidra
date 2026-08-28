@@ -33,24 +33,25 @@ jobs:
           key: dex2jar-cfr-v2
 
       - name: Get dex2jar
-        if: steps.dx-cache.outputs.cache-hit != 'true'
+        if: steps.dex2jar-cache.outputs.cache-hit != 'true'
         run: |
-          sudo rm -rf /opt/dex2jar
           sudo mkdir -p /opt/dex2jar
-          curl -L -o /tmp/dex2jar.zip https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip
-          sudo unzip -q -o /tmp/dex2jar.zip -d /tmp/dx
-          libdir=$(sudo bash -c 'find /tmp/dx -maxdepth 3 -type d -name lib | head -n1')
-          echo "libdir: $libdir"
-          sudo cp -r "$libdir" /opt/dex2jar/lib
-          ls /opt/dex2jar/lib
-          test -f /opt/dex2jar/lib/dex-tools-v2.4.jar
+          curl -L -o /tmp/d2j.zip https://github.com/pxb1988/dex2jar/releases/download/v2.4/dex-tools-v2.4.zip
+          sudo unzip -q -o /tmp/d2j.zip -d /opt/dex2jar
+          sudo chmod +x /opt/dex2jar/dex-tools-v2.4/*.sh 2>/dev/null || true
           echo "dex2jar ready"
 
-      - name: Get CFR
-        if: steps.dx-cache.outputs.cache-hit != 'true'
+      - name: Cache CFR Decompiler
+        id: cfr-cache
+        uses: actions/cache@v4
+        with:
+          path: /opt/cfr.jar
+          key: cfr-0.152
+
+      - name: Get CFR Decompiler
+        if: steps.cfr-cache.outputs.cache-hit != 'true'
         run: |
           sudo curl -L -o /opt/cfr.jar https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar
-          test -f /opt/cfr.jar
           echo "CFR ready"
 
       - name: Cache JADX (fallback)
@@ -116,4 +117,32 @@ jobs:
           python3 -m venv /tmp/venv
           /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto
           /tmp/venv/bin/python worker_dex2jar.py
+
+      - name: Report Failure to Telegram
+        if: failure()
+        env:
+          BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, httpx
+          token = os.environ.get("BOT_TOKEN")
+          chat_id = os.environ.get("CHAT_ID")
+          msg_id = os.environ.get("MESSAGE_ID")
+          if token and chat_id and msg_id:
+              try:
+                  httpx.post(
+                      f"https://api.telegram.org/bot{token}/editMessageText",
+                      data={
+                          "chat_id": chat_id,
+                          "message_id": msg_id,
+                          "text": "❌ <b>dex2jar Decompilation Failed!</b>\nWorkflow runner encountered an unexpected error during setup or execution.",
+                          "parse_mode": "HTML"
+                      },
+                      timeout=10
+                  )
+              except Exception as e:
+                  print("Failed to notify telegram:", e)
+          PYEOF
 # re-register-2026-08-06

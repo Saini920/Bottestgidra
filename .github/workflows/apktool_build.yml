@@ -5,18 +5,22 @@ on:
   repository_dispatch:
     types: [compile-apktool]
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 1440
+    timeout-minutes: 180
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Install System Dependencies
       continue-on-error: true
@@ -78,5 +82,32 @@ jobs:
         PAYLOAD_FILE_ID: ${{ github.event.client_payload.file_id }}
         API_ID: ${{ secrets.API_ID }}
         API_HASH: ${{ secrets.API_HASH }}
-
       run: python worker_apktool_build.py
+
+    - name: Report Failure to Telegram
+      if: failure()
+      env:
+        BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+        CHAT_ID: ${{ github.event.client_payload.chat_id }}
+        MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+      run: |
+        python3 - <<'PYEOF'
+        import os, httpx
+        token = os.environ.get("BOT_TOKEN")
+        chat_id = os.environ.get("CHAT_ID")
+        msg_id = os.environ.get("MESSAGE_ID")
+        if token and chat_id and msg_id:
+            try:
+                httpx.post(
+                    f"https://api.telegram.org/bot{token}/editMessageText",
+                    data={
+                        "chat_id": chat_id,
+                        "message_id": msg_id,
+                        "text": "❌ <b>Build Failed!</b>\nApktool compilation runner encountered an unexpected error.",
+                        "parse_mode": "HTML"
+                    },
+                    timeout=10
+                )
+            except Exception as e:
+                print("Failed to notify telegram:", e)
+        PYEOF

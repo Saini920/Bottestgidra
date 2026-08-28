@@ -1122,3 +1122,9 @@ if __name__ == "__main__":
         asyncio.run(main())
     except JobCancelled:
         pass
+    except Exception as e:
+        log.exception("Unhandled worker crash: %s", e)
+        try:
+            edit(f"❌ <b>Fatal Worker Error:</b> <code>{str(e)[:300]}</code>", parse_mode="HTML", keep_button=False)
+        except Exception:
+            pass

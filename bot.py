@@ -2259,6 +2259,22 @@ async def track_runs_loop():
                             if job is not None:
                                 job["run_id"] = run["id"]
                                 job["run_status"] = run.get("status", "")
+                                if run.get("status") == "completed" and (time.time() - job.get("started", 0) > 300):
+                                    ACTIVE_JOBS.pop(mid, None)
+                                    try:
+                                        db.remove_active_job(mid)
+                                    except Exception:
+                                        pass
+
+                # Clear jobs stuck for > 3 hours
+                now_ts = time.time()
+                for mid, j in list(ACTIVE_JOBS.items()):
+                    if now_ts - j.get("started", 0) > 10800:
+                        ACTIVE_JOBS.pop(mid, None)
+                        try:
+                            db.remove_active_job(mid)
+                        except Exception:
+                            pass
         except Exception as e:
             log.warning("track_runs failed: %s", e)
         await asyncio.sleep(20)
@@ -2300,12 +2316,45 @@ async def cleanup_workflows_loop(app: Application):
         await asyncio.sleep(60)  # Check every 60 seconds
 
 
+async def ensure_workflows_active_loop():
+    """Periodically check and auto-enable any disabled GitHub workflows."""
+    while True:
+        try:
+            if GITHUB_TOKEN and GITHUB_REPO:
+                headers = {
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "ghidra-bot"
+                }
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    r = await client.get(
+                        f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows",
+                        headers=headers
+                    )
+                    if r.status_code == 200:
+                        for wf in r.json().get("workflows", []):
+                            if wf.get("state") != "active":
+                                wfid = wf.get("id")
+                                wfname = wf.get("name")
+                                log.warning("Workflow '%s' (ID: %s) is %s. Auto-enabling...", wfname, wfid, wf.get("state"))
+                                resp = await client.put(
+                                    f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{wfid}/enable",
+                                    headers=headers
+                                )
+                                if resp.status_code in (200, 204):
+                                    log.info("Workflow '%s' successfully re-enabled.", wfname)
+        except Exception as e:
+            log.warning("ensure_workflows_active_loop error: %s", e)
+        await asyncio.sleep(1800)  # Check every 30 minutes
+
+
 async def post_init(app: Application):
     asyncio.create_task(queue_worker_loop())
     asyncio.create_task(subscription_checker_loop(app))
     asyncio.create_task(weekly_analytics_loop(app))
     asyncio.create_task(cleanup_workflows_loop(app))
     asyncio.create_task(track_runs_loop())
+    asyncio.create_task(ensure_workflows_active_loop())
 
 
 def main():

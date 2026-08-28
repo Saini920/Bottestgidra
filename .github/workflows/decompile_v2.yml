@@ -12,7 +12,7 @@ permissions:
 jobs:
   decompile:
     runs-on: ubuntu-latest
-    timeout-minutes: 1440
+    timeout-minutes: 180
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -100,6 +100,30 @@ jobs:
           /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto
           /tmp/venv/bin/python worker.py
 
-
-# re-register-2026-08-06
-# re-register-2026-08-06-v2
+      - name: Report Failure to Telegram
+        if: failure()
+        env:
+          BOT_TOKEN: ${{ github.event.client_payload.bot_token || secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          MESSAGE_ID: ${{ github.event.client_payload.message_id }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, httpx
+          token = os.environ.get("BOT_TOKEN")
+          chat_id = os.environ.get("CHAT_ID")
+          msg_id = os.environ.get("MESSAGE_ID")
+          if token and chat_id and msg_id:
+              try:
+                  httpx.post(
+                      f"https://api.telegram.org/bot{token}/editMessageText",
+                      data={
+                          "chat_id": chat_id,
+                          "message_id": msg_id,
+                          "text": "❌ <b>Decompilation Failed!</b>\nWorkflow runner encountered an unexpected error during setup or execution.",
+                          "parse_mode": "HTML"
+                      },
+                      timeout=10
+                  )
+              except Exception as e:
+                  print("Failed to notify telegram:", e)
+          PYEOF
