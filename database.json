@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 540,
   "active_jobs": {
-    "3156": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3156,
-      "filename": "Netflix Premium v9.38.0.apk",
-      "engine": "apktool",
-      "started": 1787903947.1684682,
-      "run_id": 33153526649,
-      "run_status": "completed"
-    },
     "3158": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
