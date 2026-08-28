@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 536,
   "active_jobs": {
-    "2491": {
-      "user_id": "7251749429",
-      "username": "R3V_X",
-      "name": "\u25e4\ud835\udde5\ud835\uddd8\ud835\udde9\u25e2 \u30c5\u300c\u13a0\u2c86\u13a0\u300d",
-      "chat_id": "7251749429",
-      "message_id": 2491,
-      "filename": "CodeLingo-Android.zip",
-      "engine": "apkbuild",
-      "started": 1787461183.0467746,
-      "run_id": 32619233162,
-      "run_status": "completed"
-    },
     "2495": {
       "user_id": "7251749429",
       "username": "R3V_X",
