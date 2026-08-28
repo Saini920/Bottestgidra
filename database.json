@@ -40,8 +40,8 @@
       "count": 1
     },
     "7251749429": {
-      "date": "2026-08-26",
-      "count": 3
+      "date": "2026-08-28",
+      "count": 1
     },
     "6684870256": {
       "date": "2026-08-16",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 535,
+  "total_files": 536,
   "active_jobs": {
     "1740": {
       "user_id": "7251749429",
@@ -4048,8 +4048,8 @@
       "filename": "libnetflixss_jni.so",
       "engine": "ghidra",
       "started": 1787910070.8583252,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33160384163,
+      "run_status": "in_progress"
     }
   }
 }
