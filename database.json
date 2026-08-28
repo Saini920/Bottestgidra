@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-28",
-      "count": 30
+      "count": 31
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 537,
+  "total_files": 538,
   "active_jobs": {
     "3152": {
       "user_id": "7249511572",
