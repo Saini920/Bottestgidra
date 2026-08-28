@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-28",
-      "count": 32
+      "count": 33
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 539,
+  "total_files": 540,
   "active_jobs": {
     "3152": {
       "user_id": "7249511572",
@@ -136,8 +136,8 @@
       "filename": "TOXIC CANARY_3.3.6.apk",
       "engine": "apktool",
       "started": 1787911248.4499617,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33161701300,
+      "run_status": "completed"
     },
     "3194": {
       "user_id": "7249511572",
@@ -148,8 +148,8 @@
       "filename": "TOXIC CANARY_3.3.6.apk",
       "engine": "jadx",
       "started": 1787911255.1651099,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33161709778,
+      "run_status": "completed"
     }
   }
 }
