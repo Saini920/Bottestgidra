@@ -138,6 +138,18 @@
       "started": 1787911248.4499617,
       "run_id": null,
       "run_status": ""
+    },
+    "3194": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3194,
+      "filename": "TOXIC CANARY_3.3.6.apk",
+      "engine": "jadx",
+      "started": 1787911255.1651099,
+      "run_id": null,
+      "run_status": ""
     }
   }
 }
