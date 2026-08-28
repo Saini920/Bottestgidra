@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 536,
   "active_jobs": {
-    "2920": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 2920,
-      "filename": "Notesapp-main (3).zip",
-      "engine": "apkbuild-gradle",
-      "started": 1787817864.5781598,
-      "run_id": 33052417707,
-      "run_status": "completed"
-    },
     "2924": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
