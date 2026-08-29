@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-29",
-      "count": 15
+      "count": 16
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 561,
+  "total_files": 562,
   "active_jobs": {
     "3261": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "PCAPdroid-master.zip",
       "engine": "apkbuild-gradle",
       "started": 1787986013.5215955,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33239296957,
+      "run_status": "in_progress"
     }
   }
 }
