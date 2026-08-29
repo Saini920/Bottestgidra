@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-29",
-      "count": 1
+      "count": 2
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 547,
+  "total_files": 548,
   "active_jobs": {
     "3219": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "Toxic-canary--main.zip",
       "engine": "apkbuild-gradle",
       "started": 1787974720.7114723,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33231919167,
+      "run_status": "in_progress"
     }
   }
 }
