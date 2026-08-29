@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 564,
-  "active_jobs": {
-    "3273": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3273,
-      "filename": "PCAPdroid-master.zip",
-      "engine": "apkbuild-gradle",
-      "started": 1787987655.7402315,
-      "run_id": null,
-      "run_status": ""
-    }
-  }
+  "active_jobs": {}
 }
