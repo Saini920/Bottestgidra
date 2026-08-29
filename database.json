@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 571,
-  "active_jobs": {}
+  "active_jobs": {
+    "3296": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3296,
+      "filename": "Toxic-canary--main.zip",
+      "engine": "apkbuild-gradle",
+      "started": 1788007264.037278,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
