@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-08-31",
-      "count": 17
+      "count": 18
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 606,
+  "total_files": 607,
   "active_jobs": {
     "3426": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "Notesapp-main (7).zip",
       "engine": "apkbuild-gradle",
       "started": 1788176608.0148177,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33388302152,
+      "run_status": "completed"
     }
   }
 }
