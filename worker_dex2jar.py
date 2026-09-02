@@ -209,22 +209,29 @@ async def run_dex2jar(file_path: Path, work_dir: Path, on_progress) -> Path:
     out_jar = work_dir / "output.jar"
 
     inputs = [str(file_path)]
-    if file_path.suffix.lower() == ".zip":
+    if zipfile.is_zipfile(file_path):
         with zipfile.ZipFile(file_path, "r") as zf:
-            names = zf.namelist()
+            names = [n for n in zf.namelist() if not n.endswith("/")]
             dex_entries = [n for n in names if n.lower().endswith(".dex")]
             if dex_entries:
                 extract_dir = work_dir / "dex_input"
-                extract_dir.mkdir(exist_ok=True)
-                for de in dex_entries:
-                    zf.extract(de, extract_dir)
-                inputs = [str(p) for p in sorted(extract_dir.rglob("*.dex"))]
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                dex_files = []
+                for idx, de in enumerate(sorted(dex_entries), start=1):
+                    target_file = extract_dir / f"classes{idx if idx > 1 else ''}.dex"
+                    with zf.open(de) as src, open(target_file, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    if target_file.exists() and target_file.stat().st_size > 0:
+                        dex_files.append(str(target_file))
+                inputs = dex_files
             elif any(n.lower().endswith(".apk") for n in names):
                 apk_files = [n for n in names if n.lower().endswith(".apk")]
                 extract_dir = work_dir / "apk_input"
-                extract_dir.mkdir(exist_ok=True)
-                zf.extract(apk_files[0], extract_dir)
-                inputs = [str(extract_dir / apk_files[0])]
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                target_apk = extract_dir / "input.apk"
+                with zf.open(apk_files[0]) as src, open(target_apk, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                inputs = [str(target_apk)]
 
     if not inputs:
         raise ValueError("No DEX files found in the input.")

@@ -196,33 +196,69 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
         raise ValueError("Could not download file from this link.")
 
 
+def count_zip_so_dex(file_path: Path) -> int:
+    if not zipfile.is_zipfile(file_path):
+        return 0
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            return sum(1 for n in zf.namelist() if n.lower().endswith((".so", ".dex")) and not n.endswith("/"))
+    except Exception:
+        return 0
+
+
+def check_zip_limits(file_path: Path):
+    if IS_ADMIN or not zipfile.is_zipfile(file_path):
+        return
+    with zipfile.ZipFile(file_path) as zf:
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
+    apks = sum(1 for n in names if n.lower().endswith(".apk"))
+    max_so_dex = 5 if IS_PREMIUM else 1
+    max_apk = 2 if IS_PREMIUM else 1
+    if so_dex > max_so_dex:
+        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+    if apks > max_apk:
+        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+
+
 def collect_dex_inputs(file_path: Path, work_dir: Path) -> list:
-    ext = Path(FILENAME).suffix.lower()
-    if ext == ".dex":
-        return [str(file_path)]
-    if ext == ".zip":
+    if zipfile.is_zipfile(file_path):
         with zipfile.ZipFile(file_path, "r") as zf:
-            dex_entries = [n for n in zf.namelist() if n.lower().endswith(".dex")]
+            dex_entries = [n for n in zf.namelist() if n.lower().endswith(".dex") and not n.endswith("/")]
         if not dex_entries:
-            raise ValueError("No .dex files found in the ZIP archive.")
+            raise ValueError("No .dex files found in the archive.")
         max_dex = MAX_DEX_PREMIUM if IS_PREMIUM else MAX_DEX_FREE
         if not IS_ADMIN and len(dex_entries) > max_dex:
-            raise ValueError(f"ZIP contains {len(dex_entries)} .dex files — max {max_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
+            raise ValueError(f"Archive contains {len(dex_entries)} .dex files — max {max_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
         extract_dir = work_dir / "dex_input"
-        extract_dir.mkdir(exist_ok=True)
+        extract_dir.mkdir(parents=True, exist_ok=True)
+        dex_files = []
         with zipfile.ZipFile(file_path, "r") as zf:
-            for de in dex_entries:
-                zf.extract(de, extract_dir)
-        return [str(p) for p in sorted(extract_dir.rglob("*.dex"))]
-    raise ValueError("Unsupported file type. Send a .dex file or a ZIP containing .dex files.")
+            for idx, de in enumerate(sorted(dex_entries), start=1):
+                clean_name = f"classes{idx if idx > 1 else ''}.dex"
+                target_file = extract_dir / clean_name
+                with zf.open(de) as src, open(target_file, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                if target_file.exists() and target_file.stat().st_size > 0:
+                    dex_files.append(str(target_file))
+        if not dex_files:
+            raise ValueError("Failed to extract valid .dex files from archive.")
+        return dex_files
+
+    # Standalone DEX file
+    if file_path.exists() and file_path.stat().st_size > 0:
+        return [str(file_path)]
+    raise ValueError("Input DEX file is missing or empty.")
 
 
 async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start: int, progress_end: int, idx: int, total: int) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         "java", "-Xmx8G",
         "-jar", BAKSMALI_JAR,
-        "disassemble", dex_path,
+        "disassemble",
         "-o", str(out_dir),
+        str(dex_path),
     ]
     log.info("Running baksmali: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
@@ -275,28 +311,6 @@ async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start
 
     if not out_dir.exists() or not any(out_dir.rglob("*.smali")):
         raise ValueError(f"No Smali output generated for {Path(dex_path).name}.")
-
-
-def check_zip_limits(file_path: Path):
-    if IS_ADMIN:
-        return
-    if Path(FILENAME).suffix.lower() != ".zip":
-        return
-    with zipfile.ZipFile(file_path) as zf:
-        names = zf.namelist()
-    so_dex = sum(1 for n in names if n.lower().endswith((".so", ".dex")))
-    apks = sum(1 for n in names if n.lower().endswith(".apk"))
-    max_so_dex = 5 if IS_PREMIUM else 1
-    max_apk = 2 if IS_PREMIUM else 1
-    if so_dex > max_so_dex:
-        raise ValueError(f"ZIP contains {so_dex} .so/.dex files — max {max_so_dex} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-    if apks > max_apk:
-        raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
-    if Path(FILENAME).suffix.lower() != ".zip":
-        return 0
-    with zipfile.ZipFile(file_path) as zf:
-        names = zf.namelist()
-    return sum(1 for n in names if n.lower().endswith((".so", ".dex")))
 
 
 def report_extra_count(extra: int):
