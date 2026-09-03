@@ -32,8 +32,8 @@
   },
   "daily_usage": {
     "7249511572": {
-      "date": "2026-08-31",
-      "count": 23
+      "date": "2026-09-03",
+      "count": 1
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,6 +53,6 @@
     }
   },
   "free_mode": false,
-  "total_files": 615,
+  "total_files": 616,
   "active_jobs": {}
 }
