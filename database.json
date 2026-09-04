@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 627,
   "active_jobs": {
-    "3493": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3493,
-      "filename": "Notesapp-main (9).zip",
-      "engine": "apkbuild-gradle",
-      "started": 1788517405.7915127,
-      "run_id": 33862995516,
-      "run_status": "in_progress"
-    },
     "3495": {
       "user_id": "7251749429",
       "username": "R3V_X",
@@ -76,8 +64,8 @@
       "filename": "MovieBox_3.0.16.0616.03.apk",
       "engine": "apktool",
       "started": 1788517605.671798,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 33863269241,
+      "run_status": "completed"
     }
   }
 }
