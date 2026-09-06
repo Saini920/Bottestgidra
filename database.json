@@ -64,20 +64,8 @@
       "filename": "WatchHub (1).zip",
       "engine": "apkbuild-gradle",
       "started": 1788674655.5377192,
-      "run_id": null,
-      "run_status": ""
-    },
-    "3530": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3530,
-      "filename": "WatchHub (1).zip",
-      "engine": "apkbuild-manual",
-      "started": 1788674664.8059475,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 34015548058,
+      "run_status": "completed"
     }
   }
 }
