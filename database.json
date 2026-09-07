@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 642,
   "active_jobs": {
-    "3544": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3544,
-      "filename": "libmmkv.so",
-      "engine": "ghidra",
-      "started": 1788770450.367879,
-      "run_id": 34101879293,
-      "run_status": "completed"
-    },
     "3547": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
@@ -76,8 +64,8 @@
       "filename": "YouTube v5.6.80.356 (LifeTime).apk",
       "engine": "apktool",
       "started": 1788770607.2975452,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 34102110263,
+      "run_status": "completed"
     },
     "3549": {
       "user_id": "7249511572",
@@ -88,8 +76,8 @@
       "filename": "YouTube v5.6.80.356 (LifeTime).apk",
       "engine": "jadx",
       "started": 1788770614.7154453,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 34102119827,
+      "run_status": "completed"
     }
   }
 }
