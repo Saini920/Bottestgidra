@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 640,
-  "active_jobs": {}
+  "active_jobs": {
+    "3544": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3544,
+      "filename": "libmmkv.so",
+      "engine": "ghidra",
+      "started": 1788770450.367879,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
