@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 644,
   "active_jobs": {
-    "3553": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3553,
-      "filename": "YouTube Lite v5.6.80.508.apk",
-      "engine": "apktool",
-      "started": 1788774960.2673736,
-      "run_id": 34108746120,
-      "run_status": "in_progress"
-    },
     "3555": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
@@ -76,8 +64,8 @@
       "filename": "libmmkv.so",
       "engine": "ghidra",
       "started": 1788775021.6992304,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 34108832316,
+      "run_status": "completed"
     }
   }
 }
