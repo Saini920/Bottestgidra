@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-09-07",
-      "count": 1
+      "count": 2
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 640,
+  "total_files": 641,
   "active_jobs": {
     "3544": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "libmmkv.so",
       "engine": "ghidra",
       "started": 1788770450.367879,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 34101879293,
+      "run_status": "completed"
     }
   }
 }
