@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 646,
-  "active_jobs": {
-    "3563": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3563,
-      "filename": "c.zip",
-      "engine": "smaliextract",
-      "started": 1788879288.8138473,
-      "run_id": 34241345492,
-      "run_status": "completed"
-    }
-  }
+  "active_jobs": {}
 }
