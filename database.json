@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-09-13",
-      "count": 2
+      "count": 3
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 650,
+  "total_files": 651,
   "active_jobs": {
     "3576": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "WatchHub.zip",
       "engine": "apkbuild-manual",
       "started": 1789320860.4053688,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 34771995604,
+      "run_status": "queued"
     }
   }
 }
