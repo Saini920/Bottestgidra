@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 666,
-  "active_jobs": {
-    "3649": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3649,
-      "filename": "Telegram Premium Clone v13.4.0 Modded by Getmodpc.apk",
-      "engine": "apktool",
-      "started": 1790000099.1020777,
-      "run_id": null,
-      "run_status": ""
-    }
-  }
+  "active_jobs": {}
 }
