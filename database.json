@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-09-21",
-      "count": 7
+      "count": 8
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 671,
+  "total_files": 672,
   "active_jobs": {
     "3658": {
       "user_id": "7249511572",
@@ -88,8 +88,8 @@
       "filename": "Telegram_Premium_Clone_v13.4.0_Modded_by_Getmodpc_apktool.zip",
       "engine": "apktool-build",
       "started": 1790004558.557844,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 35619270276,
+      "run_status": "in_progress"
     }
   }
 }
