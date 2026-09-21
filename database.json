@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 672,
   "active_jobs": {
-    "3662": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3662,
-      "filename": "Telegram_Premium_Clone_v13.4.0_Modded_by_Getmodpc_apktool.zip",
-      "engine": "apktool-build",
-      "started": 1790004287.4975235,
-      "run_id": 35618759188,
-      "run_status": "in_progress"
-    },
     "3666": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
