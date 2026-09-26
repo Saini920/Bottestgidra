@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 700,
   "active_jobs": {
-    "3759": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3759,
-      "filename": "m.zip",
-      "engine": "smaliextract",
-      "started": 1790427736.6597726,
-      "run_id": 36243825340,
-      "run_status": "completed"
-    },
     "3761": {
       "user_id": "7251749429",
       "username": "R3V_X",
@@ -76,8 +64,8 @@
       "filename": "m.zip",
       "engine": "smaliextract",
       "started": 1790427894.624937,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 36243967637,
+      "run_status": "in_progress"
     }
   }
 }
