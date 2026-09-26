@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 698,
-  "active_jobs": {
-    "3755": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3755,
-      "filename": "classes.dex",
-      "engine": "jadx",
-      "started": 1790426602.5347986,
-      "run_id": 36242817611,
-      "run_status": "completed"
-    }
-  }
+  "active_jobs": {}
 }
