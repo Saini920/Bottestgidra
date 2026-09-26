@@ -40,8 +40,8 @@
       "count": 1
     },
     "7251749429": {
-      "date": "2026-09-08",
-      "count": 2
+      "date": "2026-09-26",
+      "count": 1
     },
     "6684870256": {
       "date": "2026-08-16",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 699,
+  "total_files": 700,
   "active_jobs": {
     "3759": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "m.zip",
       "engine": "smaliextract",
       "started": 1790427736.6597726,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 36243825340,
+      "run_status": "completed"
     }
   }
 }
