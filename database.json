@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 694,
-  "active_jobs": {}
+  "active_jobs": {
+    "3744": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3744,
+      "filename": "WatchHub.zip",
+      "engine": "apkbuild-gradle",
+      "started": 1790414464.1933773,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
