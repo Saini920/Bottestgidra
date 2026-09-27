@@ -780,7 +780,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• ⚙️ <b>C/C++ Compile:</b> .c / .cpp / ZIP → Android ARM64 .so (⭐ Premium only)\n"
         "• 📦 <b>APK Build (Source):</b> Real source ZIP → signed + unsigned APK (Java/Kotlin + NDK C/C++ → multi-ABI .so, ⭐ Premium)\n"
         "• 🔏 <b>APK Sign:</b> Re-sign any APK (v1+v2, choose Android 5–16, use your custom key if set) (⭐ Premium)\n"
-        "• 📄 <b>PDF → TXT:</b> Convert PDF (or ZIP of PDFs) → plain text (Free ≤30 MB, Premium ≤300 MB)\n\n"
+        "• 📄 <b>PDF → TXT:</b> Convert PDF (or ZIP of PDFs) → plain text (Free ≤30 MB, Premium ≤300 MB)\n"
+        "• 🎨 <b>Res Decode:</b> Decompile Android <code>res/</code> folder & binary XMLs inside ZIP to plain readable XML\n\n"
         "📊 <b>BOT LIMITS & RULES:</b>\n"
         "• <b>Upload Limits:</b> .so/.dex — Free 30 MB, Premium 100 MB | APK/ZIP — Free 200 MB, Premium 500 MB\n"
         "• <b>JADX/dex2jar Limits:</b> APK/ZIP — Free up to 30 MB, Premium up to 100 MB\n"
@@ -812,7 +813,7 @@ async def cancel_github_job(chat_id, msg_id):
     }
     # Run names: {prefix}-{chat_id}-{message_id}
     chat_s, msg_s = str(chat_id), str(msg_id)
-    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign", "pdftxt"]
+    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign", "pdftxt", "resdecode"]
     async with httpx.AsyncClient(timeout=30.0) as client:
         for status in ["in_progress", "queued"]:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}"
@@ -999,6 +1000,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         min_sdk = engine.split("-")[1] if "-" in engine else ""
     elif engine == "pdftxt":
         event_type = "pdf-to-txt"
+    elif engine == "resdecode":
+        event_type = "res-decode"
     else:
         event_type = "decompile-job"
         
@@ -1051,6 +1054,7 @@ async def inspect_zip_archive(tg_file_path: str = "", file_id: str = "", file_ur
         "has_java": False,
         "has_cc": False,
         "has_pdf": False,
+        "has_res": False,
         "inspected": False,
     }
     tmp_path = None
@@ -1088,6 +1092,7 @@ async def inspect_zip_archive(tg_file_path: str = "", file_id: str = "", file_ur
             info["has_java"] = any(n.lower().endswith(('.java', '.kt', '.jar', '.class')) for n in names)
             info["has_cc"] = any(n.lower().endswith(('.c', '.cpp', '.cc', '.cxx', '.h', '.hpp')) for n in names)
             info["has_pdf"] = any(n.lower().endswith('.pdf') for n in names)
+            info["has_res"] = any(re.search(r'(^|/)(res/|res$)', n, re.I) or (n.lower().endswith('.xml') and not re.search(r'(build\.gradle|pom\.xml)', n, re.I)) for n in names)
             info["inspected"] = True
     except Exception as e:
         log.warning("inspect_zip_archive error: %s", e)
@@ -1290,6 +1295,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_d2j = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
 
             btn_decode = InlineKeyboardButton("🧩 Decode .dex → Smali", callback_data=f"decode_smali_{job_id}")
+            btn_resdecode = InlineKeyboardButton("🎨 Decode Res Folder", callback_data=f"engine_resdecode_{job_id}")
 
             pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
             if user_id in ADMIN_IDS or (doc.file_size or 0) <= pdf_limit_mb * 1024 * 1024:
@@ -1310,6 +1316,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
                         [btn_build_manual, btn_build_gradle],
+                        [btn_resdecode],
                         [btn_ghidra],
                         [btn_jadx, btn_d2j],
                         [btn_decode, btn_compile],
@@ -1329,6 +1336,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
                         [btn_build_gradle, btn_build_manual],
+                        [btn_resdecode],
                         [btn_ghidra],
                         [btn_jadx, btn_d2j],
                         [btn_decode, btn_compile],
@@ -1347,6 +1355,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
                         [btn_build_manual],
+                        [btn_resdecode],
                         [btn_ghidra],
                         [btn_jadx, btn_d2j],
                         [btn_decode, btn_compile],
@@ -1355,9 +1364,28 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         [btn_pdf],
                     ])
                 )
+            elif zip_info.get("has_res", False):
+                await status.edit_text(
+                    "🎨 <b>Android Resources / Res Folder Detected!</b>\n"
+                    "Found <code>res/</code> folder or compiled XML files in your archive.\n\n"
+                    "• 🎨 <b>Decode Res Folder:</b> Convert all compiled binary XMLs (layouts, drawables, menus) to readable plain XMLs.\n\n"
+                    "Choose your processing engine:",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_resdecode],
+                        [btn_ghidra],
+                        [btn_jadx, btn_d2j],
+                        [btn_decode, btn_compile],
+                        [btn_so],
+                        [btn_build_src],
+                        [btn_build_apktool],
+                        [btn_pdf]
+                    ])
+                )
             else:
                 await status.edit_text(
                     "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
+                    "• 🎨 <b>Decode Res:</b> Decompile binary XMLs & resources in ZIP\n"
                     "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
                     "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
                     "• 🧬 <b>dex2jar:</b> DEX → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
@@ -1369,6 +1397,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "• 📄 <b>PDF → TXT:</b> Convert PDFs inside ZIP to text (Free ≤30 MB, Premium ≤300 MB)",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
+                        [btn_resdecode],
                         [btn_ghidra],
                         [btn_jadx, btn_d2j],
                         [btn_decode, btn_compile],
@@ -1939,7 +1968,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def parse_run_name(run_name: str):
     import re as _re
-    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt)-(-?\d+)-(\d+)$", run_name or "")
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt|resdecode)-(-?\d+)-(\d+)$", run_name or "")
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
@@ -1962,6 +1991,7 @@ ENGINE_LABELS = {
     "apkbuild-gradle": "📦 APK Build (Gradle)",
     "apksign": "🔏 APK Signer",
     "pdftxt": "📄 PDF → TXT",
+    "resdecode": "🎨 Res Decoder",
 }
 TASK_LABELS = {
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
@@ -1979,6 +2009,7 @@ TASK_LABELS = {
     "apkbuild-gradle": "Gradle project → APK (assembleRelease)",
     "apksign": "Re-sign APK (v1+v2)",
     "pdftxt": "PDF → TXT conversion (poppler-utils)",
+    "resdecode": "Decode Android Res Folder (Binary XMLs & Resources)",
 }
 
 
