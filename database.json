@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 701,
-  "active_jobs": {}
+  "active_jobs": {
+    "3764": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3764,
+      "filename": "\ud835\ude3e\ud835\ude56\ud835\ude65\ud835\ude3e\ud835\ude6a\ud835\ude69_\ud835\ude4b\ud835\ude67\ud835\ude64_\ud835\ude6b19_6_0_\ud835\ude47\ud835\ude5e\ud835\ude5b\ud835\ude5a\ud835\ude69\ud835\ude5e\ud835\ude62\ud835\ude5a_@\ud835\ude62\ud835\ude6d\ud835\ude56\ud835\ude65\ud835\ude60.apk",
+      "engine": "apktool",
+      "started": 1790487665.86827,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
