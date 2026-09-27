@@ -7,6 +7,7 @@ __pycache__/
 .env
 .env.*
 *.env
+env
 
 # Local TG session bootstrap (sessions live in GitHub secret TG_SESSIONS_B64)
 sessions/
