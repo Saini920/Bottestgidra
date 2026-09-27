@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 702,
-  "active_jobs": {
-    "3767": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3767,
-      "filename": "CapCut_patched_v3.apk",
-      "engine": "apktool",
-      "started": 1790498829.7299619,
-      "run_id": null,
-      "run_status": ""
-    }
-  }
+  "active_jobs": {}
 }
