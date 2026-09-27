@@ -20,15 +20,19 @@ log.info("ghidra-bot %s starting (GitHub Actions worker)", SCRIPT_VERSION)
 import json
 from pathlib import Path
 
-for fname in [".env", "env"]:
-    env_file = Path(__file__).parent / fname
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip())
-        break
+for base_dir in [Path(__file__).parent, Path(__file__).parent.parent]:
+    for fname in [".env", "env"]:
+        env_file = base_dir / fname
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k:
+                        os.environ[k] = v
+            break
 
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
@@ -51,7 +55,7 @@ KEY_STATE = {}  # {chat_id: state_str}
 KEY_TEMP_DATA = {}  # {chat_id: {"keystore_b64": ...}}
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "Saini920/Bottestgidra")
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "")
 GITHUB_EVENT = os.environ.get("GITHUB_EVENT", "decompile-job")
 
 from database import RepoDB
@@ -862,6 +866,8 @@ def get_report_url() -> str:
 async def trigger_github(file_url: str, chat_id: int, message_id: int, filename: str, tg_file_path: str = "", is_admin: bool = False, event_type: str = GITHUB_EVENT, file_id: str = "", original_msg_id: int = 0, is_premium: bool = False, min_sdk: str = "", build_type: str = ""):
     if not GITHUB_TOKEN:
         return False, 0, "GITHUB_TOKEN env missing"
+    if not GITHUB_REPO:
+        return False, 0, "GITHUB_REPO env missing (e.g. username/repository)"
     client_payload = {
         "chat_id": str(chat_id),
         "message_id": str(message_id),
@@ -965,8 +971,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         
     if not GITHUB_TOKEN:
         await status.edit_text(
-            "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b> on Railway.\n"
-            "Set it in Railway Dashboard → Variables, then Redeploy.\n"
+            "❌ GitHub trigger failed: <b>GITHUB_TOKEN env missing</b>.\n"
+            "Set it in Telegram Controller → ⚙️ ENV Dashboard.\n"
             "Powered By @R3V_X",
             parse_mode=constants.ParseMode.HTML,
         )
@@ -1014,9 +1020,9 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
             "❌ GitHub trigger failed (HTTP <code>{code}</code>).\n"
             "Repo: <code>{repo}</code>\n"
             "Response: <code>{body}</code>\n\n"
-            "Fix: Railway → Variables → check <code>GITHUB_TOKEN</code> (repo scope) "
-            "and <code>GITHUB_REPO</code> (should be <code>Saini920/Bottestgidra</code>), then Redeploy.".format(
-                code=code, repo=GITHUB_REPO, body=body
+            "Fix: Check <code>GITHUB_TOKEN</code> (repo scope) "
+            "and <code>GITHUB_REPO</code> in ⚙️ ENV Dashboard.".format(
+                code=code, repo=GITHUB_REPO or "Not set", body=body
             ),
             parse_mode=constants.ParseMode.HTML,
         )
