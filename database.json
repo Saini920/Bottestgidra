@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-09-28",
-      "count": 5
+      "count": 6
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 710,
+  "total_files": 711,
   "active_jobs": {
     "3811": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "arm64-v8a (1).zip",
       "engine": "ghidra",
       "started": 1790571133.9120965,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 36379497073,
+      "run_status": "in_progress"
     }
   }
 }
