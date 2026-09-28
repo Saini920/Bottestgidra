@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 709,
-  "active_jobs": {}
+  "active_jobs": {
+    "3806": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3806,
+      "filename": "libhttp.t.me.DSModsOfficial.so",
+      "engine": "ghidra",
+      "started": 1790569952.6054502,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
