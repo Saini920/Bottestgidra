@@ -6,10 +6,16 @@ import java.util.List;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressIterator;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Instruction;
+import ghidra.program.model.mem.Memory;
+import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
 
@@ -58,6 +64,87 @@ public class DecompileAll extends GhidraScript {
         }
         meta.close();
 
+        // 1. Direct Disassembly and Function Recovery in executable blocks
+        println("FAST_DISASSEMBLY_START");
+        int txId = currentProgram.startTransaction("DecompileAll Fast Disassembly");
+        try {
+            Memory memory = currentProgram.getMemory();
+            AddressSet executableSet = new AddressSet();
+            for (MemoryBlock block : memory.getBlocks()) {
+                if (block.isExecute() && !block.isOverlay()) {
+                    executableSet.add(block.getStart(), block.getEnd());
+                }
+            }
+
+            // A. External Entry Points
+            AddressIterator entryPoints = currentProgram.getSymbolTable().getExternalEntryPointIterator();
+            while (entryPoints.hasNext()) {
+                Address ep = entryPoints.next();
+                if (executableSet.contains(ep)) {
+                    try {
+                        disassemble(ep);
+                        if (getFunctionAt(ep) == null) {
+                            createFunction(ep, null);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            // B. Exported and local symbols in executable memory
+            SymbolIterator symIt = currentProgram.getSymbolTable().getAllSymbols(true);
+            while (symIt.hasNext()) {
+                Symbol s = symIt.next();
+                Address addr = s.getAddress();
+                if (executableSet.contains(addr)) {
+                    try {
+                        disassemble(addr);
+                        if (getFunctionAt(addr) == null) {
+                            createFunction(addr, s.getName());
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            // C. Fast sweep executable blocks to partition remaining code into functions
+            for (MemoryBlock block : memory.getBlocks()) {
+                if (!block.isExecute() || block.isOverlay()) continue;
+                Address curr = block.getStart();
+                Address end = block.getEnd();
+                try {
+                    disassemble(curr);
+                } catch (Exception ignored) {}
+
+                while (curr != null && curr.compareTo(end) <= 0) {
+                    Instruction inst = getInstructionAt(curr);
+                    if (inst == null) {
+                        try {
+                            disassemble(curr);
+                            inst = getInstructionAt(curr);
+                        } catch (Exception ignored) {}
+                    }
+                    if (inst != null) {
+                        Address iAddr = inst.getAddress();
+                        Function f = getFunctionAt(iAddr);
+                        if (f == null) {
+                            try {
+                                f = createFunction(iAddr, null);
+                            } catch (Exception ignored) {}
+                        }
+                        if (f != null && f.getBody() != null && f.getBody().getMaxAddress() != null) {
+                            curr = f.getBody().getMaxAddress().next();
+                        } else {
+                            curr = inst.getMaxAddress().next();
+                        }
+                    } else {
+                        curr = curr.next();
+                    }
+                }
+            }
+        } finally {
+            currentProgram.endTransaction(txId, true);
+        }
+
+        // 2. Decompile all discovered functions
         DecompInterface decomp = new DecompInterface();
         decomp.openProgram(currentProgram);
 
@@ -66,38 +153,6 @@ public class DecompileAll extends GhidraScript {
         for (Function f : fm.getFunctions(true)) {
             funcs.add(f);
         }
-
-        if (funcs.isEmpty()) {
-            println("DecompileAll: No functions found from auto-analysis, recovering from symbols and entry points...");
-            try {
-                ghidra.program.model.address.AddressIterator entryPoints = currentProgram.getSymbolTable().getExternalEntryPointIterator();
-                while (entryPoints.hasNext()) {
-                    ghidra.program.model.address.Address addr = entryPoints.next();
-                    try {
-                        createFunction(addr, null);
-                    } catch (Exception ignored) {}
-                }
-            } catch (Exception ignored) {}
-
-            try {
-                ghidra.program.model.symbol.SymbolIterator symIt = currentProgram.getSymbolTable().getAllSymbols(true);
-                while (symIt.hasNext()) {
-                    ghidra.program.model.symbol.Symbol s = symIt.next();
-                    if (s.getSymbolType() == ghidra.program.model.symbol.SymbolType.FUNCTION ||
-                        s.getSymbolType() == ghidra.program.model.symbol.SymbolType.LABEL) {
-                        try {
-                            createFunction(s.getAddress(), s.getName());
-                        } catch (Exception ignored) {}
-                    }
-                }
-            } catch (Exception ignored) {}
-
-            for (Function f : fm.getFunctions(true)) {
-                funcs.add(f);
-            }
-            println("DecompileAll: Recovered " + funcs.size() + " functions.");
-        }
-
         funcs.sort((a, b) -> a.getEntryPoint().compareTo(b.getEntryPoint()));
 
         PrintWriter out = new PrintWriter(new FileWriter(cFile));
@@ -112,10 +167,9 @@ public class DecompileAll extends GhidraScript {
         int done = 0;
         int lastPrinted = -1;
         int sinceReset = 0;
+        println("DECOMP_PROGRESS 0/" + total);
+
         for (Function f : funcs) {
-            // The native decompiler holds memory per function that is only freed on dispose().
-            // For huge binaries (large .so), periodically recreate the interface so RSS does
-            // not climb until the runner OOM-kills the whole process (empty .c output).
             if (sinceReset >= 1500) {
                 decomp.dispose();
                 decomp = new DecompInterface();

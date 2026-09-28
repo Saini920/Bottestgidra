@@ -235,10 +235,9 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         str(project_dir),
         "Proj",
         "-overwrite",
-        "-scriptPath", str(SCRIPT_DIR),
-        "-analysisTimeoutPerFile", "120",
-        "-preScript", "DisableCallFixup.java",
         "-import", str(file_path),
+        "-noanalysis",
+        "-scriptPath", str(SCRIPT_DIR),
         "-postScript", "DecompileAll.java",
         str(out_c), str(out_meta),
         "-deleteProject",
@@ -275,8 +274,9 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
             tail.append(line)
             del tail[:-250]
             low = line.lower()
-            m_an = re.search(r"Analyzing\s+([^.]+)\.\.\.", line, re.I)
-            if m_an:
+            if "fast_disassembly_start" in low:
+                await on_progress(20, "⚡ Fast mapping & disassembling binary functions...")
+            elif m_an := re.search(r"Analyzing\s+([^.]+)\.\.\.", line, re.I):
                 an_name = m_an.group(1).strip()
                 await on_progress(20, f"🔧 Analyzing: {an_name}...")
             elif "analyzing" in low or "processing" in low:
