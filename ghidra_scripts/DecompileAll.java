@@ -66,6 +66,38 @@ public class DecompileAll extends GhidraScript {
         for (Function f : fm.getFunctions(true)) {
             funcs.add(f);
         }
+
+        if (funcs.isEmpty()) {
+            println("DecompileAll: No functions found from auto-analysis, recovering from symbols and entry points...");
+            try {
+                ghidra.program.model.address.AddressIterator entryPoints = currentProgram.getSymbolTable().getExternalEntryPointIterator();
+                while (entryPoints.hasNext()) {
+                    ghidra.program.model.address.Address addr = entryPoints.next();
+                    try {
+                        createFunction(addr, null);
+                    } catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {}
+
+            try {
+                ghidra.program.model.symbol.SymbolIterator symIt = currentProgram.getSymbolTable().getAllSymbols(true);
+                while (symIt.hasNext()) {
+                    ghidra.program.model.symbol.Symbol s = symIt.next();
+                    if (s.getSymbolType() == ghidra.program.model.symbol.SymbolType.FUNCTION ||
+                        s.getSymbolType() == ghidra.program.model.symbol.SymbolType.LABEL) {
+                        try {
+                            createFunction(s.getAddress(), s.getName());
+                        } catch (Exception ignored) {}
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            for (Function f : fm.getFunctions(true)) {
+                funcs.add(f);
+            }
+            println("DecompileAll: Recovered " + funcs.size() + " functions.");
+        }
+
         funcs.sort((a, b) -> a.getEntryPoint().compareTo(b.getEntryPoint()));
 
         PrintWriter out = new PrintWriter(new FileWriter(cFile));

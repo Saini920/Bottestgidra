@@ -236,7 +236,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         "Proj",
         "-overwrite",
         "-scriptPath", str(SCRIPT_DIR),
-        "-analysisTimeoutPerFile", "180",
+        "-analysisTimeoutPerFile", "120",
         "-preScript", "DisableCallFixup.java",
         "-import", str(file_path),
         "-postScript", "DecompileAll.java",
@@ -262,10 +262,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
                 if raw:
                     last_output_time = time.monotonic()
             except asyncio.TimeoutError:
-                # If Ghidra produces zero stdout for 15 minutes, it is frozen in a silent loop
-                if time.monotonic() - last_output_time >= 900:
+                # If Ghidra produces zero stdout for 3 minutes, it is frozen in a silent loop
+                if time.monotonic() - last_output_time >= 180:
                     proc.kill()
-                    raise RuntimeError("Ghidra stalled: no output for 15 minutes")
+                    raise RuntimeError("Ghidra stalled: no output for 3 minutes")
                 continue
             if not raw:
                 break
