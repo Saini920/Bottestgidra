@@ -220,7 +220,7 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
         raise ValueError("Could not download file from this link.")
 
 
-async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callfixup: bool = False) -> dict:
+async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callfixup: bool = True) -> dict:
     project_dir = work_dir / "project"
     if project_dir.exists():
         # Crash-retry reuses the same work_dir; a stale project dir from the
@@ -235,16 +235,14 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         str(project_dir),
         "Proj",
         "-overwrite",
-    ]
-    if disable_callfixup:
-        cmd.extend(["-preScript", "DisableCallFixup"])
-    cmd.extend([
+        "-analysisTimeoutPerFile", "600",
+        "-preScript", "DisableCallFixup.java",
         "-import", str(file_path),
         "-scriptPath", str(SCRIPT_DIR),
         "-postScript", "DecompileAll.java",
         str(out_c), str(out_meta),
         "-deleteProject",
-    ])
+    ]
     log.info("Running: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -254,23 +252,20 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
     await on_progress(5, "📥 Importing file into Ghidra...")
 
     async def read_stream():
-        last_activity = time.monotonic()
-        last_cpu = proc_cpu_usage(proc.pid)
+        last_output_time = time.monotonic()
         while True:
             if CANCELLED["v"]:
                 proc.kill()
                 raise JobCancelled()
             try:
-                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=60)
-                last_activity = time.monotonic()
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
+                if raw:
+                    last_output_time = time.monotonic()
             except asyncio.TimeoutError:
-                cpu = proc_cpu_usage(proc.pid)
-                if cpu > last_cpu:
-                    last_cpu = cpu
-                    last_activity = time.monotonic()
-                elif time.monotonic() - last_activity >= 1800:
+                # If Ghidra produces zero stdout for 15 minutes, it is frozen in a silent loop
+                if time.monotonic() - last_output_time >= 900:
                     proc.kill()
-                    raise RuntimeError("Ghidra stalled: no CPU activity for 30 minutes")
+                    raise RuntimeError("Ghidra stalled: no output for 15 minutes")
                 continue
             if not raw:
                 break
@@ -278,7 +273,11 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
             tail.append(line)
             del tail[:-250]
             low = line.lower()
-            if "analyzing" in low or "processing" in low:
+            m_an = re.search(r"Analyzing\s+([^.]+)\.\.\.", line, re.I)
+            if m_an:
+                an_name = m_an.group(1).strip()
+                await on_progress(20, f"🔧 Analyzing: {an_name}...")
+            elif "analyzing" in low or "processing" in low:
                 await on_progress(20, "🔧 Analyzing binary with Ghidra...")
             m = re.search(r"DECOMP_PROGRESS\s+(\d+)/(\d+)", line)
             if m:
@@ -288,10 +287,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=86400)
+        rc = await asyncio.wait_for(read_stream(), timeout=2400)
     except asyncio.TimeoutError:
         proc.kill()
-        raise TimeoutError("Ghidra analysis timed out")
+        raise TimeoutError("Ghidra analysis timed out after 40 minutes")
     log.info("analyzeHeadless exit=%s", rc)
     tail_txt = "\n".join(tail[-50:])
     if rc != 0:
@@ -530,7 +529,7 @@ async def main():
                     for attempt in (1, 2):
                         try:
                             res = await asyncio.wait_for(
-                                run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress, disable_callfixup=(attempt == 2)), timeout=86400
+                                run_ghidra(bin_path, work_dir / f"analysis_{idx}", on_progress, disable_callfixup=True), timeout=2400
                             )
                             bname = bin_path.stem
                             if res["c"].exists() and res["c"].stat().st_size > 0:
@@ -540,7 +539,7 @@ async def main():
                             break
                         except RuntimeError as e:
                             if attempt == 1:
-                                log.warning("Batch file %s crashed, retrying with CallFixupAnalyzer disabled: %s", bin_path.name, e)
+                                log.warning("Batch file %s failed, retrying clean: %s", bin_path.name, e)
                                 continue
                             log.warning("Batch file %s failed: %s", bin_path.name, e)
                             break
@@ -555,13 +554,13 @@ async def main():
                 for attempt in (1, 2):
                     try:
                         result = await asyncio.wait_for(
-                            run_ghidra(dest, work_dir / "analysis", on_progress, disable_callfixup=(attempt == 2)), timeout=86400
+                            run_ghidra(dest, work_dir / "analysis", on_progress, disable_callfixup=True), timeout=2400
                         )
                         break
                     except RuntimeError as e:
                         if attempt == 1:
                             first_err = str(e)
-                            log.warning("Ghidra crashed, retrying with CallFixupAnalyzer disabled: %s", e)
+                            log.warning("Ghidra run failed, retrying clean: %s", e)
                             continue
                         raise RuntimeError(
                             f"Both attempts failed.\n[1st] {first_err}\n[2nd] {e}"

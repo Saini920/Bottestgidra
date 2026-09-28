@@ -92,11 +92,12 @@ public class DecompileAll extends GhidraScript {
                 System.gc();
             }
             out.println("// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------");
-            DecompileResults res = decomp.decompileFunction(f, 120, null);
+            DecompileResults res = decomp.decompileFunction(f, 45, null);
             if (res != null && res.decompileCompleted()) {
                 out.println(res.getDecompiledFunction().getC());
             } else {
-                out.println("/* [FAILED] could not decompile " + f.getName() + " */");
+                String errMsg = (res != null && res.getErrorMessage() != null) ? " (" + res.getErrorMessage() + ")" : "";
+                out.println("/* [FAILED] could not decompile " + f.getName() + errMsg + " */");
             }
             done++;
             sinceReset++;
