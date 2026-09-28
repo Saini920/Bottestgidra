@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 710,
-  "active_jobs": {}
+  "active_jobs": {
+    "3811": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3811,
+      "filename": "arm64-v8a (1).zip",
+      "engine": "ghidra",
+      "started": 1790571133.9120965,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
