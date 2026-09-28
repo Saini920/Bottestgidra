@@ -235,10 +235,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         str(project_dir),
         "Proj",
         "-overwrite",
-        "-analysisTimeoutPerFile", "600",
+        "-scriptPath", str(SCRIPT_DIR),
+        "-analysisTimeoutPerFile", "180",
         "-preScript", "DisableCallFixup.java",
         "-import", str(file_path),
-        "-scriptPath", str(SCRIPT_DIR),
         "-postScript", "DecompileAll.java",
         str(out_c), str(out_meta),
         "-deleteProject",
@@ -270,6 +270,8 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
+            if line:
+                log.info("[Ghidra] %s", line)
             tail.append(line)
             del tail[:-250]
             low = line.lower()
