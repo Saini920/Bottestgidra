@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 713,
-  "active_jobs": {
-    "3819": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3819,
-      "filename": "classes30.dex",
-      "engine": "smali",
-      "started": 1790595302.575051,
-      "run_id": null,
-      "run_status": ""
-    }
-  }
+  "active_jobs": {}
 }
