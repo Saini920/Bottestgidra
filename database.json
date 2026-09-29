@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-09-29",
-      "count": 3
+      "count": 4
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 716,
+  "total_files": 717,
   "active_jobs": {
     "3828": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "libhttp.t.me.KingOfModders.so",
       "engine": "ghidra",
       "started": 1790661995.0633132,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 36529402188,
+      "run_status": "in_progress"
     }
   }
 }
