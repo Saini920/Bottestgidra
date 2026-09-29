@@ -298,7 +298,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
             m = re.search(r"DECOMP_PROGRESS\s+(\d+)/(\d+)", line)
             if m:
                 done, total = int(m.group(1)), int(m.group(2))
-                pct = int(20 + 75 * (done / total)) if total else 20
+                pct = round(20.0 + 75.0 * (done / total), 2) if total else 20.0
                 await on_progress(pct, f"🧠 Decompiling functions {done}/{total}...")
         return await proc.wait()
 
@@ -497,11 +497,11 @@ async def main():
         edit(f"📥 Downloaded {size/1024/1024:.1f} MB! Starting Ghidra analysis...")
 
         start_t = time.monotonic()
-        last = [0, "", 0.0]
+        last = [0.0, "", 0.0]
 
-        async def on_progress(pct: int, label: str = "🧠 Analyzing..."):
+        async def on_progress(pct: float, label: str = "🧠 Analyzing..."):
             now = time.monotonic()
-            if pct - last[0] < 5 and label == last[1] and now - last[2] < 60:
+            if now - last[2] < 3.5 and pct < 99.0 and (label == last[1] or pct - last[0] < 0.5):
                 return
             last[0], last[1], last[2] = pct, label, now
             mins = int((now - start_t) // 60)

@@ -102,13 +102,21 @@ public class DecompileAll extends GhidraScript {
 
         List<Function> funcs = new ArrayList<>();
         for (Function f : fm.getFunctions(true)) {
-            funcs.add(f);
+            if (!f.isExternal()) {
+                funcs.add(f);
+            }
         }
         funcs.sort((a, b) -> a.getEntryPoint().compareTo(b.getEntryPoint()));
         println("DecompileAll: Total functions to decompile: " + funcs.size());
 
-        // 2. Decompile all discovered functions
+        // 2. Configure decompiler with 10s timeout per function
         DecompInterface decomp = new DecompInterface();
+        ghidra.app.decompiler.DecompileOptions options = new ghidra.app.decompiler.DecompileOptions();
+        try {
+            options.grabFromProgram(currentProgram);
+        } catch (Exception ignored) {}
+        options.setDefaultTimeout(10);
+        decomp.setOptions(options);
         decomp.openProgram(currentProgram);
 
         PrintWriter out = new PrintWriter(new FileWriter(cFile));
@@ -121,22 +129,38 @@ public class DecompileAll extends GhidraScript {
 
         int total = funcs.size();
         int done = 0;
-        int lastPrinted = -1;
         int sinceReset = 0;
         println("DECOMP_PROGRESS 0/" + total);
 
         for (Function f : funcs) {
             // Reset decompiler interface periodically to prevent memory leaks / high RSS on large binaries
-            if (sinceReset >= 1000) {
+            if (sinceReset >= 800) {
                 decomp.dispose();
                 decomp = new DecompInterface();
+                decomp.setOptions(options);
                 decomp.openProgram(currentProgram);
                 sinceReset = 0;
                 System.gc();
             }
 
             out.println("// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------");
-            DecompileResults res = decomp.decompileFunction(f, 30, null);
+
+            // Fast path for PLT / thunk functions
+            if (f.isThunk()) {
+                Function thunked = f.getThunkedFunction(true);
+                String target = (thunked != null) ? thunked.getName() : "unknown";
+                out.println("// [THUNK] jumps to " + target);
+                out.println("");
+                done++;
+                sinceReset++;
+                if (done % 20 == 0 || done == total) {
+                    out.flush();
+                    println("DECOMP_PROGRESS " + done + "/" + total);
+                }
+                continue;
+            }
+
+            DecompileResults res = decomp.decompileFunction(f, 10, null);
             if (res != null && res.decompileCompleted()) {
                 out.println(res.getDecompiledFunction().getC());
             } else {
@@ -146,13 +170,9 @@ public class DecompileAll extends GhidraScript {
             done++;
             sinceReset++;
 
-            if (done % 25 == 0 || done == total) {
+            if (done % 20 == 0 || done == total) {
                 out.flush();
-                int pct = (total == 0) ? 100 : (done * 100) / total;
-                if (pct != lastPrinted) {
-                    println("DECOMP_PROGRESS " + done + "/" + total);
-                    lastPrinted = pct;
-                }
+                println("DECOMP_PROGRESS " + done + "/" + total);
             }
         }
         out.close();
