@@ -16,10 +16,8 @@ import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
-import ghidra.program.model.symbol.SymbolType;
 
 public class DecompileAll extends GhidraScript {
 
@@ -66,14 +64,13 @@ public class DecompileAll extends GhidraScript {
         }
         meta.close();
 
-        // 1. Ensure all discovered functions and any unmapped entry points / symbols are registered
+        // 1. Ensure external entry points are registered as functions if missing
         FunctionManager fm = currentProgram.getFunctionManager();
         int initialCount = fm.getFunctionCount();
         println("DecompileAll: Functions found by auto-analysis: " + initialCount);
 
-        int txId = currentProgram.startTransaction("DecompileAll Ensure Functions");
+        int txId = currentProgram.startTransaction("DecompileAll Ensure Entry Points");
         try {
-            // A. External Entry Points
             AddressIterator entryPoints = currentProgram.getSymbolTable().getExternalEntryPointIterator();
             while (entryPoints.hasNext()) {
                 Address ep = entryPoints.next();
@@ -81,23 +78,6 @@ public class DecompileAll extends GhidraScript {
                     try {
                         createFunction(ep, null);
                     } catch (Exception ignored) {}
-                }
-            }
-
-            // B. Exported and local function/label symbols in executable memory
-            SymbolIterator symIt = currentProgram.getSymbolTable().getAllSymbols(true);
-            while (symIt.hasNext()) {
-                Symbol s = symIt.next();
-                Address addr = s.getAddress();
-                MemoryBlock block = currentProgram.getMemory().getBlock(addr);
-                if (block != null && block.isExecute() && !block.isOverlay()) {
-                    if (s.getSymbolType() == SymbolType.FUNCTION || s.getSymbolType() == SymbolType.LABEL) {
-                        if (fm.getFunctionAt(addr) == null && fm.getFunctionContaining(addr) == null) {
-                            try {
-                                createFunction(addr, s.getName());
-                            } catch (Exception ignored) {}
-                        }
-                    }
                 }
             }
         } finally {
@@ -114,8 +94,16 @@ public class DecompileAll extends GhidraScript {
         final int total = funcs.size();
         println("DecompileAll: Total functions to decompile: " + total);
 
+        final PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(cFile), 65536));
+        out.println("/*");
+        out.println(" * Ghidra decompiled output");
+        out.println(" * File: " + currentProgram.getName());
+        out.println(" * Functions: " + total);
+        out.println(" */");
+        out.println("");
+        out.flush();
+
         if (total == 0) {
-            PrintWriter out = new PrintWriter(new FileWriter(cFile));
             out.println("/* No functions found */");
             out.close();
             System.out.println("DECOMP_PROGRESS 0/0");
@@ -124,22 +112,26 @@ public class DecompileAll extends GhidraScript {
             return;
         }
 
-        // Configure base decompiler options (10s per-function timeout)
+        // Configure optimized decompiler options:
+        // - 3s per-function timeout: skips hanging/obfuscated loops quickly without blocking
+        // - eliminateUnreachable = false: skips expensive graph-solver pass on complex CFGs
         final DecompileOptions options = new DecompileOptions();
         try {
             options.grabFromProgram(currentProgram);
         } catch (Exception ignored) {}
-        options.setDefaultTimeout(10);
+        try {
+            options.setEliminateUnreachable(false);
+        } catch (Exception ignored) {}
+        options.setDefaultTimeout(3);
 
         final Program prog = currentProgram;
         final List<Function> funcsList = funcs;
-        final String[] outputs = new String[total];
         final AtomicInteger nextFuncIndex = new AtomicInteger(0);
         final AtomicInteger doneCount = new AtomicInteger(0);
 
         int numCores = Runtime.getRuntime().availableProcessors();
         final int numThreads = Math.max(1, Math.min(numCores, 4));
-        println("DecompileAll: Spawning " + numThreads + " parallel decompiler threads (detected " + numCores + " vCPUs)");
+        println("DecompileAll: Spawning " + numThreads + " parallel decompiler threads (detected " + numCores + " vCPUs, 3s timeout)");
         System.out.println("DECOMP_PROGRESS 0/" + total);
         System.out.flush();
 
@@ -169,17 +161,18 @@ public class DecompileAll extends GhidraScript {
                             sinceReset = 0;
                         }
 
+                        String chunk;
                         // Fast path for PLT / thunk functions
                         if (f.isThunk()) {
                             Function thunked = f.getThunkedFunction(true);
                             String target = (thunked != null) ? thunked.getName() : "unknown";
-                            outputs[idx] = "// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------\n"
-                                         + "// [THUNK] jumps to " + target + "\n\n";
+                            chunk = "// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------\n"
+                                  + "// [THUNK] jumps to " + target + "\n\n";
                         } else {
                             StringBuilder sb = new StringBuilder();
                             sb.append("// ---------- ").append(f.getName()).append(" @ ").append(f.getEntryPoint()).append(" ----------\n");
                             try {
-                                DecompileResults res = decomp.decompileFunction(f, 10, null);
+                                DecompileResults res = decomp.decompileFunction(f, 3, null);
                                 if (res != null && res.decompileCompleted()) {
                                     sb.append(res.getDecompiledFunction().getC()).append("\n\n");
                                 } else {
@@ -198,8 +191,14 @@ public class DecompileAll extends GhidraScript {
                                 }
                                 sinceReset = 0;
                             }
-                            outputs[idx] = sb.toString();
+                            chunk = sb.toString();
                             sinceReset++;
+                        }
+
+                        // Stream directly to file immediately so results are never lost if timeout happens
+                        synchronized (out) {
+                            out.print(chunk);
+                            out.flush();
                         }
 
                         int done = doneCount.incrementAndGet();
@@ -228,24 +227,9 @@ public class DecompileAll extends GhidraScript {
             }
         }
 
-        println("DecompileAll: All threads finished. Writing " + cFile + " in sorted order...");
-        PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(cFile), 65536));
-        out.println("/*");
-        out.println(" * Ghidra decompiled output");
-        out.println(" * File: " + prog.getName());
-        out.println(" * Functions: " + total);
-        out.println(" */");
-        out.println("");
-
-        for (int i = 0; i < total; i++) {
-            if (outputs[i] != null) {
-                out.print(outputs[i]);
-                outputs[i] = null; // free memory immediately
-            }
-        }
         out.flush();
         out.close();
 
-        println("DONE: wrote " + cFile + " with " + doneCount.get() + " functions");
+        println("DONE: successfully streamed " + cFile + " with " + doneCount.get() + " functions");
     }
 }

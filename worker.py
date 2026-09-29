@@ -303,10 +303,10 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         return await proc.wait()
 
     try:
-        rc = await asyncio.wait_for(read_stream(), timeout=2400)
+        rc = await asyncio.wait_for(read_stream(), timeout=7200)
     except asyncio.TimeoutError:
         proc.kill()
-        raise TimeoutError("Ghidra analysis timed out after 40 minutes")
+        raise TimeoutError("Ghidra analysis timed out after 2 hours")
     log.info("analyzeHeadless exit=%s", rc)
     tail_txt = "\n".join(tail[-50:])
     if rc != 0:
@@ -587,8 +587,25 @@ async def main():
                 if result["meta"].exists() and result["meta"].stat().st_size > 0:
                     out_files.append((f"{bname}_info.txt", result["meta"]))
             except TimeoutError:
-                edit("⏰ Timeout! The file is too big or complex.", keep_button=False)
-                return
+                bname = Path(filename).stem or "decompiled"
+                c_candidates = [
+                    work_dir / "analysis" / "decompiled.c",
+                    work_dir / "decompiled.c",
+                ]
+                meta_candidates = [
+                    work_dir / "analysis" / "info.txt",
+                    work_dir / "info.txt",
+                ]
+                found_c = next((p for p in c_candidates if p.exists() and p.stat().st_size > 500), None)
+                found_meta = next((p for p in meta_candidates if p.exists() and p.stat().st_size > 0), None)
+                if found_c:
+                    out_files.append((f"{bname}_partial.c", found_c))
+                    if found_meta:
+                        out_files.append((f"{bname}_info.txt", found_meta))
+                    edit("⏰ Timeout reached (very large binary), packaging partial dump...")
+                else:
+                    edit("⏰ Timeout! The file is too big or complex.", keep_button=False)
+                    return
             except Exception as e:
                 log.exception("Ghidra crashed")
                 err = str(e)[:1200].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
