@@ -66,6 +66,18 @@
       "started": 1790661995.0633132,
       "run_id": 36529402188,
       "run_status": "in_progress"
+    },
+    "3832": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3832,
+      "filename": "libhttp.t.me.KingOfModders.so",
+      "engine": "ghidra",
+      "started": 1790662912.1469026,
+      "run_id": null,
+      "run_status": ""
     }
   }
 }
