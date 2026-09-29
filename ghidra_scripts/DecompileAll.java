@@ -1,9 +1,12 @@
+import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
@@ -12,6 +15,7 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
@@ -107,77 +111,141 @@ public class DecompileAll extends GhidraScript {
             }
         }
         funcs.sort((a, b) -> a.getEntryPoint().compareTo(b.getEntryPoint()));
-        println("DecompileAll: Total functions to decompile: " + funcs.size());
+        final int total = funcs.size();
+        println("DecompileAll: Total functions to decompile: " + total);
 
-        // 2. Configure decompiler with 10s timeout per function
-        DecompInterface decomp = new DecompInterface();
-        ghidra.app.decompiler.DecompileOptions options = new ghidra.app.decompiler.DecompileOptions();
+        if (total == 0) {
+            PrintWriter out = new PrintWriter(new FileWriter(cFile));
+            out.println("/* No functions found */");
+            out.close();
+            System.out.println("DECOMP_PROGRESS 0/0");
+            System.out.flush();
+            println("DONE: wrote empty " + cFile);
+            return;
+        }
+
+        // Configure base decompiler options (10s per-function timeout)
+        final DecompileOptions options = new DecompileOptions();
         try {
             options.grabFromProgram(currentProgram);
         } catch (Exception ignored) {}
         options.setDefaultTimeout(10);
-        decomp.setOptions(options);
-        decomp.openProgram(currentProgram);
 
-        PrintWriter out = new PrintWriter(new FileWriter(cFile));
+        final Program prog = currentProgram;
+        final List<Function> funcsList = funcs;
+        final String[] outputs = new String[total];
+        final AtomicInteger nextFuncIndex = new AtomicInteger(0);
+        final AtomicInteger doneCount = new AtomicInteger(0);
+
+        int numCores = Runtime.getRuntime().availableProcessors();
+        final int numThreads = Math.max(1, Math.min(numCores, 4));
+        println("DecompileAll: Spawning " + numThreads + " parallel decompiler threads (detected " + numCores + " vCPUs)");
+        System.out.println("DECOMP_PROGRESS 0/" + total);
+        System.out.flush();
+
+        Thread[] workers = new Thread[numThreads];
+        for (int t = 0; t < numThreads; t++) {
+            workers[t] = new Thread(() -> {
+                DecompInterface decomp = new DecompInterface();
+                decomp.setOptions(options);
+                synchronized (prog) {
+                    decomp.openProgram(prog);
+                }
+                int sinceReset = 0;
+
+                try {
+                    int idx;
+                    while ((idx = nextFuncIndex.getAndIncrement()) < total) {
+                        Function f = funcsList.get(idx);
+
+                        // Periodically reset DecompInterface to prevent native AST memory bloat
+                        if (sinceReset >= 400) {
+                            decomp.dispose();
+                            decomp = new DecompInterface();
+                            decomp.setOptions(options);
+                            synchronized (prog) {
+                                decomp.openProgram(prog);
+                            }
+                            sinceReset = 0;
+                        }
+
+                        // Fast path for PLT / thunk functions
+                        if (f.isThunk()) {
+                            Function thunked = f.getThunkedFunction(true);
+                            String target = (thunked != null) ? thunked.getName() : "unknown";
+                            outputs[idx] = "// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------\n"
+                                         + "// [THUNK] jumps to " + target + "\n\n";
+                        } else {
+                            StringBuilder sb = new StringBuilder();
+                            sb.append("// ---------- ").append(f.getName()).append(" @ ").append(f.getEntryPoint()).append(" ----------\n");
+                            try {
+                                DecompileResults res = decomp.decompileFunction(f, 10, null);
+                                if (res != null && res.decompileCompleted()) {
+                                    sb.append(res.getDecompiledFunction().getC()).append("\n\n");
+                                } else {
+                                    String errMsg = (res != null && res.getErrorMessage() != null) ? " (" + res.getErrorMessage() + ")" : "";
+                                    sb.append("/* [FAILED] could not decompile ").append(f.getName()).append(errMsg).append(" */\n\n");
+                                }
+                            } catch (Exception ex) {
+                                sb.append("/* [EXCEPTION] ").append(f.getName()).append(": ").append(ex.getMessage()).append(" */\n\n");
+                                try {
+                                    decomp.dispose();
+                                } catch (Exception ignored) {}
+                                decomp = new DecompInterface();
+                                decomp.setOptions(options);
+                                synchronized (prog) {
+                                    decomp.openProgram(prog);
+                                }
+                                sinceReset = 0;
+                            }
+                            outputs[idx] = sb.toString();
+                            sinceReset++;
+                        }
+
+                        int done = doneCount.incrementAndGet();
+                        if (done % 20 == 0 || done == total) {
+                            System.out.println("DECOMP_PROGRESS " + done + "/" + total);
+                            System.out.flush();
+                        }
+                    }
+                } catch (Throwable t1) {
+                    System.err.println("Decompiler worker error: " + t1.getMessage());
+                } finally {
+                    try {
+                        decomp.dispose();
+                    } catch (Exception ignored) {}
+                }
+            }, "DecompWorker-" + t);
+            workers[t].start();
+        }
+
+        // Wait for all worker threads to finish
+        for (Thread worker : workers) {
+            try {
+                worker.join();
+            } catch (InterruptedException e) {
+                println("DecompileAll: Worker interrupted: " + e.getMessage());
+            }
+        }
+
+        println("DecompileAll: All threads finished. Writing " + cFile + " in sorted order...");
+        PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(cFile), 65536));
         out.println("/*");
         out.println(" * Ghidra decompiled output");
-        out.println(" * File: " + currentProgram.getName());
-        out.println(" * Functions: " + funcs.size());
+        out.println(" * File: " + prog.getName());
+        out.println(" * Functions: " + total);
         out.println(" */");
         out.println("");
 
-        int total = funcs.size();
-        int done = 0;
-        int sinceReset = 0;
-        println("DECOMP_PROGRESS 0/" + total);
-
-        for (Function f : funcs) {
-            // Reset decompiler interface periodically to prevent memory leaks / high RSS on large binaries
-            if (sinceReset >= 800) {
-                decomp.dispose();
-                decomp = new DecompInterface();
-                decomp.setOptions(options);
-                decomp.openProgram(currentProgram);
-                sinceReset = 0;
-                System.gc();
-            }
-
-            out.println("// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------");
-
-            // Fast path for PLT / thunk functions
-            if (f.isThunk()) {
-                Function thunked = f.getThunkedFunction(true);
-                String target = (thunked != null) ? thunked.getName() : "unknown";
-                out.println("// [THUNK] jumps to " + target);
-                out.println("");
-                done++;
-                sinceReset++;
-                if (done % 20 == 0 || done == total) {
-                    out.flush();
-                    println("DECOMP_PROGRESS " + done + "/" + total);
-                }
-                continue;
-            }
-
-            DecompileResults res = decomp.decompileFunction(f, 10, null);
-            if (res != null && res.decompileCompleted()) {
-                out.println(res.getDecompiledFunction().getC());
-            } else {
-                String errMsg = (res != null && res.getErrorMessage() != null) ? " (" + res.getErrorMessage() + ")" : "";
-                out.println("/* [FAILED] could not decompile " + f.getName() + errMsg + " */");
-            }
-            done++;
-            sinceReset++;
-
-            if (done % 20 == 0 || done == total) {
-                out.flush();
-                println("DECOMP_PROGRESS " + done + "/" + total);
+        for (int i = 0; i < total; i++) {
+            if (outputs[i] != null) {
+                out.print(outputs[i]);
+                outputs[i] = null; // free memory immediately
             }
         }
+        out.flush();
         out.close();
-        decomp.dispose();
 
-        println("DONE: wrote " + cFile + " with " + done + " functions");
+        println("DONE: wrote " + cFile + " with " + doneCount.get() + " functions");
     }
 }
