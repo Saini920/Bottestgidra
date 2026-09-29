@@ -8,16 +8,14 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressIterator;
-import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionManager;
-import ghidra.program.model.listing.Instruction;
-import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.Symbol;
 import ghidra.program.model.symbol.SymbolIterator;
+import ghidra.program.model.symbol.SymbolType;
 
 public class DecompileAll extends GhidraScript {
 
@@ -64,79 +62,37 @@ public class DecompileAll extends GhidraScript {
         }
         meta.close();
 
-        // 1. Direct Disassembly and Function Recovery in executable blocks
-        println("FAST_DISASSEMBLY_START");
-        int txId = currentProgram.startTransaction("DecompileAll Fast Disassembly");
-        try {
-            Memory memory = currentProgram.getMemory();
-            AddressSet executableSet = new AddressSet();
-            for (MemoryBlock block : memory.getBlocks()) {
-                if (block.isExecute() && !block.isOverlay()) {
-                    executableSet.add(block.getStart(), block.getEnd());
-                }
-            }
+        // 1. Ensure all discovered functions and any unmapped entry points / symbols are registered
+        FunctionManager fm = currentProgram.getFunctionManager();
+        int initialCount = fm.getFunctionCount();
+        println("DecompileAll: Functions found by auto-analysis: " + initialCount);
 
+        int txId = currentProgram.startTransaction("DecompileAll Ensure Functions");
+        try {
             // A. External Entry Points
             AddressIterator entryPoints = currentProgram.getSymbolTable().getExternalEntryPointIterator();
             while (entryPoints.hasNext()) {
                 Address ep = entryPoints.next();
-                if (executableSet.contains(ep)) {
+                if (fm.getFunctionAt(ep) == null && fm.getFunctionContaining(ep) == null) {
                     try {
-                        disassemble(ep);
-                        if (getFunctionAt(ep) == null) {
-                            createFunction(ep, null);
-                        }
+                        createFunction(ep, null);
                     } catch (Exception ignored) {}
                 }
             }
 
-            // B. Exported and local symbols in executable memory
+            // B. Exported and local function/label symbols in executable memory
             SymbolIterator symIt = currentProgram.getSymbolTable().getAllSymbols(true);
             while (symIt.hasNext()) {
                 Symbol s = symIt.next();
                 Address addr = s.getAddress();
-                if (executableSet.contains(addr)) {
-                    try {
-                        disassemble(addr);
-                        if (getFunctionAt(addr) == null) {
-                            createFunction(addr, s.getName());
-                        }
-                    } catch (Exception ignored) {}
-                }
-            }
-
-            // C. Fast sweep executable blocks to partition remaining code into functions
-            for (MemoryBlock block : memory.getBlocks()) {
-                if (!block.isExecute() || block.isOverlay()) continue;
-                Address curr = block.getStart();
-                Address end = block.getEnd();
-                try {
-                    disassemble(curr);
-                } catch (Exception ignored) {}
-
-                while (curr != null && curr.compareTo(end) <= 0) {
-                    Instruction inst = getInstructionAt(curr);
-                    if (inst == null) {
-                        try {
-                            disassemble(curr);
-                            inst = getInstructionAt(curr);
-                        } catch (Exception ignored) {}
-                    }
-                    if (inst != null) {
-                        Address iAddr = inst.getAddress();
-                        Function f = getFunctionAt(iAddr);
-                        if (f == null) {
+                MemoryBlock block = currentProgram.getMemory().getBlock(addr);
+                if (block != null && block.isExecute() && !block.isOverlay()) {
+                    if (s.getSymbolType() == SymbolType.FUNCTION || s.getSymbolType() == SymbolType.LABEL) {
+                        if (fm.getFunctionAt(addr) == null && fm.getFunctionContaining(addr) == null) {
                             try {
-                                f = createFunction(iAddr, null);
+                                createFunction(addr, s.getName());
                             } catch (Exception ignored) {}
                         }
-                        if (f != null && f.getBody() != null && f.getBody().getMaxAddress() != null) {
-                            curr = f.getBody().getMaxAddress().next();
-                        } else {
-                            curr = inst.getMaxAddress().next();
-                        }
-                    } else {
-                        curr = curr.next();
                     }
                 }
             }
@@ -144,16 +100,16 @@ public class DecompileAll extends GhidraScript {
             currentProgram.endTransaction(txId, true);
         }
 
-        // 2. Decompile all discovered functions
-        DecompInterface decomp = new DecompInterface();
-        decomp.openProgram(currentProgram);
-
-        FunctionManager fm = currentProgram.getFunctionManager();
         List<Function> funcs = new ArrayList<>();
         for (Function f : fm.getFunctions(true)) {
             funcs.add(f);
         }
         funcs.sort((a, b) -> a.getEntryPoint().compareTo(b.getEntryPoint()));
+        println("DecompileAll: Total functions to decompile: " + funcs.size());
+
+        // 2. Decompile all discovered functions
+        DecompInterface decomp = new DecompInterface();
+        decomp.openProgram(currentProgram);
 
         PrintWriter out = new PrintWriter(new FileWriter(cFile));
         out.println("/*");
@@ -170,15 +126,17 @@ public class DecompileAll extends GhidraScript {
         println("DECOMP_PROGRESS 0/" + total);
 
         for (Function f : funcs) {
-            if (sinceReset >= 1500) {
+            // Reset decompiler interface periodically to prevent memory leaks / high RSS on large binaries
+            if (sinceReset >= 1000) {
                 decomp.dispose();
                 decomp = new DecompInterface();
                 decomp.openProgram(currentProgram);
                 sinceReset = 0;
                 System.gc();
             }
+
             out.println("// ---------- " + f.getName() + " @ " + f.getEntryPoint() + " ----------");
-            DecompileResults res = decomp.decompileFunction(f, 45, null);
+            DecompileResults res = decomp.decompileFunction(f, 30, null);
             if (res != null && res.decompileCompleted()) {
                 out.println(res.getDecompiledFunction().getC());
             } else {
@@ -187,18 +145,19 @@ public class DecompileAll extends GhidraScript {
             }
             done++;
             sinceReset++;
-            if (done % 50 == 0) {
+
+            if (done % 25 == 0 || done == total) {
                 out.flush();
-            }
-            int pct = (total == 0) ? 100 : (done * 100) / total;
-            if (pct != lastPrinted && pct % 5 == 0) {
-                println("DECOMP_PROGRESS " + done + "/" + total);
-                lastPrinted = pct;
+                int pct = (total == 0) ? 100 : (done * 100) / total;
+                if (pct != lastPrinted) {
+                    println("DECOMP_PROGRESS " + done + "/" + total);
+                    lastPrinted = pct;
+                }
             }
         }
         out.close();
         decomp.dispose();
 
-        println("DONE: wrote " + cFile + " with " + funcs.size() + " functions");
+        println("DONE: wrote " + cFile + " with " + done + " functions");
     }
 }

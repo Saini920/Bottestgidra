@@ -20,37 +20,39 @@ public class DisableCallFixup extends GhidraScript {
 
         Options opts = currentProgram.getOptions("Analysis");
 
+        // Specific analyzers that cause infinite loops, OOM, or hours of redundant decompilation during auto-analysis:
+        // DO NOT disable Constant Propagation, Subroutine References, Stack, Function Start Search,
+        // GCC Exception Handling, or Address Tables, as they are essential to discover functions in stripped .so binaries.
+        String[] exactAnalyzers = {
+            "Decompiler Parameter ID",
+            "Decompiler Switch Analysis",
+            "Call-Fixup",
+            "CallFixupAnalyzer",
+            "Non-Returning Functions - Discovered",
+            "DWARF"
+        };
+
         String[] disabledKeywords = {
-            "constant propagation",
-            "symbolic propagator",
             "decompiler parameter id",
-            "parameter id",
             "decompiler switch analysis",
-            "switch analysis",
-            "call convention id",
-            "call convention",
             "call-fixup",
             "callfixup",
             "non-returning",
-            "subroutine references",
-            "subroutine",
-            "stack",
-            "dwarf",
-            "exception handling",
-            "gcc exception",
-            "aggressive instruction",
-            "variadic function",
-            "create address tables",
-            "shared return calls",
-            "condense filler bytes",
-            "embedded media",
-            "rtti",
-            "class analyzer"
+            "dwarf"
         };
 
         int count = 0;
 
-        // 1. Dynamically search all registered analyzers in Ghidra and disable hang-prone ones
+        for (String exact : exactAnalyzers) {
+            try {
+                opts.setBoolean(exact, false);
+                setAnalysisOption(currentProgram, exact, "false");
+                println("DisableCallFixup: explicitly disabled -> " + exact);
+                count++;
+            } catch (Exception ignored) {}
+        }
+
+        // 1. Dynamically search all registered analyzers in Ghidra and disable matching ones
         try {
             List<Analyzer> analyzers = ClassSearcher.getInstances(Analyzer.class);
             for (Analyzer a : analyzers) {
@@ -60,11 +62,10 @@ public class DisableCallFixup extends GhidraScript {
                     if (lower.contains(kw)) {
                         try {
                             opts.setBoolean(aName, false);
-                            println("DisableCallFixup: disabled analyzer -> " + aName);
+                            setAnalysisOption(currentProgram, aName, "false");
+                            println("DisableCallFixup: disabled analyzer class -> " + aName);
                             count++;
-                        } catch (Exception e) {
-                            // ignore non-boolean option
-                        }
+                        } catch (Exception ignored) {}
                         break;
                     }
                 }
@@ -80,10 +81,9 @@ public class DisableCallFixup extends GhidraScript {
                 if (lower.contains(kw)) {
                     try {
                         opts.setBoolean(name, false);
+                        setAnalysisOption(currentProgram, name, "false");
                         count++;
-                    } catch (Exception e) {
-                        // ignore non-boolean option
-                    }
+                    } catch (Exception ignored) {}
                     break;
                 }
             }
@@ -94,7 +94,7 @@ public class DisableCallFixup extends GhidraScript {
         // 3. Propagate updated options to AutoAnalysisManager tasks
         if (mgr != null) {
             try {
-                mgr.initializeOptions(opts);
+                mgr.initializeOptions();
                 println("DisableCallFixup: AutoAnalysisManager options re-initialized successfully.");
             } catch (Throwable t) {
                 println("DisableCallFixup: could not initializeOptions: " + t);

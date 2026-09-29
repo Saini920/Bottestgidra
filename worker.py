@@ -236,12 +236,16 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
         "Proj",
         "-overwrite",
         "-import", str(file_path),
-        "-noanalysis",
         "-scriptPath", str(SCRIPT_DIR),
+        "-analysisTimeoutPerFile", "900",
+    ]
+    if disable_callfixup:
+        cmd.extend(["-preScript", "DisableCallFixup.java"])
+    cmd.extend([
         "-postScript", "DecompileAll.java",
         str(out_c), str(out_meta),
         "-deleteProject",
-    ]
+    ])
     log.info("Running: %s", " ".join(cmd))
     proc = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -252,19 +256,31 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
 
     async def read_stream():
         last_output_time = time.monotonic()
+        last_cpu_activity = time.monotonic()
+        last_cpu = proc_cpu_usage(proc.pid)
         while True:
             if CANCELLED["v"]:
                 proc.kill()
                 raise JobCancelled()
             try:
-                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
                 if raw:
                     last_output_time = time.monotonic()
+                    last_cpu_activity = time.monotonic()
             except asyncio.TimeoutError:
-                # If Ghidra produces zero stdout for 3 minutes, it is frozen in a silent loop
-                if time.monotonic() - last_output_time >= 180:
+                now = time.monotonic()
+                cpu = proc_cpu_usage(proc.pid)
+                if cpu > 0:
+                    if last_cpu > 0 and cpu > last_cpu:
+                        last_cpu_activity = now
+                    last_cpu = cpu
+
+                silent_for = now - last_output_time
+                no_cpu_for = now - last_cpu_activity
+                # If silent for more than 15 minutes AND CPU has not moved for 5 minutes:
+                if silent_for >= 900 and no_cpu_for >= 300:
                     proc.kill()
-                    raise RuntimeError("Ghidra stalled: no output for 3 minutes")
+                    raise RuntimeError(f"Ghidra stalled: no output for {int(silent_for)}s and CPU inactive for {int(no_cpu_for)}s")
                 continue
             if not raw:
                 break
@@ -274,9 +290,7 @@ async def run_ghidra(file_path: Path, work_dir: Path, on_progress, disable_callf
             tail.append(line)
             del tail[:-250]
             low = line.lower()
-            if "fast_disassembly_start" in low:
-                await on_progress(20, "⚡ Fast mapping & disassembling binary functions...")
-            elif m_an := re.search(r"Analyzing\s+([^.]+)\.\.\.", line, re.I):
+            if m_an := re.search(r"Analyzing\s+([^.]+)\.\.\.", line, re.I):
                 an_name = m_an.group(1).strip()
                 await on_progress(20, f"🔧 Analyzing: {an_name}...")
             elif "analyzing" in low or "processing" in low:
