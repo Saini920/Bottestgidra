@@ -282,6 +282,11 @@ def build_apk_chooser(job_id, job, is_premium):
     else:
         btn_jadx = InlineKeyboardButton(f"☕ JADX (max {jd_limit_mb} MB)", callback_data=f"limit_jadx_{job_id}")
         btn_dex2jar = InlineKeyboardButton(f"🧬 dex2jar (max {jd_limit_mb} MB)", callback_data=f"limit_dex2jar_{job_id}")
+
+    btn_smaliextract = InlineKeyboardButton("📦 Smali (com/ only)", callback_data=f"engine_smaliextract_{job_id}")
+    btn_resdecode = InlineKeyboardButton("🎨 Decode Res Folder", callback_data=f"engine_resdecode_{job_id}")
+    btn_decode = InlineKeyboardButton("🧩 Decode (Full Smali)", callback_data=f"decode_smali_{job_id}")
+
     if is_premium:
         btn_apktool = InlineKeyboardButton("📱 Apktool (XML/Smali)", callback_data=f"engine_apktool_{job_id}")
         btn_sign = InlineKeyboardButton("🔏 Sign APK", callback_data=f"sign_version_{job_id}")
@@ -292,11 +297,16 @@ def build_apk_chooser(job_id, job, is_premium):
         "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
         "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
         "• 🧬 <b>dex2jar:</b> APK → JAR + Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
+        "• 📦 <b>Smali (com/ only):</b> Decode dex → extract <code>com/</code> folder only\n"
+        "• 🎨 <b>Decode Res:</b> Decode binary XMLs & <code>res/</code> folder\n"
+        "• 🧩 <b>Decode Smali:</b> Full Smali disassembly of all .dex files\n"
         "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
         "• 🔏 <b>Sign APK:</b> Re-sign with new key (choose Android 5–16) (⭐ Premium)"
     )
     keyboard = InlineKeyboardMarkup([
         [btn_jadx, btn_dex2jar],
+        [btn_smaliextract, btn_resdecode],
+        [btn_decode],
         [btn_apktool],
         [btn_sign],
     ])
@@ -431,7 +441,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.answer("Choose Decode mode", show_alert=False)
             await query.edit_message_text(
                 "🧩 <b>Decode .dex files to Smali</b>\n\n"
-                "Your ZIP contains <b>one or more .dex files</b>. Choose how you want the result:\n\n"
+                "Your file contains <b>one or more .dex files</b>. Choose how you want the result:\n\n"
                 "• ✅ <b>Confirm Decode:</b> Decode all .dex files → send <b>full Smali ZIP</b>\n"
                 "• 📦 <b>Extract:</b> Decode all .dex files → send <b>only com/ folder ZIP</b> (main package)\n\n"
                 "Which one do you want?",

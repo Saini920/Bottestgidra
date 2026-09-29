@@ -197,6 +197,8 @@ async def download_url(url: str, dest: Path, on_progress) -> str:
 
 
 def count_zip_so_dex(file_path: Path) -> int:
+    if Path(FILENAME).suffix.lower() != ".zip":
+        return 0
     if not zipfile.is_zipfile(file_path):
         return 0
     try:
@@ -208,6 +210,8 @@ def count_zip_so_dex(file_path: Path) -> int:
 
 def check_zip_limits(file_path: Path):
     if IS_ADMIN or not zipfile.is_zipfile(file_path):
+        return
+    if Path(FILENAME).suffix.lower() != ".zip":
         return
     with zipfile.ZipFile(file_path) as zf:
         names = [n for n in zf.namelist() if not n.endswith("/")]
