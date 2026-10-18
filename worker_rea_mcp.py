@@ -516,6 +516,11 @@ def main():
     target_file = download_target_file(workdir)
     if target_file and target_file.exists():
         seen_files.add(str(target_file.resolve()))
+        try:
+            shutil.copy2(target_file, Path("/tmp") / FILENAME)
+            shutil.copy2(target_file, Path("/tmp/test.apk"))
+        except Exception as e:
+            log.warning("Could not copy to /tmp: %s", e)
 
     # Prepare environment for REA
     rea_env = os.environ.copy()
