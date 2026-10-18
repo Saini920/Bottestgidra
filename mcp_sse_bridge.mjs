@@ -192,8 +192,9 @@ const server = http.createServer((req, res) => {
     });
     if (typeof res.flushHeaders === "function") res.flushHeaders();
 
-    // Send 1KB padding comment to force Cloudflare/Nginx proxies to flush stream immediately
-    res.write(":" + " ".repeat(1024) + "\r\n\r\n");
+    // Send 8KB padding comment to force Cloudflare/Nginx proxies to flush stream immediately
+    res.write(":" + " ".repeat(4096) + "\r\n\r\n");
+    res.write(":" + " ".repeat(4096) + "\r\n\r\n");
 
     // Send endpoint event with session message URL
     const messageEndpoint = `/message?sessionId=${sessionId}`;
@@ -309,7 +310,7 @@ setInterval(() => {
       sessions.delete(sessionId);
     }
   }
-}, 25000);
+}, 15000);
 
 server.listen(PORT, HOST, () => {
   console.log(`===============================================`);
