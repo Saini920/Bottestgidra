@@ -165,12 +165,17 @@ class WorkspaceFileWatcher(threading.Thread):
         super().__init__(daemon=True)
         self.watch_dir = watch_dir
         self.seen_files = seen_files
-        self.exclude_patterns = exclude_patterns or [
+        self.ignored_substrings = [
             "cloudflared.log",
-            "*.lock",
-            "*.tmp",
-            "*.swp",
-            "*.sock",
+            "apktool",
+            "decompiled_sources",
+            "rea_analysis_artifacts",
+            ".lock",
+            ".tmp",
+            ".swp",
+            ".sock",
+            ".git",
+            "node_modules",
         ]
         self.running = True
 
@@ -186,7 +191,7 @@ class WorkspaceFileWatcher(threading.Thread):
                         continue
 
                     # Check exclusion patterns
-                    if any(p.match(pat) for pat in self.exclude_patterns):
+                    if any(sub in resolved for sub in self.ignored_substrings):
                         continue
 
                     # Verify file has stabilized (finished writing)
@@ -262,7 +267,7 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
     if is_apk:
         # Run apktool to extract decoded AndroidManifest.xml and resources
         apktool_bin = shutil.which("apktool") or "apktool"
-        apktool_out = workdir / "apktool_unpacked"
+        apktool_out = Path(tempfile.mkdtemp(prefix="apktool_raw_"))
         log.info("Running apktool for manifest decode...")
         try:
             subprocess.run(
@@ -303,6 +308,11 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
                 )
             except Exception as e:
                 log.warning("Manifest XML parse error: %s", e)
+
+        try:
+            shutil.rmtree(apktool_out, ignore_errors=True)
+        except Exception:
+            pass
 
         tg_send_message(
             f"✅ <b>[Recon 1/4 Complete]</b> File metadata & manifest mapped.\n"
