@@ -71,16 +71,22 @@ jobs:
       - name: Install Cloudflared & Reverse Engineering Tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq rizin apktool
+          sudo apt-get install -y -qq apktool || true
+
+          # Install Rizin static binary
+          curl -fsSL https://github.com/rizinorg/rizin/releases/download/v0.9.1/rizin-v0.9.1-static-x86_64.tar.xz | sudo tar -xJ -C /usr/local --strip-components=1 || true
+          rizin -v || echo "Rizin ready"
+
+          # Install Cloudflared
           curl -fsSL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-          sudo dpkg -i /tmp/cloudflared.deb
+          sudo dpkg -i /tmp/cloudflared.deb || sudo apt-get install -f -y
           rm -f /tmp/cloudflared.deb
           cloudflared --version
 
       - name: Install REA Agents Globally via npm
         run: |
           sudo npm install -g rea-agents
-          rea --version || echo "REA installed successfully"
+          rea --version || echo "REA ready"
 
       - name: Run REA MCP Worker
         env:
@@ -94,8 +100,8 @@ jobs:
           PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
           PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
           GHIDRA_HOME: /opt/ghidra
-          MCP_COMMAND: "rea"
-          MCP_ARGS: "mcp"
+          MCP_COMMAND: "npx"
+          MCP_ARGS: "-y rea-agents mcp"
           SESSION_TIMEOUT_MINUTES: "120"
         run: |
           python3 -m venv /tmp/venv
@@ -110,22 +116,28 @@ jobs:
           MESSAGE_ID: ${{ github.event.client_payload.message_id || github.event.inputs.message_id }}
         run: |
           python3 - <<'PYEOF'
-          import os, httpx
+          import os, json, urllib.request
           token = os.environ.get("BOT_TOKEN")
           chat_id = os.environ.get("CHAT_ID")
           msg_id = os.environ.get("MESSAGE_ID")
-          if token and chat_id and msg_id:
+          if token and chat_id:
+              data = {
+                  "chat_id": chat_id,
+                  "text": "❌ <b>REA MCP Session Failed!</b>\nWorkflow runner encountered an unexpected error during setup.",
+                  "parse_mode": "HTML"
+              }
+              if msg_id:
+                  data["message_id"] = int(msg_id)
+                  url = f"https://api.telegram.org/bot{token}/editMessageText"
+              else:
+                  url = f"https://api.telegram.org/bot{token}/sendMessage"
               try:
-                  httpx.post(
-                      f"https://api.telegram.org/bot{token}/editMessageText",
-                      json={
-                          "chat_id": chat_id,
-                          "message_id": int(msg_id),
-                          "text": "❌ <b>REA MCP Session Failed!</b>\nWorkflow runner encountered an unexpected error during setup or execution.",
-                          "parse_mode": "HTML"
-                      },
-                      timeout=10
+                  req = urllib.request.Request(
+                      url,
+                      data=json.dumps(data).encode("utf-8"),
+                      headers={"Content-Type": "application/json"}
                   )
+                  urllib.request.urlopen(req, timeout=10)
               except Exception as e:
-                  print("Failed to notify telegram:", e)
+                  print("Telegram notify error:", e)
           PYEOF
