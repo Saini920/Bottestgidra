@@ -327,13 +327,21 @@ const server = http.createServer((req, res) => {
     });
     if (typeof res.flushHeaders === "function") res.flushHeaders();
 
-    // Send 8KB padding comment to force Cloudflare/Nginx proxies to flush stream immediately
-    res.write(":" + " ".repeat(4096) + "\r\n\r\n");
-    res.write(":" + " ".repeat(4096) + "\r\n\r\n");
+    // Send 32KB padding comment to force Cloudflare/Nginx proxies to flush stream immediately
+    res.write(":" + " ".repeat(16384) + "\r\n\r\n");
+    res.write(":" + " ".repeat(16384) + "\r\n\r\n");
 
     const messageEndpoint = `/message?sessionId=${sessionId}`;
     res.write(`event: endpoint\r\ndata: ${messageEndpoint}\r\n\r\n`);
+    res.write(":" + " ".repeat(4096) + "\r\n\r\n");
     console.log(`[SSE] Session initialized: ${sessionId}`);
+
+    // Heartbeat keepalive to prevent proxy timeouts
+    const keepAliveTimer = setInterval(() => {
+      try {
+        res.write(": keepalive\r\n\r\n");
+      } catch (_) {}
+    }, 15000);
 
     const child = spawn(MCP_COMMAND, MCP_ARGS, {
       stdio: ["pipe", "pipe", "inherit"],
@@ -371,12 +379,14 @@ const server = http.createServer((req, res) => {
 
     child.on("exit", (code, signal) => {
       console.log(`[MCP] Process exited for session ${sessionId} (code=${code}, signal=${signal})`);
+      clearInterval(keepAliveTimer);
       sessions.delete(sessionId);
       res.end();
     });
 
     req.on("close", () => {
       console.log(`[SSE] Client disconnected for session: ${sessionId}`);
+      clearInterval(keepAliveTimer);
       sessions.delete(sessionId);
       tgNotify(`ℹ️ <b>AI Agent Disconnected</b> from REA MCP Session.`);
       if (child && !child.killed) {
