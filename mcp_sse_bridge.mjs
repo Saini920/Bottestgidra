@@ -244,9 +244,23 @@ const server = http.createServer((req, res) => {
         const rpc = JSON.parse(trimmed);
         if (rpc.method === "tools/call" && rpc.params?.arguments) {
           const targetPath = process.env.REA_INITIAL_TARGET || "/tmp/test.apk";
+          const toolName = rpc.params.name || "";
           const args = rpc.params.arguments;
-          if (!args.path || args.path === "test.apk" || args.path === process.env.PAYLOAD_FILENAME) {
-            args.path = targetPath;
+          const toolsTakingPath = [
+            "open_binary",
+            "inspect_with_objdump",
+            "execute_rizin_command",
+            "search_android_classes",
+            "inspect_android_package",
+            "decode_android_resources",
+            "inspect_binary_layout",
+            "export_evidence_bundle",
+            "import_evidence_bundle"
+          ];
+          if (toolsTakingPath.includes(toolName) || args.path !== undefined) {
+            if (!args.path || args.path === "test.apk" || args.path === process.env.PAYLOAD_FILENAME) {
+              args.path = targetPath;
+            }
           }
         }
 
