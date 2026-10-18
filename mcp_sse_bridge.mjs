@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 /**
- * MCP SSE Bridge
- * Exposes a standard stdio-based MCP server over HTTP Server-Sent Events (SSE).
- * Compatible with Claude Desktop, Cursor, Antigravity, and all standard MCP clients.
- * Uses only Node.js built-in modules - zero external dependencies required.
+ * MCP Dual-Transport Bridge (Streamable HTTP + SSE)
+ * Exposes a standard stdio-based MCP server (REA) over:
+ * 1. Streamable HTTP: POST /mcp (Fastest, zero-buffering, full Cloudflare tunnel compatibility)
+ * 2. HTTP Server-Sent Events (SSE): GET /sse & POST /message (Standard legacy MCP SSE)
  *
- * Live Telegram Stream:
- * Intercepts MCP JSON-RPC messages and sends sequential real-time updates to Telegram:
- * - Client connection & handshake
- * - Tool execution requests with parameters
- * - Tool completion & execution duration
- * - Tool errors & warnings
+ * Real-Time Telegram Streaming:
+ * Intercepts all MCP tool calls and outputs, sending live sequential notifications to Telegram.
  */
 
 import http from "node:http";
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import { URL } from "node:url";
+import EventEmitter from "node:events";
 
 const PORT = parseInt(process.env.PORT || "8080", 10);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -26,11 +23,18 @@ const MCP_ARGS = process.env.MCP_ARGS ? process.env.MCP_ARGS.split(" ") : ["-y",
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const CHAT_ID = process.env.PAYLOAD_CHAT_ID || "";
 
-// Map to track active sessions: sessionId -> { child, res, createdAt }
+// Event emitter for synchronous HTTP MCP responses
+const rpcResponseEmitter = new EventEmitter();
+rpcResponseEmitter.setMaxListeners(100);
+
+// Active SSE sessions: sessionId -> { child, res, createdAt }
 const sessions = new Map();
 
-// Map to track pending tool calls: id -> { name, startTime }
+// Pending tool calls: id -> { name, startTime }
 const pendingToolCalls = new Map();
+
+// Shared persistent child process for Direct HTTP POST /mcp
+let sharedMcpChild = null;
 
 function escapeHtml(text) {
   if (!text) return "";
@@ -54,7 +58,7 @@ async function tgNotify(text) {
       }),
     });
     if (!res.ok) {
-      console.warn(`[TG Notify] Response not ok: ${res.status}`);
+      console.warn(`[TG Notify] Status ${res.status}`);
     }
   } catch (err) {
     console.warn(`[TG Notify] Error: ${err.message}`);
@@ -70,9 +74,9 @@ function handleJsonRpcRequest(rawBody) {
       const client = msg.params?.clientInfo?.name || "AI Agent";
       const ver = msg.params?.clientInfo?.version || "";
       tgNotify(
-        `🟢 <b>AI Agent Connected!</b>\n` +
+        `🟢 <b>AI Agent Connected to REA MCP!</b>\n` +
         `👤 Client: <code>${escapeHtml(client)} ${escapeHtml(ver)}</code>\n` +
-        `⚡ REA MCP tools are now active and ready.`
+        `⚡ Reverse engineering engines (Ghidra/Rizin/JADX) are active.`
       );
     } else if (msg.method === "tools/call") {
       const toolName = msg.params?.name || "unknown_tool";
@@ -94,13 +98,10 @@ function handleJsonRpcRequest(rawBody) {
         `⚙️ <b>Tool:</b> <code>${escapeHtml(toolName)}</code>\n` +
         `📝 <i>Args:</i> <code>${escapeHtml(argsPreview)}</code>`
       );
-    } else if (msg.method === "resources/read") {
-      const uri = msg.params?.uri || "";
-      tgNotify(`📖 <b>[MCP Resource Read]</b> <code>${escapeHtml(uri)}</code>`);
+    } else if (msg.method === "tools/list") {
+      console.log("[MCP] tools/list requested");
     }
-  } catch (_) {
-    // Non-JSON or partial chunk, ignore
-  }
+  } catch (_) {}
 }
 
 function handleJsonRpcResponse(rawLine) {
@@ -122,13 +123,12 @@ function handleJsonRpcResponse(rawLine) {
           `⚠️ <i>Details:</i> <code>${escapeHtml(String(errMsg).slice(0, 300))}</code>`
         );
       } else {
-        // Result summary
         let resultSummary = "";
         if (resp.result?.content && Array.isArray(resp.result.content)) {
           const first = resp.result.content[0];
           if (first && first.text) {
-            resultSummary = first.text.trim().slice(0, 150).replace(/\n/g, " ");
-            if (first.text.length > 150) resultSummary += "...";
+            resultSummary = first.text.trim().slice(0, 160).replace(/\n/g, " ");
+            if (first.text.length > 160) resultSummary += "...";
           }
         }
 
@@ -139,9 +139,48 @@ function handleJsonRpcResponse(rawLine) {
         tgNotify(msg);
       }
     }
-  } catch (_) {
-    // Non-JSON response, ignore
+  } catch (_) {}
+}
+
+function getSharedMcpProcess() {
+  if (sharedMcpChild && !sharedMcpChild.killed) {
+    return sharedMcpChild;
   }
+
+  console.log(`[Shared MCP] Spawning: ${MCP_COMMAND} ${MCP_ARGS.join(" ")}`);
+  sharedMcpChild = spawn(MCP_COMMAND, MCP_ARGS, {
+    stdio: ["pipe", "pipe", "inherit"],
+    env: {
+      ...process.env,
+      FORCE_COLOR: "0",
+    },
+  });
+
+  let stdoutBuffer = "";
+  sharedMcpChild.stdout.on("data", (chunk) => {
+    stdoutBuffer += chunk.toString("utf8");
+    const lines = stdoutBuffer.split(/\r?\n/);
+    stdoutBuffer = lines.pop();
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed) {
+        handleJsonRpcResponse(trimmed);
+        rpcResponseEmitter.emit("response", trimmed);
+      }
+    }
+  });
+
+  sharedMcpChild.on("error", (err) => {
+    console.error("[Shared MCP] Process error:", err);
+  });
+
+  sharedMcpChild.on("exit", (code, sig) => {
+    console.log(`[Shared MCP] Process exited (code=${code}, sig=${sig})`);
+    sharedMcpChild = null;
+  });
+
+  return sharedMcpChild;
 }
 
 function sendJson(res, statusCode, data) {
@@ -168,23 +207,84 @@ const server = http.createServer((req, res) => {
   }
 
   // Health / Info endpoint
-  if (req.method === "GET" && (pathname === "/" || pathname === "/health")) {
+  if (req.method === "GET" && (pathname === "/" || pathname === "/health" || pathname === "/mcp")) {
     sendJson(res, 200, {
       status: "online",
-      server: "REA-MCP-SSE-Bridge",
+      server: "REA-MCP-Dual-Bridge",
       activeSessions: sessions.size,
       command: `${MCP_COMMAND} ${MCP_ARGS.join(" ")}`,
       uptime: process.uptime(),
+      transports: {
+        http_post: "/mcp",
+        sse_stream: "/sse",
+        sse_message: "/message",
+      },
     });
     return;
   }
 
-  // SSE Transport connection: GET /sse
+  // 1. DIRECT STREAMABLE HTTP MCP ENDPOINT: POST /mcp or POST /rpc
+  if (req.method === "POST" && (pathname === "/mcp" || pathname === "/rpc")) {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk.toString("utf8"); });
+    req.on("end", async () => {
+      try {
+        const trimmed = body.trim();
+        handleJsonRpcRequest(trimmed);
+
+        const rpc = JSON.parse(trimmed);
+        const child = getSharedMcpProcess();
+
+        if (rpc.id === undefined) {
+          // Notification
+          child.stdin.write(trimmed + "\n");
+          res.writeHead(204, { "Access-Control-Allow-Origin": "*" });
+          res.end();
+          return;
+        }
+
+        // Wait for response matching rpc.id
+        const responsePromise = new Promise((resolve) => {
+          const handler = (line) => {
+            try {
+              const resp = JSON.parse(line);
+              if (resp.id === rpc.id) {
+                rpcResponseEmitter.off("response", handler);
+                resolve(resp);
+              }
+            } catch (_) {}
+          };
+          rpcResponseEmitter.on("response", handler);
+          setTimeout(() => {
+            rpcResponseEmitter.off("response", handler);
+            resolve({
+              jsonrpc: "2.0",
+              id: rpc.id,
+              error: { code: -32000, message: "MCP response timeout" },
+            });
+          }, 45000);
+        });
+
+        child.stdin.write(trimmed + "\n");
+        const respObj = await responsePromise;
+        sendJson(res, 200, respObj);
+      } catch (err) {
+        sendJson(res, 500, {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32603, message: err.message },
+        });
+      }
+    });
+    return;
+  }
+
+  // 2. LEGACY SSE TRANSPORT: GET /sse
   if (req.method === "GET" && pathname === "/sse") {
     const sessionId = crypto.randomUUID();
 
     res.writeHead(200, {
-      "Content-Type": "text/event-stream",
+      "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "Access-Control-Allow-Origin": "*",
@@ -196,12 +296,10 @@ const server = http.createServer((req, res) => {
     res.write(":" + " ".repeat(4096) + "\r\n\r\n");
     res.write(":" + " ".repeat(4096) + "\r\n\r\n");
 
-    // Send endpoint event with session message URL
     const messageEndpoint = `/message?sessionId=${sessionId}`;
     res.write(`event: endpoint\r\ndata: ${messageEndpoint}\r\n\r\n`);
     console.log(`[SSE] Session initialized: ${sessionId}`);
 
-    // Spawn the stdio MCP server process
     const child = spawn(MCP_COMMAND, MCP_ARGS, {
       stdio: ["pipe", "pipe", "inherit"],
       env: {
@@ -216,15 +314,12 @@ const server = http.createServer((req, res) => {
     child.stdout.on("data", (chunk) => {
       stdoutBuffer += chunk.toString("utf8");
       const lines = stdoutBuffer.split(/\r?\n/);
-      // Keep unfinished partial line in buffer
       stdoutBuffer = lines.pop();
 
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed) {
-          // Check for JSON-RPC tool response
           handleJsonRpcResponse(trimmed);
-          // SSE data frame
           res.write(`event: message\r\ndata: ${trimmed}\r\n\r\n`);
         }
       }
@@ -242,7 +337,6 @@ const server = http.createServer((req, res) => {
       res.end();
     });
 
-    // Client disconnection handler
     req.on("close", () => {
       console.log(`[SSE] Client disconnected for session: ${sessionId}`);
       sessions.delete(sessionId);
@@ -258,7 +352,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Message Receiver endpoint: POST /message
+  // 3. SSE MESSAGE RECEIVER: POST /message
   if (req.method === "POST" && pathname === "/message") {
     const sessionId = reqUrl.searchParams.get("sessionId");
     if (!sessionId || !sessions.has(sessionId)) {
@@ -269,14 +363,11 @@ const server = http.createServer((req, res) => {
     const session = sessions.get(sessionId);
     let body = "";
 
-    req.on("data", (chunk) => {
-      body += chunk.toString("utf8");
-    });
+    req.on("data", (chunk) => { body += chunk.toString("utf8"); });
 
     req.on("end", () => {
       try {
         const trimmed = body.trim();
-        // Parse and notify tool activity
         handleJsonRpcRequest(trimmed);
 
         if (session.child && session.child.stdin.writable) {
@@ -301,7 +392,7 @@ const server = http.createServer((req, res) => {
   sendJson(res, 404, { error: "Not Found" });
 });
 
-// Periodic keepalive / heartbeat comment to prevent idle disconnects
+// Heartbeat comment every 15s
 setInterval(() => {
   for (const [sessionId, session] of sessions.entries()) {
     try {
@@ -314,15 +405,15 @@ setInterval(() => {
 
 server.listen(PORT, HOST, () => {
   console.log(`===============================================`);
-  console.log(`  REA MCP SSE Bridge listening on ${HOST}:${PORT}`);
-  console.log(`  SSE Endpoint: http://${HOST}:${PORT}/sse`);
-  console.log(`  Target Command: ${MCP_COMMAND} ${MCP_ARGS.join(" ")}`);
+  console.log(`  REA MCP Dual-Bridge listening on ${HOST}:${PORT}`);
+  console.log(`  HTTP Endpoint: http://${HOST}:${PORT}/mcp`);
+  console.log(`  SSE Endpoint:  http://${HOST}:${PORT}/sse`);
+  console.log(`  Target:        ${MCP_COMMAND} ${MCP_ARGS.join(" ")}`);
   console.log(`===============================================`);
 });
 
-// Handle graceful shutdown
 function handleShutdown() {
-  console.log("\nShutting down REA MCP SSE Bridge...");
+  console.log("\nShutting down REA MCP Dual-Bridge...");
   for (const [sessionId, session] of sessions.entries()) {
     try {
       if (session.child && !session.child.killed) {
@@ -331,9 +422,10 @@ function handleShutdown() {
       session.res.end();
     } catch (_) {}
   }
-  server.close(() => {
-    process.exit(0);
-  });
+  if (sharedMcpChild && !sharedMcpChild.killed) {
+    sharedMcpChild.kill("SIGTERM");
+  }
+  server.close(() => { process.exit(0); });
 }
 
 process.on("SIGTERM", handleShutdown);
