@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 740,
   "active_jobs": {
-    "3914": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3914,
-      "filename": "test.apk",
-      "engine": "reamcp",
-      "started": 1792341136.4041657,
-      "run_id": 39145451332,
-      "run_status": "in_progress"
-    },
     "3935": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
