@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 740,
   "active_jobs": {
-    "3851": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3851,
-      "filename": "",
-      "engine": "reamcp",
-      "started": 1792335891.1174955,
-      "run_id": null,
-      "run_status": ""
-    },
     "3857": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
