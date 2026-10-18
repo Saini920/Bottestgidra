@@ -90,6 +90,18 @@
       "started": 1792335972.532626,
       "run_id": null,
       "run_status": ""
+    },
+    "3859": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 3859,
+      "filename": "libcocosdenshion.so",
+      "engine": "ghidra",
+      "started": 1792336009.9697638,
+      "run_id": null,
+      "run_status": ""
     }
   }
 }
