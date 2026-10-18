@@ -352,7 +352,7 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
         tg_send_message("✅ <b>[Recon 1/4 Complete]</b> Android DEX file structure verified.")
     else:
         # Generic binary (ELF / PE / Mach-O)
-        rizin_bin = shutil.which("rizin") or "/usr/local/bin/rizin"
+        rizin_bin = shutil.which("rizin") or ("/usr/local/rizin" if Path("/usr/local/rizin").exists() else "/usr/local/bin/rizin")
         headers_file = recon_dir / "01_Binary_Headers.txt"
         try:
             res = subprocess.run(
@@ -369,7 +369,7 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
 
     # ---------------- Phase 2: Native Symbols & Disassembly ----------------
     tg_send_message("⚡ <b>[Recon 2/4] Analyzing Native Code & Symbols with Rizin...</b>")
-    rizin_bin = shutil.which("rizin") or "/usr/local/bin/rizin"
+    rizin_bin = shutil.which("rizin") or ("/usr/local/rizin" if Path("/usr/local/rizin").exists() else "/usr/local/bin/rizin")
 
     so_files = []
     if is_apk:
