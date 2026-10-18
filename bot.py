@@ -1127,13 +1127,23 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         db.set_active_job(status.message_id, ACTIVE_JOBS[status.message_id])
     except Exception as e:
         log.warning("Failed to persist active job: %s", e)
-    await status.edit_text(
-        "Job sent to server!\n"
-        "⏱️ Expected: 2-10 minutes.\n"
-        "▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱ 0.00 %",
-        parse_mode=constants.ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status.message_id}")]])
-    )
+    if engine == "reamcp":
+        await status.edit_text(
+            "🚀 <b>REA MCP Runner Dispatched!</b>\n"
+            "⏱️ Booting cloud runner & starting Cloudflare Tunnel (1-2 minutes)...\n"
+            "🔗 Live MCP URL will appear here shortly.\n"
+            "▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱ 10.00 %",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop MCP Session", callback_data=f"stop_{status.message_id}")]])
+        )
+    else:
+        await status.edit_text(
+            "Job sent to server!\n"
+            "⏱️ Expected: 2-10 minutes.\n"
+            "▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱ 0.00 %",
+            parse_mode=constants.ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛑 Stop Processing", callback_data=f"stop_{status.message_id}")]])
+        )
 
 
 async def inspect_zip_archive(tg_file_path: str = "", file_id: str = "", file_url: str = "") -> dict:
