@@ -81,6 +81,15 @@ function handleJsonRpcRequest(rawBody) {
     } else if (msg.method === "tools/call") {
       const toolName = msg.params?.name || "unknown_tool";
       const args = msg.params?.arguments || {};
+      const targetPath = process.env.REA_INITIAL_TARGET || "/tmp/test.apk";
+
+      // Auto-resolve target path if omitted or matching filename
+      if (args && (!args.path || args.path === "test.apk" || args.path === process.env.PAYLOAD_FILENAME)) {
+        if (toolName === "open_binary" || toolName.includes("android") || toolName.includes("artifact")) {
+          args.path = targetPath;
+        }
+      }
+
       let argsPreview = JSON.stringify(args);
       if (argsPreview.length > 250) {
         argsPreview = argsPreview.slice(0, 247) + "...";
@@ -233,11 +242,20 @@ const server = http.createServer((req, res) => {
         handleJsonRpcRequest(trimmed);
 
         const rpc = JSON.parse(trimmed);
+        if (rpc.method === "tools/call" && rpc.params?.arguments) {
+          const targetPath = process.env.REA_INITIAL_TARGET || "/tmp/test.apk";
+          const args = rpc.params.arguments;
+          if (!args.path || args.path === "test.apk" || args.path === process.env.PAYLOAD_FILENAME) {
+            args.path = targetPath;
+          }
+        }
+
+        const outgoingBody = JSON.stringify(rpc);
         const child = getSharedMcpProcess();
 
         if (rpc.id === undefined) {
           // Notification
-          child.stdin.write(trimmed + "\n");
+          child.stdin.write(outgoingBody + "\n");
           res.writeHead(204, { "Access-Control-Allow-Origin": "*" });
           res.end();
           return;
@@ -265,7 +283,7 @@ const server = http.createServer((req, res) => {
           }, 45000);
         });
 
-        child.stdin.write(trimmed + "\n");
+        child.stdin.write(outgoingBody + "\n");
         const respObj = await responsePromise;
         sendJson(res, 200, respObj);
       } catch (err) {
