@@ -175,6 +175,7 @@ class WorkspaceFileWatcher(threading.Thread):
             "apktool",
             "decompiled_sources",
             "rea_analysis_artifacts",
+            "unpacked_archive",
             ".lock",
             ".tmp",
             ".swp",
@@ -259,8 +260,12 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
     )
 
     is_apk = False
+    is_zip = False
+    is_dex = target_file.name.lower().endswith(".dex")
+    namelist = []
     try:
         if zipfile.is_zipfile(target_file):
+            is_zip = True
             with zipfile.ZipFile(target_file, "r") as zf:
                 namelist = zf.namelist()
                 if "AndroidManifest.xml" in namelist or any(n.endswith(".dex") for n in namelist):
@@ -323,6 +328,28 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
             f"✅ <b>[Recon 1/4 Complete]</b> File metadata & manifest mapped.\n"
             + ("\n".join(f"• {line}" for line in manifest_summary) if manifest_summary else "")
         )
+    elif is_zip:
+        unpacked_dir = workdir / "unpacked_archive"
+        unpacked_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(target_file, "r") as zf:
+                zf.extractall(unpacked_dir)
+            files_list = [f"- {n}" for n in namelist[:200]]
+            if len(namelist) > 200:
+                files_list.append(f"... and {len(namelist) - 200} more files")
+            (recon_dir / "01_ZIP_Files_List.txt").write_text(
+                f"=== Archive Content Index ({len(namelist)} items) ===\n\n" + "\n".join(files_list)
+            )
+            tg_send_message(
+                f"✅ <b>[Recon 1/4 Complete]</b> ZIP archive unpacked ({len(namelist)} items mapped).\n"
+                f"Workspace indexed for AI inspection."
+            )
+        except Exception as e:
+            log.warning("Failed to unpack zip: %s", e)
+            tg_send_message(f"⚠️ <b>[Recon 1/4]</b> ZIP unpack partial: {e}")
+    elif is_dex:
+        (recon_dir / "01_DEX_Info.txt").write_text(f"DEX target file: {target_file.name}\nSize: {size_mb:.2f} MB\n")
+        tg_send_message("✅ <b>[Recon 1/4 Complete]</b> Android DEX file structure verified.")
     else:
         # Generic binary (ELF / PE / Mach-O)
         rizin_bin = shutil.which("rizin") or "/usr/local/bin/rizin"
@@ -344,10 +371,10 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
     tg_send_message("⚡ <b>[Recon 2/4] Analyzing Native Code & Symbols with Rizin...</b>")
     rizin_bin = shutil.which("rizin") or "/usr/local/bin/rizin"
 
+    so_files = []
     if is_apk:
         native_dir = recon_dir / "native_libs"
         native_dir.mkdir(parents=True, exist_ok=True)
-        so_files = []
         with zipfile.ZipFile(target_file, "r") as zf:
             for item in zf.namelist():
                 if item.startswith("lib/") and item.endswith(".so"):
@@ -355,59 +382,69 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
                     with open(extracted_path, "wb") as out_f:
                         out_f.write(zf.read(item))
                     so_files.append(extracted_path)
+    elif is_zip:
+        native_dir = recon_dir / "native_libs"
+        native_dir.mkdir(parents=True, exist_ok=True)
+        unpacked_dir = workdir / "unpacked_archive"
+        for p in unpacked_dir.rglob("*.so"):
+            if p.is_file():
+                dest = native_dir / p.name
+                shutil.copy2(p, dest)
+                so_files.append(dest)
 
-        if so_files:
-            # Analyze largest native library
-            primary_so = max(so_files, key=lambda f: f.stat().st_size)
-            log.info("Analyzing primary native library: %s", primary_so.name)
+    if so_files:
+        primary_so = max(so_files, key=lambda f: f.stat().st_size)
+        log.info("Analyzing primary native library: %s", primary_so.name)
 
-            try:
-                # Exported Symbols (JNI functions)
-                res_sym = subprocess.run(
-                    [rizin_bin, "-qc", "iE", str(primary_so)],
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
-                )
-                (recon_dir / f"02_{primary_so.stem}_Exports.txt").write_text(res_sym.stdout or "")
+        try:
+            # Exported Symbols (JNI functions)
+            res_sym = subprocess.run(
+                [rizin_bin, "-qc", "iE", str(primary_so)],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            (recon_dir / f"02_{primary_so.stem}_Exports.txt").write_text(res_sym.stdout or "")
 
-                # Functions list
-                res_fn = subprocess.run(
-                    [rizin_bin, "-qc", "aa; afl", str(primary_so)],
-                    capture_output=True,
-                    text=True,
-                    timeout=25,
-                )
-                (recon_dir / f"03_{primary_so.stem}_Functions.txt").write_text(res_fn.stdout or "")
+            # Functions list
+            res_fn = subprocess.run(
+                [rizin_bin, "-qc", "aa; afl", str(primary_so)],
+                capture_output=True,
+                text=True,
+                timeout=25,
+            )
+            (recon_dir / f"03_{primary_so.stem}_Functions.txt").write_text(res_fn.stdout or "")
 
-                # Disassemble JNI functions
-                res_jni = subprocess.run(
-                    [rizin_bin, "-qc", "s sym.Java*; pdf", str(primary_so)],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if res_jni.stdout and len(res_jni.stdout.strip()) > 20:
-                    (recon_dir / f"04_{primary_so.stem}_JNI_Disassembly.c").write_text(res_jni.stdout)
+            # Disassemble JNI functions
+            res_jni = subprocess.run(
+                [rizin_bin, "-qc", "s sym.Java*; pdf", str(primary_so)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if res_jni.stdout and len(res_jni.stdout.strip()) > 20:
+                (recon_dir / f"04_{primary_so.stem}_JNI_Disassembly.c").write_text(res_jni.stdout)
 
-                # Strings
-                res_str = subprocess.run(
-                    [rizin_bin, "-qc", "izz", str(primary_so)],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                (recon_dir / f"05_{primary_so.stem}_Strings.txt").write_text(res_str.stdout[:500000] if res_str.stdout else "")
+            # Strings
+            res_str = subprocess.run(
+                [rizin_bin, "-qc", "izz", str(primary_so)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            (recon_dir / f"05_{primary_so.stem}_Strings.txt").write_text(res_str.stdout[:500000] if res_str.stdout else "")
 
-                tg_send_message(
-                    f"✅ <b>[Recon 2/4 Complete]</b> Native symbols extracted from <code>{primary_so.name}</code>.\n"
-                    f"Exported functions and JNI bindings mapped."
-                )
-            except Exception as e:
-                log.warning("Rizin native analysis error: %s", e)
-                tg_send_message(f"⚠️ <b>[Recon 2/4]</b> Native analysis partial: {e}")
-        else:
-            tg_send_message("ℹ️ <b>[Recon 2/4]</b> No native <code>.so</code> libraries detected in APK.")
+            tg_send_message(
+                f"✅ <b>[Recon 2/4 Complete]</b> Native symbols extracted from <code>{primary_so.name}</code>.\n"
+                f"Exported functions and JNI bindings mapped."
+            )
+        except Exception as e:
+            log.warning("Rizin native analysis error: %s", e)
+            tg_send_message(f"⚠️ <b>[Recon 2/4]</b> Native analysis partial: {e}")
+    elif is_dex:
+        tg_send_message("ℹ️ <b>[Recon 2/4]</b> DEX bytecode ready for decompilation.")
+    elif is_zip:
+        tg_send_message("ℹ️ <b>[Recon 2/4]</b> No native <code>.so</code> binaries detected in ZIP archive.")
     else:
         try:
             res_fn = subprocess.run(
@@ -439,9 +476,18 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
             log.warning("Rizin analysis error: %s", e)
 
     # ---------------- Phase 3: Source Decompilation (JADX) ----------------
+    target_to_jadx = None
+    if is_apk or is_dex:
+        target_to_jadx = target_file
+    elif is_zip:
+        unpacked_dir = workdir / "unpacked_archive"
+        dex_files = list(unpacked_dir.rglob("*.dex"))
+        if dex_files:
+            target_to_jadx = dex_files[0]
+
     jadx_bin = shutil.which("jadx") or "/usr/local/bin/jadx" or "/opt/jadx/bin/jadx"
-    if is_apk and (shutil.which("jadx") or Path("/usr/local/bin/jadx").exists() or Path("/opt/jadx/bin/jadx").exists()):
-        tg_send_message("☕ <b>[Recon 3/4] Decompiling Core Source Code with JADX...</b>")
+    if target_to_jadx and (shutil.which("jadx") or Path("/usr/local/bin/jadx").exists() or Path("/opt/jadx/bin/jadx").exists()):
+        tg_send_message(f"☕ <b>[Recon 3/4] Decompiling Source ({target_to_jadx.name}) with JADX...</b>")
         jadx_exec = shutil.which("jadx") or "/usr/local/bin/jadx"
         if not Path(jadx_exec).exists() and Path("/opt/jadx/bin/jadx").exists():
             jadx_exec = "/opt/jadx/bin/jadx"
@@ -449,7 +495,7 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
         decompiled_dir = recon_dir / "decompiled_sources"
         try:
             res = subprocess.run(
-                [jadx_exec, "-d", str(decompiled_dir), "--no-res", "-j", "4", str(target_file)],
+                [jadx_exec, "-d", str(decompiled_dir), "--no-res", "-j", "4", str(target_to_jadx)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=90,
@@ -466,6 +512,8 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
         except Exception as e:
             log.warning("JADX decompilation failed or timed out: %s", e)
             tg_send_message(f"⚠️ <b>[Recon 3/4]</b> JADX decompilation timed out or skipped.")
+    elif is_zip or not (is_apk or is_dex):
+        tg_send_message("ℹ️ <b>[Recon 3/4]</b> No DEX bytecode detected; JADX decompilation skipped.")
 
     # ---------------- Phase 4: Package & Upload to Telegram ----------------
     tg_send_message("📦 <b>[Recon 4/4] Packaging Analysis Artifacts & Uploading...</b>")
