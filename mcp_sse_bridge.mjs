@@ -161,6 +161,9 @@ function getSharedMcpProcess() {
     stdio: ["pipe", "pipe", "inherit"],
     env: {
       ...process.env,
+      GHIDRA_INSTALL_DIR: process.env.GHIDRA_INSTALL_DIR || process.env.GHIDRA_HOME || "/opt/ghidra",
+      GHIDRA_HOME: process.env.GHIDRA_HOME || process.env.GHIDRA_INSTALL_DIR || "/opt/ghidra",
+      PATH: `/usr/local/bin:/usr/bin:/bin:/opt/ghidra/support:/opt/jadx/bin:${process.env.PATH || ""}`,
       FORCE_COLOR: "0",
     },
   });
@@ -336,6 +339,9 @@ const server = http.createServer((req, res) => {
       stdio: ["pipe", "pipe", "inherit"],
       env: {
         ...process.env,
+        GHIDRA_INSTALL_DIR: process.env.GHIDRA_INSTALL_DIR || process.env.GHIDRA_HOME || "/opt/ghidra",
+        GHIDRA_HOME: process.env.GHIDRA_HOME || process.env.GHIDRA_INSTALL_DIR || "/opt/ghidra",
+        PATH: `/usr/local/bin:/usr/bin:/bin:/opt/ghidra/support:/opt/jadx/bin:${process.env.PATH || ""}`,
         FORCE_COLOR: "0",
       },
     });
