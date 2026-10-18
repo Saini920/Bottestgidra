@@ -131,6 +131,7 @@ def edit_status(text: str, reply_markup=None):
 
 def download_target_file(workdir: Path) -> Path:
     if not FILENAME or (not FILE_URL and not TG_FILE_PATH):
+        log.warning("No file specified: FILENAME=%s, FILE_URL=%s, TG_FILE_PATH=%s", FILENAME, bool(FILE_URL), bool(TG_FILE_PATH))
         return None
 
     target_file = workdir / FILENAME
@@ -138,9 +139,13 @@ def download_target_file(workdir: Path) -> Path:
 
     download_url = FILE_URL
     if not download_url and TG_FILE_PATH:
-        download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{TG_FILE_PATH}"
+        if TG_FILE_PATH.startswith("http://") or TG_FILE_PATH.startswith("https://"):
+            download_url = TG_FILE_PATH
+        else:
+            download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{TG_FILE_PATH}"
 
     try:
+        log.info("Fetching target from download URL...")
         with httpx.stream("GET", download_url, follow_redirects=True, timeout=120) as r:
             if r.status_code != 200:
                 log.warning("Failed to download file: status %s", r.status_code)
