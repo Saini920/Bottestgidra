@@ -1350,13 +1350,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             btn_jadx = InlineKeyboardButton("☕ Decompile (Java)", callback_data=f"engine_jadx_{job_id}")
             btn_d2j = InlineKeyboardButton("🧬 Decompile + Java", callback_data=f"engine_dex2jar_{job_id}")
             btn_decode = InlineKeyboardButton("🧩 Decode (Smali)", callback_data=f"engine_smali_{job_id}")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
             await status.edit_text(
                 "🧬 <b>DEX File Detected!</b>\nChoose how to process:\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA MCP Server + Cloudflare Tunnel for Claude / Cursor AI reversing\n"
                 "• ☕ <b>Decompile:</b> classes.dex → Java Source (JADX)\n"
                 "• 🧬 <b>Decompile + Java:</b> classes.dex → JAR + Java Source (dex2jar + CFR)\n"
                 "• 🧩 <b>Decode:</b> classes.dex → Smali Code (like Apktool)",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
                     [btn_jadx],
                     [btn_d2j],
                     [btn_decode]
@@ -1405,17 +1408,20 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_pdf = InlineKeyboardButton(f"🔒 PDF → TXT (max {pdf_limit_mb} MB)", callback_data="buy_sub")
 
             btn_ghidra = InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
 
             if has_gradle and has_manifest:
                 await status.edit_text(
                     "📦 <b>Android Source Project Detected!</b>\n"
                     "Found <b>Gradle</b> and <b>AndroidManifest.xml</b> in your archive.\n\n"
                     "Choose your build system:\n"
+                    "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare Tunnel for Claude / Cursor AI reversing\n"
                     "• 🛠 <b>AndroidManifest Build:</b> Fast standalone build (AAPT2 + Javac/Kotlinc + D8)\n"
                     "• 📦 <b>Gradle Build:</b> Full Gradle build (<code>./gradlew assembleRelease</code>)\n\n"
                     "Or select another processing engine below:",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
                         [btn_build_manual, btn_build_gradle],
                         [btn_resdecode],
                         [btn_ghidra],
@@ -1431,11 +1437,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "📦 <b>Gradle Project Detected!</b>\n"
                     "Found Gradle configuration (<code>build.gradle</code> / <code>settings.gradle</code>).\n\n"
                     "Choose build option:\n"
+                    "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare Tunnel for Claude / Cursor AI reversing\n"
                     "• 📦 <b>Gradle Build:</b> Full Gradle build (<code>./gradlew assembleRelease</code>)\n"
                     "• 🛠 <b>AndroidManifest Build:</b> Manual standalone build\n\n"
                     "Or select another processing engine below:",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
                         [btn_build_gradle, btn_build_manual],
                         [btn_resdecode],
                         [btn_ghidra],
@@ -1451,10 +1459,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "🛠️ <b>Simple Manual Project Detected!</b>\n"
                     "Found <code>AndroidManifest.xml</code> + source/res (No Gradle).\n\n"
                     "Choose build option:\n"
+                    "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare Tunnel for Claude / Cursor AI reversing\n"
                     "• 🛠 <b>AndroidManifest Build:</b> Fast standalone compiler (AAPT2 + Javac/Kotlinc + D8)\n\n"
                     "Or select another processing engine below:",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
                         [btn_build_manual],
                         [btn_resdecode],
                         [btn_ghidra],
@@ -1469,10 +1479,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await status.edit_text(
                     "🎨 <b>Android Resources / Res Folder Detected!</b>\n"
                     "Found <code>res/</code> folder or compiled XML files in your archive.\n\n"
+                    "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare Tunnel for Claude / Cursor AI reversing\n"
                     "• 🎨 <b>Decode Res Folder:</b> Convert all compiled binary XMLs (layouts, drawables, menus) to readable plain XMLs.\n\n"
                     "Choose your processing engine:",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
                         [btn_resdecode],
                         [btn_ghidra],
                         [btn_jadx, btn_d2j],
@@ -1486,6 +1498,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await status.edit_text(
                     "🤖 <b>ZIP Archive Detected!</b>\nChoose processing engine:\n\n"
+                    "• 🌐 <b>AI MCP Session:</b> Live REA MCP Server + Cloudflare Tunnel for Claude / Cursor\n"
                     "• 🎨 <b>Decode Res:</b> Decompile binary XMLs & resources in ZIP\n"
                     "• ⚙️ <b>Ghidra:</b> Decompile binaries inside ZIP (Free)\n"
                     "• ☕ <b>JADX:</b> Decompile Java/Smali to source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
@@ -1498,6 +1511,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "• 📄 <b>PDF → TXT:</b> Convert PDFs inside ZIP to text (Free ≤30 MB, Premium ≤300 MB)",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
                         [btn_resdecode],
                         [btn_ghidra],
                         [btn_jadx, btn_d2j],
