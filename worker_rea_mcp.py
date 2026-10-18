@@ -671,13 +671,16 @@ def main():
         return 1
 
     log.info("Cloudflare Tunnel active at: %s", tunnel_url)
+    mcp_http_endpoint = f"{tunnel_url}/mcp"
     sse_endpoint = f"{tunnel_url}/sse"
 
     file_info = f"<code>{FILENAME}</code>" if FILENAME else "<i>Standalone Mode (No file pre-loaded)</i>"
 
     status_text = (
         "🚀 <b>REA MCP Server is LIVE!</b>\n\n"
-        f"🔗 <b>MCP SSE URL:</b>\n<code>{sse_endpoint}</code>\n\n"
+        f"⚡ <b>Streamable HTTP (Recommended - Fast & No Buffer):</b>\n<code>{mcp_http_endpoint}</code>\n"
+        "<i>(Works instantly with Claude Desktop, Cursor, Cline, Antigravity)</i>\n\n"
+        f"🔗 <b>Legacy SSE URL:</b>\n<code>{sse_endpoint}</code>\n\n"
         f"📁 <b>Target Binary:</b> {file_info}\n"
         f"⏱️ <b>Session Limit:</b> {SESSION_TIMEOUT_MINUTES} minutes\n\n"
         "🛠️ <b>Available Engines & Tools:</b>\n"
@@ -686,7 +689,7 @@ def main():
         "• 📱 <b>Apktool & JADX</b> — Android APK / DEX reversing\n"
         "• 🪝 <b>Frida & GDB</b> — Dynamic memory instrumentation\n"
         "• 🧬 <b>.NET / WASM / EVM</b> — Smart contracts & managed code\n\n"
-        "💡 <i>Copy the URL above and connect Claude Desktop, Cursor, or your AI Agent to begin reversing!</i>\n"
+        "💡 <i>Copy the Streamable HTTP URL above into your AI client to begin reversing!</i>\n"
         "📡 <i>Live updates and generated files will stream directly below.</i>"
     )
 
