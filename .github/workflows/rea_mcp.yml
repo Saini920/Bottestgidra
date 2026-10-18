@@ -83,6 +83,15 @@ jobs:
           rm -f /tmp/cloudflared.deb
           cloudflared --version
 
+          # Install JADX decompiler
+          sudo mkdir -p /opt/jadx
+          curl -fsSL -o /tmp/jadx.zip https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip
+          sudo unzip -q -o /tmp/jadx.zip -d /opt/jadx
+          sudo chmod +x /opt/jadx/bin/jadx
+          sudo ln -sf /opt/jadx/bin/jadx /usr/local/bin/jadx
+          rm -f /tmp/jadx.zip
+          jadx --version || echo "JADX ready"
+
       - name: Install REA Agents Globally via npm
         run: |
           sudo npm install -g rea-agents
