@@ -356,13 +356,16 @@ async def handle_engine_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     if engine == "apkbuild":
         job = PENDING_JOBS.get(job_id)
         if job:
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (Source Project)", callback_data=f"engine_reamcp_{job_id}")
             await query.edit_message_text(
                 "📦 <b>Choose APK Build Engine:</b>\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA MCP Server + Cloudflare Tunnel for Claude / Cursor AI reversing\n"
                 "• 🛠 <b>AndroidManifest Build:</b> Fast standalone build (AAPT2 + Javac/Kotlinc + D8)\n"
                 "• 📦 <b>Gradle Build:</b> Full Gradle build (runs <code>./gradlew assembleRelease</code>)\n\n"
                 "Select your build method:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
                     [InlineKeyboardButton("🛠 AndroidManifest Build", callback_data=f"engine_apkbuild-manual_{job_id}")],
                     [InlineKeyboardButton("📦 Gradle Build", callback_data=f"engine_apkbuild-gradle_{job_id}")],
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
@@ -399,13 +402,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 )
                 return
             await query.answer("Choose Source Build Type", show_alert=False)
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (Source Project)", callback_data=f"engine_reamcp_{job_id}")
             await query.edit_message_text(
                 "📦 <b>Choose APK Build Engine:</b>\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare for Claude / Cursor AI workspace\n"
                 "• 🛠 <b>AndroidManifest Build:</b> Fast standalone build (AAPT2 + Javac/Kotlinc + D8)\n"
                 "• 📦 <b>Gradle Build:</b> Full Gradle build (runs <code>./gradlew assembleRelease</code>)\n\n"
                 "Select your build method:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
                     [InlineKeyboardButton("🛠 AndroidManifest Build", callback_data=f"engine_apkbuild-manual_{job_id}")],
                     [InlineKeyboardButton("📦 Gradle Build", callback_data=f"engine_apkbuild-gradle_{job_id}")],
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
@@ -442,14 +448,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         job = PENDING_JOBS.get(job_id)
         if job:
             await query.answer("Choose Decode mode", show_alert=False)
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (Interactive Smali)", callback_data=f"engine_reamcp_{job_id}")
             await query.edit_message_text(
                 "🧩 <b>Decode .dex files to Smali</b>\n\n"
                 "Your file contains <b>one or more .dex files</b>. Choose how you want the result:\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare for Claude / Cursor AI reversing\n"
                 "• ✅ <b>Confirm Decode:</b> Decode all .dex files → send <b>full Smali ZIP</b>\n"
                 "• 📦 <b>Extract:</b> Decode all .dex files → send <b>only com/ folder ZIP</b> (main package)\n\n"
                 "Which one do you want?",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
                     [InlineKeyboardButton("✅ Confirm Decode (Full Smali)", callback_data=f"engine_smali_{job_id}")],
                     [InlineKeyboardButton("📦 Extract (com/ folder only)", callback_data=f"engine_smaliextract_{job_id}")],
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
@@ -462,14 +471,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         job = PENDING_JOBS.get(job_id)
         if job:
             await query.answer("Choose Compile mode", show_alert=False)
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (Live Compiler)", callback_data=f"engine_reamcp_{job_id}")
             await query.edit_message_text(
                 "🛠️ <b>Compile to .dex</b>\n\n"
                 "Your archive contains source files. What do you want to compile?\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live cloud runner with full Android SDK & build toolchain\n"
                 "• 🧩 <b>Smali → .dex:</b> Assemble Smali files → classes.dex\n"
                 "• ☕ <b>Java → .dex:</b> Compile Java sources (.java/.jar/.class) → classes.dex\n\n"
                 "Which one do you want?",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
                     [InlineKeyboardButton("🧩 Smali → .dex", callback_data=f"engine_dexcompile-smali_{job_id}")],
                     [InlineKeyboardButton("☕ Java → .dex", callback_data=f"engine_dexcompile-java_{job_id}")],
                     [InlineKeyboardButton("⚙️ Ghidra (Decompile binaries)", callback_data=f"engine_ghidra_{job_id}")],
@@ -482,7 +494,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         job = PENDING_JOBS.get(job_id)
         if job:
             await query.answer("Choose target Android version", show_alert=False)
-            rows = []
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
+            rows = [[btn_mcp]]
             for start in range(5, 17, 4):
                 row = [InlineKeyboardButton(f"🤖 Android {v}", callback_data=f"engine_apksign-{v}_{job_id}")
                        for v in range(start, min(start + 4, 17))]
@@ -490,8 +503,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             rows.append([InlineKeyboardButton("⬅️ Back", callback_data=f"sign_back_{job_id}")])
             await query.edit_message_text(
                 "🔏 <b>Select Target Android Version</b>\n\n"
-                "Your APK will be re-signed for the selected Android version (minSdk 5–16).\n\n"
-                "Choose a version:",
+                "• 🌐 <b>AI MCP Session:</b> Live reversing & manual tampering before signing\n"
+                "• 🤖 <b>Android 5–16:</b> Re-sign APK for chosen API level\n\n"
+                "Choose an option:",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(rows)
             )
@@ -520,15 +534,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 tool_label = "JADX" if tool == "jadx" else "dex2jar"
                 fname = (job.get("filename") or "").lower()
                 is_apk = fname.endswith(".apk")
-                extra_buttons = []
+                btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (Bypass Limit)", callback_data=f"engine_reamcp_{job_id}")
+                extra_buttons = [[btn_mcp]]
                 if not is_apk:
-                    extra_buttons = [[InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")]]
+                    extra_buttons.append([InlineKeyboardButton("⚙️ Ghidra (C Code)", callback_data=f"engine_ghidra_{job_id}")])
                 await query.answer("Size limit reached!", show_alert=False)
                 await query.edit_message_text(
                     f"⚠️ <b>{tool_label} Size Limit Reached!</b>\n\n"
                     f"Your file is <b>{size_mb:.1f} MB</b> but {tool_label} supports files up to "
                     f"<b>{jd_limit} MB</b> for {'Premium' if is_premium else 'Free'} users.\n\n"
-                    f"• ⭐ Upgrade to <b>Premium (₹99)</b> to unlock {tool_label} up to <b>{JADX_DEX2JAR_LIMIT_PREMIUM_MB} MB</b>.",
+                    f"• 🌐 <b>AI MCP Session:</b> Live cloud runner (7GB RAM, no 30MB limit) with full Ghidra, JADX & Rizin!\n"
+                    f"• ⭐ Upgrade to <b>Premium (₹99)</b> to unlock standard {tool_label} up to <b>{JADX_DEX2JAR_LIMIT_PREMIUM_MB} MB</b>.",
                     parse_mode="HTML",
                     reply_markup=InlineKeyboardMarkup(extra_buttons + [
                         [InlineKeyboardButton("⭐ Upgrade to Premium (₹99)", callback_data="buy_sub")]
@@ -712,6 +728,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  ⭐ Premium: .so/.dex ≤100 MB, APK/ZIP ≤500 MB\n"
         "  ☕ JADX / 🧬 dex2jar (APK/ZIP): Free ≤30 MB | Premium ≤100 MB\n\n"
         "⚡ <b>Features & Engines:</b>\n"
+        "  • 🌐 <b>REA AI MCP Engine:</b> Live interactive AI reverse engineering & toolchain for Claude Desktop, Cursor & AI agents (120 min runner, Cloudflare Tunnel)\n"
         "  • ⚙️ <b>Ghidra Engine:</b> Full C reconstruction of native files (Free)\n"
         "  • ☕ <b>JADX Engine:</b> APK/DEX/Smali → Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
         "  • 🧬 <b>dex2jar Engine:</b> APK/DEX → JAR + Java Source (Free ≤30 MB, Premium ≤100 MB)\n"
@@ -795,6 +812,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Contact Admins: <b>@R3V_X</b>\n\n"
         "📤 <b>DIRECT UPLOAD:</b>\n"
         "• Send any binary file directly in chat (Limits: .so/.dex 30/100 MB, APK/ZIP 200/500 MB for Free/Premium, Unlimited for Admins).\n"
+        "• 🌐 <b>AI MCP Session:</b> Live interactive AI reversing with Cloudflare Tunnel & SSE for Claude Desktop, Cursor & AI agents (APK, ZIP, DEX, SO, ELF, EXE, PDF, Smali, Java, C/C++)\n"
         "• ☕ <b>JADX / 🧬 dex2jar:</b> APK/ZIP — Free up to 30 MB | Premium up to 100 MB\n"
         "• 🧩 <b>Smali Decode:</b> .dex or ZIP with multiple .dex → Smali Code (Free: up to 3 .dex, Premium: up to 10 .dex per ZIP)\n"
         "• 🛠️ <b>DEX Compile:</b> Smali / Java / JAR / Class / ZIP → classes.dex (⭐ Premium only)\n"
@@ -836,14 +854,28 @@ async def cmd_mcp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_admin = user_id in ADMIN_IDS
 
     target_doc = None
-    if msg.reply_to_message and msg.reply_to_message.document:
-        target_doc = msg.reply_to_message.document
-
-    filename = target_doc.file_name if target_doc else ""
+    file_url = ""
+    filename = ""
     tg_file_path = ""
     file_id = ""
 
+    if context.args and len(context.args) > 0 and context.args[0].startswith(("http://", "https://")):
+        file_url = context.args[0].strip()
+        filename = file_url.split("/")[-1].split("?")[0] or "target_binary"
+    elif msg.reply_to_message:
+        reply = msg.reply_to_message
+        if reply.document:
+            target_doc = reply.document
+        elif reply.audio:
+            target_doc = reply.audio
+        elif reply.video:
+            target_doc = reply.video
+        elif reply.text and reply.text.strip().startswith(("http://", "https://")):
+            file_url = reply.text.strip()
+            filename = file_url.split("/")[-1].split("?")[0] or "target_binary"
+
     if target_doc:
+        filename = getattr(target_doc, "file_name", None) or "target_binary"
         file_id = target_doc.file_id
         try:
             tg_file = await target_doc.get_file()
@@ -861,6 +893,7 @@ async def cmd_mcp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await enqueue_or_dispatch(
         msg,
         status,
+        file_url=file_url,
         filename=filename,
         tg_file_path=tg_file_path,
         engine="reamcp",
@@ -900,7 +933,7 @@ async def cancel_github_job(chat_id, msg_id):
     }
     # Run names: {prefix}-{chat_id}-{message_id}
     chat_s, msg_s = str(chat_id), str(msg_id)
-    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign", "pdftxt", "resdecode"]
+    prefixes = ["job", "jadx", "dex2jar", "apktool", "build", "smali", "smaliextract", "dexcompile-smali", "dexcompile-java", "cccompile", "apkbuild", "apksign", "pdftxt", "resdecode", "reamcp", "mcp"]
     async with httpx.AsyncClient(timeout=30.0) as client:
         for status in ["in_progress", "queued"]:
             url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs?status={status}"
@@ -1292,12 +1325,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-smali_{job_id}")
             else:
                 btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
             await status.edit_text(
                 "☕ <b>Smali File Detected!</b>\nWhat do you want to do?\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA Server + Cloudflare for Claude / Cursor AI reversing\n"
                 "• ☕ <b>Smali → Java (JADX):</b> Decompile Smali to Java source\n"
                 "• 🛠️ <b>Compile to .dex:</b> Assemble Smali back to classes.dex",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
                     [btn_jadx],
                     [btn_compile],
                 ])
@@ -1307,44 +1343,67 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
             else:
                 btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
             await status.edit_text(
-                "☕ <b>Java Source Detected!</b>\nCompile your Java file to Android DEX?\n\n"
+                "☕ <b>Java Source Detected!</b>\nChoose an action:\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live AI Agent inspection, security audit & toolchain\n"
                 "• 🛠️ <b>Compile to .dex:</b> javac + d8 → classes.dex",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[btn_compile]])
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
+                    [btn_compile],
+                ])
             )
         elif doc.file_name and doc.file_name.lower().endswith((".jar", ".class")):
             if is_premium or user_id in ADMIN_IDS:
                 btn_compile = InlineKeyboardButton("🛠️ Compile to .dex", callback_data=f"engine_dexcompile-java_{job_id}")
             else:
                 btn_compile = InlineKeyboardButton("🔒 Compile to .dex (Premium Only)", callback_data="buy_sub")
+            btn_jadx = InlineKeyboardButton("☕ Decompile to Java (JADX)", callback_data=f"engine_jadx_{job_id}")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
             await status.edit_text(
-                "🧬 <b>Java Bytecode Detected!</b>\nConvert to Android DEX?\n\n"
+                "🧬 <b>Java Bytecode Detected!</b>\nChoose an action:\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA MCP Server + Cloudflare Tunnel for Claude / Cursor\n"
+                "• ☕ <b>Decompile:</b> Bytecode → Java Source (JADX / CFR)\n"
                 "• 🛠️ <b>Compile to .dex:</b> d8 → classes.dex",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[btn_compile]])
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
+                    [btn_jadx],
+                    [btn_compile],
+                ])
             )
         elif doc.file_name and doc.file_name.lower().endswith((".c", ".cc")):
             if is_premium or user_id in ADMIN_IDS:
                 btn_cc = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
             else:
                 btn_cc = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
             await status.edit_text(
-                "⚙️ <b>C Source Detected!</b>\nCompile to Android ARM64 shared library?\n\n"
+                "⚙️ <b>C Source Detected!</b>\nChoose an action:\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live AI Agent inspection & binary toolchain\n"
                 "• 🛠️ <b>Compile to .so:</b> NDK clang → lib_*.so",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[btn_cc]])
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
+                    [btn_cc],
+                ])
             )
         elif doc.file_name and doc.file_name.lower().endswith((".cpp", ".cxx", ".c++", ".cp")):
             if is_premium or user_id in ADMIN_IDS:
                 btn_cc = InlineKeyboardButton("🛠️ Compile to .so", callback_data=f"engine_cccompile_{job_id}")
             else:
                 btn_cc = InlineKeyboardButton("🔒 Compile to .so (Premium Only)", callback_data="buy_sub")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
             await status.edit_text(
-                "⚙️ <b>C++ Source Detected!</b>\nCompile to Android ARM64 shared library?\n\n"
+                "⚙️ <b>C++ Source Detected!</b>\nChoose an action:\n\n"
+                "• 🌐 <b>AI MCP Session:</b> Live AI Agent inspection & binary toolchain\n"
                 "• 🛠️ <b>Compile to .so:</b> NDK clang++ → lib_*.so",
                 parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup([[btn_cc]])
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_mcp],
+                    [btn_cc],
+                ])
             )
         elif doc.file_name and doc.file_name.lower().endswith(".dex"):
             btn_jadx = InlineKeyboardButton("☕ Decompile (Java)", callback_data=f"engine_jadx_{job_id}")
@@ -1525,14 +1584,19 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif doc.file_name and doc.file_name.lower().endswith(".pdf"):
             pdf_limit_mb = PDF_LIMIT_PREMIUM_MB if (is_premium or user_id in ADMIN_IDS) else PDF_LIMIT_FREE_MB
             pdf_allowed = user_id in ADMIN_IDS or (doc.file_size or 0) <= pdf_limit_mb * 1024 * 1024
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (PDF Inspection)", callback_data=f"engine_reamcp_{job_id}")
             if pdf_allowed:
                 btn_pdf = InlineKeyboardButton("📄 Convert PDF → TXT", callback_data=f"engine_pdftxt_{job_id}")
                 await status.edit_text(
                     "📄 <b>PDF File Detected!</b>\n\n"
+                    "• 🌐 <b>AI MCP Session:</b> Live REA Server for document analysis & extraction\n"
                     f"• 📄 <b>PDF → TXT:</b> Convert PDF to plain text (poppler-utils)\n"
                     f"  (Free ≤ {PDF_LIMIT_FREE_MB} MB | Premium ≤ {PDF_LIMIT_PREMIUM_MB} MB)",
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup([[btn_pdf]])
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
+                        [btn_pdf],
+                    ])
                 )
             else:
                 btn_pdf = InlineKeyboardButton("🔒 PDF → TXT (Premium Only)", callback_data="buy_sub")
@@ -1540,9 +1604,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "📄 <b>PDF File Detected!</b>\n\n"
                     f"⚠️ Your PDF is <b>{size_mb:.1f} MB</b> but PDF → TXT supports up to "
                     f"<b>{pdf_limit_mb} MB</b> for {'Premium' if is_premium else 'Free'} users.\n\n"
+                    f"• 🌐 You can still launch an <b>AI MCP Session</b> to analyze this file!\n"
                     f"• ⭐ Upgrade to <b>Premium (₹99)</b> to unlock PDF → TXT up to <b>{PDF_LIMIT_PREMIUM_MB} MB</b>.",
                     parse_mode="HTML",
-                    reply_markup=InlineKeyboardMarkup([[btn_pdf]])
+                    reply_markup=InlineKeyboardMarkup([
+                        [btn_mcp],
+                        [btn_pdf],
+                    ])
                 )
         else:
             btn_ghidra = InlineKeyboardButton("⚙️ Ghidra (Decompile C)", callback_data=f"engine_ghidra_{job_id}")
