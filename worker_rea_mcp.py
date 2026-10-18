@@ -347,23 +347,23 @@ def run_automated_recon(target_file: Path, workdir: Path, seen_files: set):
             log.info("Analyzing primary native library: %s", primary_so.name)
 
             try:
-                # Functions
-                res_fn = subprocess.run(
-                    [rizin_bin, "-qc", "aaa; afl", str(primary_so)],
-                    capture_output=True,
-                    text=True,
-                    timeout=45,
-                )
-                (recon_dir / f"02_{primary_so.stem}_Functions.txt").write_text(res_fn.stdout or "")
-
                 # Exported Symbols (JNI functions)
                 res_sym = subprocess.run(
                     [rizin_bin, "-qc", "iE", str(primary_so)],
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=20,
                 )
-                (recon_dir / f"03_{primary_so.stem}_Exports.txt").write_text(res_sym.stdout or "")
+                (recon_dir / f"02_{primary_so.stem}_Exports.txt").write_text(res_sym.stdout or "")
+
+                # Functions list
+                res_fn = subprocess.run(
+                    [rizin_bin, "-qc", "aa; afl", str(primary_so)],
+                    capture_output=True,
+                    text=True,
+                    timeout=25,
+                )
+                (recon_dir / f"03_{primary_so.stem}_Functions.txt").write_text(res_fn.stdout or "")
 
                 # Disassemble JNI functions
                 res_jni = subprocess.run(
