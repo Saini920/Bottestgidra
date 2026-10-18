@@ -91,18 +91,6 @@
       "run_id": null,
       "run_status": ""
     },
-    "3862": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 3862,
-      "filename": "",
-      "engine": "reamcp",
-      "started": 1792336198.3473797,
-      "run_id": 39139238037,
-      "run_status": "completed"
-    },
     "3864": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
