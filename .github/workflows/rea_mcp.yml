@@ -109,6 +109,7 @@ jobs:
           PAYLOAD_JOB_ID: ${{ github.event.client_payload.job_id }}
           PAYLOAD_IS_ADMIN: ${{ github.event.client_payload.is_admin }}
           GHIDRA_HOME: /opt/ghidra
+          GHIDRA_INSTALL_DIR: /opt/ghidra
           MCP_COMMAND: "npx"
           MCP_ARGS: "-y rea-agents mcp"
           SESSION_TIMEOUT_MINUTES: "120"
