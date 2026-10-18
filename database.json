@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-10-18",
-      "count": 9
+      "count": 10
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 731,
+  "total_files": 732,
   "active_jobs": {
     "3849": {
       "user_id": "7249511572",
@@ -160,8 +160,8 @@
       "filename": "test.apk",
       "engine": "reamcp",
       "started": 1792340878.0765646,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39145116691,
+      "run_status": "in_progress"
     }
   }
 }
