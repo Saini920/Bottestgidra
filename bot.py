@@ -293,6 +293,7 @@ def build_apk_chooser(job_id, job, is_premium):
     else:
         btn_apktool = InlineKeyboardButton("🔒 Apktool (Premium Only)", callback_data="buy_sub")
         btn_sign = InlineKeyboardButton("🔒 Sign APK (Premium Only)", callback_data="buy_sub")
+    btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session", callback_data=f"engine_reamcp_{job_id}")
     text = (
         "🤖 <b>APK Detected!</b>\nChoose your processing engine:\n\n"
         "• ☕ <b>JADX:</b> APK → Java Source" + ("" if jd_allowed else f" (max {jd_limit_mb} MB)") + "\n"
@@ -301,7 +302,8 @@ def build_apk_chooser(job_id, job, is_premium):
         "• 🎨 <b>Decode Res:</b> Decode binary XMLs & <code>res/</code> folder\n"
         "• 🧩 <b>Decode Smali:</b> Full Smali disassembly of all .dex files\n"
         "• 📱 <b>Apktool:</b> Decompile APKs (⭐ Premium)\n"
-        "• 🔏 <b>Sign APK:</b> Re-sign with new key (choose Android 5–16) (⭐ Premium)"
+        "• 🔏 <b>Sign APK:</b> Re-sign with new key (choose Android 5–16) (⭐ Premium)\n"
+        "• 🌐 <b>AI MCP Session:</b> Live REA + Cloudflare interactive AI reversing"
     )
     keyboard = InlineKeyboardMarkup([
         [btn_jadx, btn_dex2jar],
@@ -309,6 +311,7 @@ def build_apk_chooser(job_id, job, is_premium):
         [btn_decode],
         [btn_apktool],
         [btn_sign],
+        [btn_mcp],
     ])
     return text, keyboard
 
@@ -773,6 +776,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📌 <b>USER COMMANDS:</b>\n"
         "• <code>/start</code> — Welcome guide and basic usage.\n"
         "• <code>/help</code> — View all commands and bot description.\n"
+        "• <code>/mcp</code> — Start live AI MCP Session (REA + Cloudflare Tunnel). Reply to any file with /mcp to pre-load it.\n"
+        "• <code>/mcp_stop</code> — Terminate active MCP Session.\n"
         "• <code>/profile</code> — View your profile, daily remaining quota, and server stats.\n"
         "• <code>/myid</code> — Display your Telegram User ID.\n"
         "• <code>/setkey</code> — Set your custom signing key (release.jks) for APK Sign/Build\n"
@@ -818,6 +823,72 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🆔 Your Telegram User ID:\n<code>{update.effective_user.id}</code>", parse_mode=constants.ParseMode.HTML)
+
+
+async def cmd_mcp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_force_join(update, context): return
+    if not is_allowed(update.effective_user.id):
+        await reply_denied(update.message, update.effective_user.id)
+        return
+
+    msg = update.message
+    user_id = str(update.effective_user.id)
+    is_admin = user_id in ADMIN_IDS
+
+    target_doc = None
+    if msg.reply_to_message and msg.reply_to_message.document:
+        target_doc = msg.reply_to_message.document
+
+    filename = target_doc.file_name if target_doc else ""
+    tg_file_path = ""
+    file_id = ""
+
+    if target_doc:
+        file_id = target_doc.file_id
+        try:
+            tg_file = await target_doc.get_file()
+            tg_file_path = tg_file.file_path
+        except Exception as e:
+            log.warning("Could not get file path for MCP: %s", e)
+
+    file_note = f"\n📁 Target: <code>{filename}</code>" if filename else "\n📁 Mode: Standalone (No file pre-loaded)"
+    status = await msg.reply_text(
+        "🚀 <b>Requesting REA MCP Cloud Runner...</b>\n"
+        "⚡ Setting up Ghidra, Rizin, and Cloudflare Tunnel on GitHub Actions..." + file_note,
+        parse_mode=constants.ParseMode.HTML
+    )
+
+    await enqueue_or_dispatch(
+        msg,
+        status,
+        filename=filename,
+        tg_file_path=tg_file_path,
+        engine="reamcp",
+        file_id=file_id
+    )
+
+
+async def cmd_mcp_stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update.effective_user.id):
+        await reply_denied(update.message, update.effective_user.id)
+        return
+
+    user_id = str(update.effective_user.id)
+    stopped_any = False
+    for mid, job in list(ACTIVE_JOBS.items()):
+        if str(job.get("user_id")) == user_id and job.get("engine") == "reamcp":
+            run_id = job.get("run_id")
+            if run_id:
+                await cancel_github_run(run_id)
+            await cancel_github_job(job.get("chat_id"), job.get("message_id"))
+            del ACTIVE_JOBS[mid]
+            stopped_any = True
+
+    if stopped_any:
+        await update.message.reply_text("🛑 <b>Active MCP Session(s) stopped!</b>", parse_mode=constants.ParseMode.HTML)
+    else:
+        await update.message.reply_text("ℹ️ No active MCP session found for your account.", parse_mode=constants.ParseMode.HTML)
+
 
 
 async def cancel_github_job(chat_id, msg_id):
@@ -1020,6 +1091,8 @@ async def send_to_job(msg, status, file_url: str = "", filename: str = "", tg_fi
         event_type = "pdf-to-txt"
     elif engine == "resdecode":
         event_type = "res-decode"
+    elif engine == "reamcp":
+        event_type = "rea-mcp"
     else:
         event_type = "decompile-job"
         
@@ -1448,8 +1521,19 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=InlineKeyboardMarkup([[btn_pdf]])
                 )
         else:
-            await status.edit_text("📥 <b>Downloading to Cloud Server...</b>\n⏳ Processing with Ghidra Engine...", parse_mode="HTML")
-            await enqueue_or_dispatch(msg, status, filename=doc.file_name, tg_file_path=tg_file_path, engine="ghidra", file_id=file_id)
+            btn_ghidra = InlineKeyboardButton("⚙️ Ghidra (Decompile C)", callback_data=f"engine_ghidra_{job_id}")
+            btn_mcp = InlineKeyboardButton("🌐 Start AI MCP Session (REA + Cloudflare)", callback_data=f"engine_reamcp_{job_id}")
+            await status.edit_text(
+                f"⚙️ <b>Binary Executable Detected:</b> <code>{doc.file_name}</code>\n\n"
+                "Choose your processing method:\n"
+                "• ⚙️ <b>Ghidra Engine:</b> Headless decompilation to full C code & strings ZIP\n"
+                "• 🌐 <b>AI MCP Session:</b> Live REA MCP Server + Cloudflare Tunnel for Claude / Cursor AI reversing",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([
+                    [btn_ghidra],
+                    [btn_mcp],
+                ])
+            )
     except Exception as e:
         await status.edit_text("❌ File processing failed: " + str(e))
 
@@ -1986,7 +2070,7 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def parse_run_name(run_name: str):
     import re as _re
-    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt|resdecode)-(-?\d+)-(\d+)$", run_name or "")
+    m = _re.match(r"^(job|jadx|dex2jar|apktool|build|smali|smaliextract|dexcompile-smali|dexcompile-java|cccompile|apkbuild|apksign|pdftxt|resdecode|mcp|reamcp)-(-?\d+)-(\d+)$", run_name or "")
     if not m:
         return None
     return m.group(1), m.group(2), m.group(3)
@@ -2010,8 +2094,11 @@ ENGINE_LABELS = {
     "apksign": "🔏 APK Signer",
     "pdftxt": "📄 PDF → TXT",
     "resdecode": "🎨 Res Decoder",
+    "mcp": "🌐 REA AI MCP",
+    "reamcp": "🌐 REA AI MCP",
 }
 TASK_LABELS = {
+    "reamcp": "AI Autonomous Reverse Engineering & Live MCP (REA + Cloudflare)",
     "ghidra": "Reverse Engineering / Decompile Binary (Ghidra)",
     "jadx": "Decompile to Java Source (JADX)",
     "dex2jar": "Decompile to JAR + Java (dex2jar + CFR)",
@@ -2421,6 +2508,8 @@ def main():
     app.add_handler(CommandHandler("premium_users", cmd_list_users))
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("mcp", cmd_mcp))
+    app.add_handler(CommandHandler("mcp_stop", cmd_mcp_stop))
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("profile", cmd_profile))
     app.add_handler(CommandHandler("free", cmd_free))
