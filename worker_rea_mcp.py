@@ -51,24 +51,34 @@ def tg_send(method: str, **params):
         return None
     try:
         resp = httpx.post(f"{API}/{method}", json=params, timeout=30)
-        return resp.json()
+        data = resp.json()
+        if not data.get("ok"):
+            log.warning("tg_send %s error response: %s", method, resp.text)
+        return data
     except Exception as e:
         log.warning("tg_send %s failed: %s", method, e)
         return None
 
 
 def edit_status(text: str, reply_markup=None):
-    if not CHAT_ID or not MESSAGE_ID:
+    if not CHAT_ID:
         return
     params = {
         "chat_id": CHAT_ID,
-        "message_id": int(MESSAGE_ID),
         "text": text,
         "parse_mode": "HTML",
     }
     if reply_markup is not None:
         params["reply_markup"] = reply_markup
-    tg_send("editMessageText", **params)
+
+    res = None
+    if MESSAGE_ID:
+        edit_params = dict(params, message_id=int(MESSAGE_ID))
+        res = tg_send("editMessageText", **edit_params)
+
+    if not res or not res.get("ok"):
+        log.info("editMessageText unsuccessful; sending as new message to chat %s", CHAT_ID)
+        tg_send("sendMessage", **params)
 
 
 def download_target_file(workdir: Path) -> Path:
