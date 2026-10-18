@@ -575,6 +575,25 @@ def main():
         except Exception as e:
             log.warning("Could not copy to /tmp: %s", e)
 
+    # Patch Ghidra application.properties version to 12.1.4 for REA compatibility
+    ghidra_prop = Path("/opt/ghidra/Ghidra/application.properties")
+    if ghidra_prop.exists():
+        try:
+            content = ghidra_prop.read_text(encoding="utf-8")
+            new_content = re.sub(r"application\.version=[^\r\n]+", "application.version=12.1.4", content)
+            ghidra_prop.write_text(new_content, encoding="utf-8")
+            log.info("Patched Ghidra application.properties to version 12.1.4")
+        except Exception as e:
+            log.warning("Could not patch Ghidra properties: %s", e)
+
+    # Ensure Rizin symlink exists if extracted into /usr/local/rizin
+    if Path("/usr/local/rizin").exists() and not Path("/usr/local/bin/rizin").exists():
+        try:
+            Path("/usr/local/bin/rizin").symlink_to("/usr/local/rizin")
+            log.info("Symlinked /usr/local/rizin to /usr/local/bin/rizin")
+        except Exception as e:
+            log.warning("Could not symlink rizin: %s", e)
+
     # Prepare environment for REA
     rea_env = os.environ.copy()
     rea_env["PORT"] = "8080"
@@ -586,7 +605,7 @@ def main():
     rea_env["REA_WORKSPACE"] = str(workdir)
     rea_env["GHIDRA_INSTALL_DIR"] = "/opt/ghidra"
     rea_env["GHIDRA_HOME"] = "/opt/ghidra"
-    rea_env["PATH"] = f"/usr/local/bin:/usr/bin:/bin:/opt/ghidra/support:/opt/jadx/bin:{os.environ.get('PATH', '')}"
+    rea_env["PATH"] = f"/usr/local/bin:/usr/local:/usr/bin:/bin:/opt/ghidra/support:/opt/jadx/bin:{os.environ.get('PATH', '')}"
 
     if target_file and target_file.exists():
         rea_env["REA_INITIAL_TARGET"] = str(target_file)
