@@ -63,7 +63,12 @@ const server = http.createServer((req, res) => {
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "Access-Control-Allow-Origin": "*",
+      "X-Accel-Buffering": "no",
     });
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    // Send 1KB padding comment to force Cloudflare/Nginx proxies to flush stream immediately
+    res.write(":" + " ".repeat(1024) + "\r\n\r\n");
 
     // Send endpoint event with session message URL
     const messageEndpoint = `/message?sessionId=${sessionId}`;
