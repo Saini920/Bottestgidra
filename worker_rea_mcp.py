@@ -584,6 +584,9 @@ def main():
     rea_env["PAYLOAD_MESSAGE_ID"] = MESSAGE_ID
     rea_env["PAYLOAD_FILENAME"] = FILENAME or ""
     rea_env["REA_WORKSPACE"] = str(workdir)
+    rea_env["GHIDRA_INSTALL_DIR"] = "/opt/ghidra"
+    rea_env["GHIDRA_HOME"] = "/opt/ghidra"
+    rea_env["PATH"] = f"/usr/local/bin:/usr/bin:/bin:/opt/ghidra/support:/opt/jadx/bin:{os.environ.get('PATH', '')}"
 
     if target_file and target_file.exists():
         rea_env["REA_INITIAL_TARGET"] = str(target_file)
