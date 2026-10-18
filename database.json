@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-10-18",
-      "count": 12
+      "count": 13
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 734,
+  "total_files": 735,
   "active_jobs": {
     "3849": {
       "user_id": "7249511572",
@@ -172,8 +172,8 @@
       "filename": "Ghidrabot for Vps.zip",
       "engine": "reamcp",
       "started": 1792342493.0289948,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39147168834,
+      "run_status": "in_progress"
     }
   }
 }
