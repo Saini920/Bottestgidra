@@ -65,19 +65,7 @@
       "engine": "ghidra",
       "started": 1792425749.7461636,
       "run_id": 39282384864,
-      "run_status": "queued"
-    },
-    "4225": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4225,
-      "filename": "Alight Motion_5.0.273.1028425.apk",
-      "engine": "jadx",
-      "started": 1792426067.4257977,
-      "run_id": 39283026564,
-      "run_status": "queued"
+      "run_status": "in_progress"
     },
     "4228": {
       "user_id": "7249511572",
@@ -89,7 +77,7 @@
       "engine": "ghidra",
       "started": 1792426484.0334666,
       "run_id": 39283929948,
-      "run_status": "queued"
+      "run_status": "in_progress"
     }
   }
 }
