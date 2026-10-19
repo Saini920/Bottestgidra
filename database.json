@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 747,
   "active_jobs": {
-    "4119": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4119,
-      "filename": "PrimeVideo VIP.apk",
-      "engine": "reamcp",
-      "started": 1792375440.6575773,
-      "run_id": 39188194712,
-      "run_status": "in_progress"
-    },
     "4124": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
