@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-10-19",
-      "count": 4
+      "count": 5
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 744,
+  "total_files": 745,
   "active_jobs": {
     "4119": {
       "user_id": "7249511572",
@@ -88,8 +88,8 @@
       "filename": "PrimeVideo VIP.apk",
       "engine": "smaliextract",
       "started": 1792377151.680685,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39190577097,
+      "run_status": "completed"
     },
     "4204": {
       "user_id": "7249511572",
@@ -100,8 +100,8 @@
       "filename": "PrimeVideo VIP.apk",
       "engine": "resdecode",
       "started": 1792377204.2961855,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39190520848,
+      "run_status": "completed"
     }
   }
 }
