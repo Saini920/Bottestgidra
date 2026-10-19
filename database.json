@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 747,
-  "active_jobs": {
-    "4124": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4124,
-      "filename": "Alight Motion_5.0.273.1028425.apk",
-      "engine": "reamcp",
-      "started": 1792376051.4830413,
-      "run_id": 39189010216,
-      "run_status": "in_progress"
-    }
-  }
+  "active_jobs": {}
 }
