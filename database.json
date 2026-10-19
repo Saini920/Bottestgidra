@@ -66,6 +66,18 @@
       "started": 1792425749.7461636,
       "run_id": null,
       "run_status": ""
+    },
+    "4220": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 4220,
+      "filename": "Alight Motion_5.0.273.1028425.apk",
+      "engine": "smali",
+      "started": 1792425752.0520418,
+      "run_id": null,
+      "run_status": ""
     }
   }
 }
