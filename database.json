@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-10-19",
-      "count": 10
+      "count": 11
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 750,
+  "total_files": 751,
   "active_jobs": {
     "4222": {
       "user_id": "7249511572",
@@ -88,8 +88,8 @@
       "filename": "Alight Motion_5.0.273.1028425.apk",
       "engine": "jadx",
       "started": 1792426067.4257977,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39283026564,
+      "run_status": "queued"
     }
   }
 }
