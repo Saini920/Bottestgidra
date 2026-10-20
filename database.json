@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 755,
   "active_jobs": {
-    "4234": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4234,
-      "filename": "TMPlayer-main.zip",
-      "engine": "apkbuild-gradle",
-      "started": 1792492940.4531085,
-      "run_id": 39409817126,
-      "run_status": "completed"
-    },
     "4237": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
@@ -88,8 +76,8 @@
       "filename": "libcocosdenshion.so",
       "engine": "ghidra",
       "started": 1792493222.4876366,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39410367312,
+      "run_status": "in_progress"
     }
   }
 }
