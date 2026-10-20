@@ -225,6 +225,19 @@ def check_zip_limits(file_path: Path):
         raise ValueError(f"ZIP contains {apks} .apk files — max {max_apk} allowed for {'Premium' if IS_PREMIUM else 'Free'} users.")
 
 
+DEX_MAGIC_PREFIXES = (b"dex\n", b"cdex\n")
+
+
+def _is_valid_dex(path: Path) -> bool:
+    """Check the first 4 bytes for a valid DEX / CDEX magic header."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(8)
+        return header[:4] in DEX_MAGIC_PREFIXES or header[:5] == b"cdex\n"
+    except OSError:
+        return False
+
+
 def collect_dex_inputs(file_path: Path, work_dir: Path) -> list:
     if zipfile.is_zipfile(file_path):
         with zipfile.ZipFile(file_path, "r") as zf:
@@ -243,14 +256,19 @@ def collect_dex_inputs(file_path: Path, work_dir: Path) -> list:
                 target_file = extract_dir / clean_name
                 with zf.open(de) as src, open(target_file, "wb") as dst:
                     shutil.copyfileobj(src, dst)
-                if target_file.exists() and target_file.stat().st_size > 0:
+                # Validate DEX magic — skip files that are not real DEX (e.g. nested zips)
+                if target_file.exists() and target_file.stat().st_size > 0 and _is_valid_dex(target_file):
                     dex_files.append(str(target_file))
+                elif target_file.exists():
+                    log.warning("Skipping %s — not a valid DEX (bad magic bytes)", de)
         if not dex_files:
-            raise ValueError("Failed to extract valid .dex files from archive.")
+            raise ValueError("No valid DEX files could be extracted from the archive (all entries failed magic-byte validation).")
         return dex_files
 
-    # Standalone DEX file
+    # Standalone DEX file — also validate magic
     if file_path.exists() and file_path.stat().st_size > 0:
+        if not _is_valid_dex(file_path):
+            raise ValueError(f"File '{file_path.name}' does not appear to be a valid DEX file (wrong magic bytes).")
         return [str(file_path)]
     raise ValueError("Input DEX file is missing or empty.")
 
@@ -261,6 +279,7 @@ async def run_baksmali(dex_path: str, out_dir: Path, on_progress, progress_start
         "java", "-Xmx8G",
         "-jar", BAKSMALI_JAR,
         "disassemble",
+        "--api", "35",
         "-o", str(out_dir),
         str(dex_path),
     ]
