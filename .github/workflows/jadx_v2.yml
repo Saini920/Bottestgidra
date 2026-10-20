@@ -83,7 +83,7 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
         run: |
           python3 -m venv /tmp/venv
-          /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto
+          /tmp/venv/bin/pip install -q httpx "pyrogram==2.0.106" tgcrypto
           /tmp/venv/bin/python worker_jadx.py
 
       - name: Report Failure to Telegram
