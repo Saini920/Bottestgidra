@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 757,
   "active_jobs": {
-    "4240": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4240,
-      "filename": "libcocosdenshion.so",
-      "engine": "ghidra",
-      "started": 1792493222.4876366,
-      "run_id": 39410367312,
-      "run_status": "completed"
-    },
     "4245": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
