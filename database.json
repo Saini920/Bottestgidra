@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-10-20",
-      "count": 1
+      "count": 2
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 753,
+  "total_files": 754,
   "active_jobs": {
     "4234": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "TMPlayer-main.zip",
       "engine": "apkbuild-gradle",
       "started": 1792492940.4531085,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 39409817126,
+      "run_status": "completed"
     }
   }
 }
