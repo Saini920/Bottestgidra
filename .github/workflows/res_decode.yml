@@ -60,7 +60,7 @@ jobs:
           API_HASH: ${{ secrets.API_HASH }}
         run: |
           python3 -m venv /tmp/venv
-          /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto androguard || /tmp/venv/bin/pip install -q httpx pyrogram tgcrypto
+          /tmp/venv/bin/pip install -q httpx "pyrogram==2.0.106" tgcrypto androguard || /tmp/venv/bin/pip install -q httpx "pyrogram==2.0.106" tgcrypto
           /tmp/venv/bin/python worker_res_decode.py
 
       - name: Report Failure to Telegram
