@@ -1,4 +1,17 @@
 import os, sys, asyncio, hashlib
+
+# Python 3.10+ no longer auto-creates event loop in main thread outside async context.
+# Pyrogram's sync wrapper calls asyncio.get_event_loop() at import time, which raises
+# RuntimeError("There is no current event loop in thread 'MainThread'") on 3.10+.
+# We must create and set the event loop BEFORE importing pyrogram.
+try:
+    _loop = asyncio.get_event_loop()
+    if _loop.is_closed():
+        raise RuntimeError("closed")
+except RuntimeError:
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+
 from pyrogram import Client
 from pyrogram.errors import FloodWait, Unauthorized
 
