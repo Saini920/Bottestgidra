@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 776,
   "active_jobs": {
-    "4304": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4304,
-      "filename": "Snaptube_7.62.0.76250110.apk",
-      "engine": "jadx",
-      "started": 1792931399.8193114,
-      "run_id": 40193365144,
-      "run_status": "completed"
-    },
     "4307": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
@@ -77,7 +65,7 @@
       "engine": "ghidra",
       "started": 1792931632.2921982,
       "run_id": 40193664939,
-      "run_status": "queued"
+      "run_status": "in_progress"
     }
   }
 }
