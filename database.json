@@ -78,6 +78,18 @@
       "started": 1792931399.8193114,
       "run_id": 40193365144,
       "run_status": "completed"
+    },
+    "4307": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 4307,
+      "filename": "lib.zip",
+      "engine": "ghidra",
+      "started": 1792931632.2921982,
+      "run_id": null,
+      "run_status": ""
     }
   }
 }
