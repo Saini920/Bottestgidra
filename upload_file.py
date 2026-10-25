@@ -1,4 +1,17 @@
 import os, sys, asyncio, hashlib
+
+# Python 3.10+ no longer auto-creates event loop in main thread outside async context.
+# Pyrogram's sync wrapper calls asyncio.get_event_loop() at import time, which raises
+# RuntimeError("There is no current event loop in thread 'MainThread'") on 3.10+.
+# We must create and set the event loop BEFORE importing pyrogram.
+try:
+    _loop = asyncio.get_event_loop()
+    if _loop.is_closed():
+        raise RuntimeError("closed")
+except RuntimeError:
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+
 from pyrogram import Client
 from pyrogram.errors import FloodWait, Unauthorized
 
@@ -37,6 +50,15 @@ async def main():
 
     print(f"Uploading file to chat_id {chat_id} via MTProto (Pyrogram)...", flush=True)
 
+    def remove_session_file():
+        import glob
+        for f in glob.glob(os.path.join(SESSION_DIR, session_name + ".*")):
+            try:
+                os.remove(f)
+                print(f"Removed stale session: {f}", flush=True)
+            except OSError:
+                pass
+
     last_error = None
     for attempt in range(3):
         try:
@@ -51,7 +73,8 @@ async def main():
             await asyncio.sleep(wait)
         except Unauthorized as e:
             last_error = e
-            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/3. Sleeping 30s...", flush=True)
+            print(f"WARN: Unauthorized on auth, attempt {attempt+1}/3. Resetting this session...", flush=True)
+            remove_session_file()
             await asyncio.sleep(30)
         except Exception as e:
             last_error = e
@@ -63,4 +86,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
