@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 779,
-  "active_jobs": {
-    "4315": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4315,
-      "filename": "Snaptube-VIP-v7.66.1.76673901_build_76673901-Mod.apk",
-      "engine": "smali",
-      "started": 1792934635.0926435,
-      "run_id": null,
-      "run_status": ""
-    }
-  }
+  "active_jobs": {}
 }
