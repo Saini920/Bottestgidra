@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-10-25",
-      "count": 8
+      "count": 9
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 775,
+  "total_files": 776,
   "active_jobs": {
     "4301": {
       "user_id": "7249511572",
@@ -76,8 +76,8 @@
       "filename": "Snaptube_7.62.0.76250110.apk",
       "engine": "jadx",
       "started": 1792931399.8193114,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 40193365144,
+      "run_status": "completed"
     }
   }
 }
