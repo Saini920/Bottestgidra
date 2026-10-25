@@ -66,6 +66,18 @@
       "started": 1792930813.1860487,
       "run_id": 40192651442,
       "run_status": "completed"
+    },
+    "4296": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 4296,
+      "filename": "modified.zip",
+      "engine": "jadx",
+      "started": 1792931082.1110356,
+      "run_id": null,
+      "run_status": ""
     }
   }
 }
