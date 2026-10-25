@@ -589,6 +589,7 @@ async def main():
             if not http_ok:
                 if not os.environ.get("API_ID", "").strip():
                     raise ValueError("File too large for Bot API (50MB) and no API_ID/API_HASH configured.")
+                upload_logs = []
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable, "upload_file.py", str(zip_path), caption,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT
@@ -601,6 +602,10 @@ async def main():
                     if not raw:
                         break
                     line = raw.decode(errors="replace").strip()
+                    if line:
+                        upload_logs.append(line)
+                        if len(upload_logs) > 30:
+                            upload_logs.pop(0)
                     if line.startswith("PROGRESS:"):
                         try:
                             pct = int(float(line.split(":")[1]))
@@ -609,7 +614,8 @@ async def main():
                             pass
                 await proc.wait()
                 if proc.returncode != 0:
-                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}")
+                    err_tail = "\n".join(upload_logs[-10:]) or "no output"
+                    raise ValueError(f"MTProto Upload failed with code {proc.returncode}: {err_tail}")
             edit("✅ Smali Decode complete! ZIP file delivered. 🔥", keep_button=False)
 
             if JOB_ID:
