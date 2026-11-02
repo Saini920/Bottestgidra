@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-11-02",
-      "count": 5
+      "count": 6
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 784,
+  "total_files": 785,
   "active_jobs": {
     "4332": {
       "user_id": "7249511572",
@@ -76,8 +76,8 @@
       "filename": "libcomScore.so",
       "engine": "ghidra",
       "started": 1793636994.7870586,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 41482047882,
+      "run_status": "in_progress"
     }
   }
 }
