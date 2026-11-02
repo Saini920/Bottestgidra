@@ -64,20 +64,8 @@
       "filename": "Spotify_9.1.94.1929_apks (2).apk",
       "engine": "smaliextract",
       "started": 1793608782.5943127,
-      "run_id": null,
-      "run_status": ""
-    },
-    "4328": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4328,
-      "filename": "Spotify_9.1.94.1929_apks (2).apk",
-      "engine": "apktool",
-      "started": 1793608796.331869,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 41414693230,
+      "run_status": "completed"
     }
   }
 }
