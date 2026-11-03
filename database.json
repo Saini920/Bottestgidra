@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 787,
-  "active_jobs": {
-    "4344": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4344,
-      "filename": "iStreamFlare_v24.0.0.apk",
-      "engine": "apktool",
-      "started": 1793717411.281648,
-      "run_id": null,
-      "run_status": ""
-    }
-  }
+  "active_jobs": {}
 }
