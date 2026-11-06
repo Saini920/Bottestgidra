@@ -54,5 +54,18 @@
   },
   "free_mode": false,
   "total_files": 794,
-  "active_jobs": {}
+  "active_jobs": {
+    "4373": {
+      "user_id": "7249511572",
+      "username": "OpAbhi01",
+      "name": "OpAbhi\u270c\ufe0f",
+      "chat_id": "7249511572",
+      "message_id": 4373,
+      "filename": "libclient.so",
+      "engine": "ghidra",
+      "started": 1793973585.8800948,
+      "run_id": null,
+      "run_status": ""
+    }
+  }
 }
