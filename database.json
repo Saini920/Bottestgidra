@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 791,
-  "active_jobs": {
-    "4352": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4352,
-      "filename": "libcamplat+_production_b47f71e9dbdb9ef3980a56c1bcc353b280931a00.so",
-      "engine": "ghidra",
-      "started": 1793954279.4994135,
-      "run_id": 42189080942,
-      "run_status": "in_progress"
-    }
-  }
+  "active_jobs": {}
 }
