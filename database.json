@@ -55,18 +55,6 @@
   "free_mode": false,
   "total_files": 791,
   "active_jobs": {
-    "4354": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4354,
-      "filename": "libscplugin.so",
-      "engine": "ghidra",
-      "started": 1793954274.8841689,
-      "run_id": null,
-      "run_status": ""
-    },
     "4353": {
       "user_id": "7249511572",
       "username": "OpAbhi01",
@@ -76,8 +64,8 @@
       "filename": "libclient.so",
       "engine": "ghidra",
       "started": 1793954276.9800189,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 42189075588,
+      "run_status": "in_progress"
     },
     "4352": {
       "user_id": "7249511572",
@@ -88,8 +76,8 @@
       "filename": "libcamplat+_production_b47f71e9dbdb9ef3980a56c1bcc353b280931a00.so",
       "engine": "ghidra",
       "started": 1793954279.4994135,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 42189080942,
+      "run_status": "in_progress"
     }
   }
 }
