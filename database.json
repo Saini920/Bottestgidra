@@ -54,18 +54,5 @@
   },
   "free_mode": false,
   "total_files": 799,
-  "active_jobs": {
-    "4389": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4389,
-      "filename": "MainActivity$onCreate$2$onResponse$2.smali",
-      "engine": "jadx",
-      "started": 1795667700.988758,
-      "run_id": 45756138508,
-      "run_status": "in_progress"
-    }
-  }
+  "active_jobs": {}
 }
