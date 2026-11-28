@@ -33,7 +33,7 @@
   "daily_usage": {
     "7249511572": {
       "date": "2026-11-28",
-      "count": 6
+      "count": 7
     },
     "8052864919": {
       "date": "2026-08-12",
@@ -53,7 +53,7 @@
     }
   },
   "free_mode": false,
-  "total_files": 811,
+  "total_files": 812,
   "active_jobs": {
     "4429": {
       "user_id": "7249511572",
@@ -64,8 +64,8 @@
       "filename": "armeabi-v7a.zip",
       "engine": "ghidra",
       "started": 1795840772.4855998,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 46108564944,
+      "run_status": "in_progress"
     },
     "4430": {
       "user_id": "7249511572",
@@ -76,8 +76,8 @@
       "filename": "zombie-evil-2-1-0-9.apk",
       "engine": "apktool",
       "started": 1795840786.0424106,
-      "run_id": null,
-      "run_status": ""
+      "run_id": 46108582394,
+      "run_status": "in_progress"
     }
   }
 }
