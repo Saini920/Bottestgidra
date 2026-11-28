@@ -66,18 +66,6 @@
       "started": 1795840772.4855998,
       "run_id": 46108564944,
       "run_status": "in_progress"
-    },
-    "4432": {
-      "user_id": "7249511572",
-      "username": "OpAbhi01",
-      "name": "OpAbhi\u270c\ufe0f",
-      "chat_id": "7249511572",
-      "message_id": 4432,
-      "filename": "zombie-evil-2-1-0-9.apk",
-      "engine": "jadx",
-      "started": 1795840800.1087177,
-      "run_id": 46108599687,
-      "run_status": "completed"
     }
   }
 }
